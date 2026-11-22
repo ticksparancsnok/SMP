@@ -37,7 +37,7 @@ async function signOut() {
     <div class="backdrop" @click="navOpen = false"></div>
     <aside class="sidebar">
       <div class="brand">
-        <span><img src="../Assets/SMP-transpararent.png" alt="logo" height="20px"></span>
+        <span class="imagelogo"><img src="../Assets/SMP-favicon.png" alt="logo"></span>
         <div>
           SMP<small>{{ version }}</small>
         </div>
