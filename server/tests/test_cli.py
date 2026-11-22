@@ -75,3 +75,45 @@ async def test_bootstrap_with_otp_then_status(app, org):
 def test_bootstrap_rejects_empty_school_name(org):
     r = smp("bootstrap", "--otp", "--org-slug", "cli-empty", "--org-name", "   ")
     assert r.returncode != 0 and "can't be empty" in r.stderr
+
+
+async def test_dns_sync_pushes_the_database_lists(admin):
+    """install.sh runs `smp dns-sync` so a new/emptied sinkhole volume gets the lists back."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    # entries saved through the API (its own push fails here: no sinkhole in tests)
+    await admin.post("/api/v1/dns/blocklist", json={"domain": "games.example"})
+    await admin.post("/api/v1/dns/allowlist", json={"domain": "school.example"})
+    assert [e["domain"] for e in (await admin.get("/api/v1/dns/blocklist")).json()] == ["games.example"]
+
+    received: list[tuple[str, str, dict]] = []
+
+    class Sinkhole(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            received.append((self.path, self.headers.get("Authorization", ""), body))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Sinkhole)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_port}"
+        r = smp("dns-sync", SMP_DNS_SINKHOLE_URL=url, SMP_DNS_SYNC_TOKEN="sync-secret-123")
+        assert r.returncode == 0, r.stderr
+        assert "1 blocked and 1 allowed" in r.stdout
+    finally:
+        srv.shutdown()
+    ((path, auth, body),) = received
+    assert path == "/api/blocklist/sync" and auth == "Bearer sync-secret-123"
+    assert [e["domain"] for e in body["entries"]] == ["games.example"]
+    assert [e["domain"] for e in body["allowlist"]] == ["school.example"]
+
+    r = smp("dns-sync", SMP_DNS_SINKHOLE_URL="http://127.0.0.1:9")  # nothing listens there
+    assert r.returncode == 1 and "didn't take the lists" in r.stderr

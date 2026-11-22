@@ -118,7 +118,7 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 - **TLS:** on start the container creates a self-signed certificate for exactly `SMP_SERVER_NAMES` (renewed when the names change) unless `nginx/certs/` holds a certificate someone else issued, which is never touched. No HSTS while the certificate is self-signed, or browsers wouldn't let users past the warning.
 - **Hardening:** login and general rate limits, `nosniff`, `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `Referrer-Policy`, 64 MB upload limit (imports).
 - **Client IPs:** nginx overwrites `X-Forwarded-For` with the real client address; the server trusts it only from SMP's docker network (`SMP_DOCKER_SUBNET`, fixed so it can be trusted), so audit IPs and the login throttle see real clients and nobody can fake theirs.
-- The server (8000) and the block page/sync API (8080) are not published; only nginx (80/443) and DNS (1053) are.
+- The server (8000) and the block page/sync API (8080) are not published; only nginx (80/443) and DNS (port 53 on the LAN address `SMP_SINKHOLE_IP`; CoreDNS listens on 1053 inside its container) are. The DNS container keeps the last synced lists on the `dnsdata` volume.
 
 ## Not done yet (intentionally)
 

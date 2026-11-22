@@ -38,7 +38,15 @@ HTTPS starts with a self-signed certificate (browsers warn once). For a real one
 `fullchain.pem` and `privkey.pem` into `nginx/certs/` and run
 `docker compose restart nginx`; SMP never overwrites a certificate you provide.
 
-The stack also runs the Go DNS sinkhole on UDP/TCP port 1053. Blocked names resolve to
-this server (`SMP_SINKHOLE_IP`), where nginx shows the block page. Blocklist changes
-made in the web UI or API are stored in PostgreSQL and synchronized to the sinkhole
-inside the docker network. Only nginx and the DNS port are published.
+The stack also runs the Go DNS sinkhole on **port 53 (UDP/TCP) of this server's LAN
+address** (`SMP_SINKHOLE_IP`): give that address to the school's computers as their
+only DNS server, ideally through the school's DHCP (DNS server option) rather than on
+each PC, and don't add a public DNS as a secondary one (clients would use it to get
+around the filter). Give the server a fixed address. Windows can't use a DNS server on
+any other port; on a test machine whose port 53 is taken, `SMP_DNS_PORT=1053` in `.env`.
+
+Blocked names resolve to the same address, where nginx shows the block page. Blocklist
+changes made in the web UI or API are stored in PostgreSQL and synchronized to the
+sinkhole, which keeps the last synced lists on a volume and keeps filtering while the
+server is down; `./install.sh` re-syncs on every run (`smp dns-sync`). Only nginx and
+the DNS port are published.

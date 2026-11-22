@@ -2,7 +2,9 @@ package schoolfilter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"sort"
 	"strings"
@@ -115,8 +117,14 @@ func (b *Blocklist) Save(path string) error {
 	return nil
 }
 
+// LoadBlocklist reads the persisted lists. A missing file means "nothing synced
+// yet" (a fresh data volume): start with empty lists, the first sync from the
+// control plane fills and saves them.
 func LoadBlocklist(path string) (*Blocklist, error) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Blocklist{entries: map[string]Entry{}, allow: map[string]Entry{}}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read blocklist: %w", err)
 	}

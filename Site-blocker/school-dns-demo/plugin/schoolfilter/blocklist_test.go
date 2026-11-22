@@ -123,3 +123,26 @@ func TestSyncedAllowlistIsPersisted(t *testing.T) {
 		t.Errorf("reloaded counts: %d blocked, %d allowed", reloaded.Count(), reloaded.AllowCount())
 	}
 }
+
+func TestMissingBlocklistFileStartsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "blocklist.json") // fresh volume: nothing synced yet
+	list, err := LoadBlocklist(path)
+	if err != nil {
+		t.Fatalf("missing file should mean empty lists, got %v", err)
+	}
+	if list.Count() != 0 || list.AllowCount() != 0 {
+		t.Fatalf("want empty lists, got %d blocked / %d allowed", list.Count(), list.AllowCount())
+	}
+	if err := list.Replace([]Entry{{Domain: "example.com", AddedBy: "admin", AddedAt: "2026-11-22T00:00:00Z"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded, err := LoadBlocklist(path); err != nil || reloaded.Count() != 1 {
+		t.Fatalf("after the first sync the file must load: %v", err)
+	}
+}

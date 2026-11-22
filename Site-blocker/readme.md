@@ -53,7 +53,19 @@ Authorization: Bearer <DNS_SYNC_TOKEN>
 requires `Authorization: Bearer <DNS_SYNC_TOKEN>`. Port 8080 also serves the
 block page, so the API must not be open.
 
-**In the Docker stack** port 8080 isn't published: nginx forwards every request
+**In the Docker stack** DNS is published on **port 53 of the server's LAN address**
+(`SMP_SINKHOLE_IP`; clients, Windows in particular, can only use port 53). Only that
+address, because `0.0.0.0:53` usually collides with the host's own resolver
+(systemd-resolved on 127.0.0.53). Inside the container CoreDNS still listens on 1053,
+so it needs no privileges. `SMP_DNS_PORT` changes the published port for testing.
+
+The synced lists are saved to `/app/data/blocklist.json` on the `dnsdata` volume
+(`BLOCKLIST_PATH` overrides the Corefile's path), so a rebuilt or restarted container
+keeps filtering without the server. With no file yet (a new volume) it starts with
+empty lists, never the demo entries; `smp dns-sync` (run by `./install.sh`) pushes the
+database's lists.
+
+Port 8080 isn't published either: nginx forwards every request
 for a name that isn't SMP's own (`SMP_SERVER_NAMES`) to it, on ports 80 and 443, so
 students see the block page when they open a blocked site. For that, blocked names
 must resolve to the server's LAN address: compose passes `SMP_SINKHOLE_IP` as

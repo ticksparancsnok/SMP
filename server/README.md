@@ -47,7 +47,7 @@ smp/
     __init__.py     the list of compiled-in modules
     shortlinks/     reference module
   migrations/       Alembic (one history for all modules)
-  cli.py            smp preflight | status | migrate | bootstrap | create-token | reencrypt-otps | openapi | serve
+  cli.py            smp preflight | status | migrate | bootstrap | dns-sync | create-token | reencrypt-otps | openapi | serve
 ```
 
 See `../docs/architecture.md` and `../docs/writing-a-module.md`.
