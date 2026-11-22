@@ -1,29 +1,9 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api, errorText } from '../api/client'
+import type { DnsEntry, DnsEntryIn, DnsHostsPreview, DnsStatus } from '../api/types'
 import Modal from '../components/Modal.vue'
 import { can } from '../session'
-
-interface DnsEntry {
-  id: string
-  domain: string
-  includeSubdomains: boolean
-  reason: string
-  addedBy: string
-  confidence: number | null
-  addedAt: string
-}
-
-interface HostsPreview {
-  domains: string[]
-  unique_count: number
-}
-
-interface DnsStatus {
-  entries: number
-  sinkhole_url: string
-  sync_configured: boolean
-}
 
 const entries = ref<DnsEntry[]>([])
 const status = ref<DnsStatus | null>(null)
@@ -42,7 +22,7 @@ const form = reactive({
 
 const importOpen = ref(false)
 const importFile = ref<File | null>(null)
-const preview = ref<HostsPreview | null>(null)
+const preview = ref<DnsHostsPreview | null>(null)
 const importError = ref('')
 
 async function load() {
@@ -68,7 +48,7 @@ async function createEntry() {
       include_subdomains: form.includeSubdomains,
       reason: form.reason,
       confidence: form.confidence === '' ? null : Number(form.confidence),
-    })
+    } satisfies DnsEntryIn)
     createOpen.value = false
     await load()
   } catch (e) {
@@ -94,7 +74,7 @@ async function previewImport(event: Event) {
   if (!file) return
   busy.value = true
   try {
-    preview.value = await api.upload<HostsPreview>(
+    preview.value = await api.upload<DnsHostsPreview>(
       '/dns/blocklist/import-preview',
       file,
       file.type || 'text/plain',
@@ -111,7 +91,7 @@ async function confirmImport() {
   busy.value = true
   importError.value = ''
   try {
-    await api.upload<HostsPreview>('/dns/blocklist/import', importFile.value, 'text/plain')
+    await api.upload<DnsHostsPreview>('/dns/blocklist/import', importFile.value, 'text/plain')
     importOpen.value = false
     await load()
   } catch (e) {

@@ -2,7 +2,7 @@
  "openapi": "3.1.0",
  "info": {
   "title": "SMP",
-  "version": "1.0.0"
+  "version": "1.0.1"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -2963,6 +2963,168 @@
      }
     }
    }
+  },
+  "/api/v1/dns/blocklist": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "List Blocklist",
+    "operationId": "list_blocklist_api_v1_dns_blocklist_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/EntryOut"
+         },
+         "type": "array",
+         "title": "Response List Blocklist Api V1 Dns Blocklist Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Create Entry",
+    "operationId": "create_entry_api_v1_dns_blocklist_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EntryIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EntryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/{entry_id}": {
+   "delete": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Delete Entry",
+    "operationId": "delete_entry_api_v1_dns_blocklist__entry_id__delete",
+    "parameters": [
+     {
+      "name": "entry_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Entry Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/import-preview": {
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Preview Import",
+    "operationId": "preview_import_api_v1_dns_blocklist_import_preview_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HostsPreviewOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/import": {
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Import Hosts",
+    "operationId": "import_hosts_api_v1_dns_blocklist_import_post",
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HostsPreviewOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/status": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Sync Status",
+    "operationId": "sync_status_api_v1_dns_status_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyncStatusOut"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -3493,6 +3655,96 @@
     "type": "object",
     "title": "DeviceUpdate"
    },
+   "EntryIn": {
+    "properties": {
+     "domain": {
+      "type": "string",
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Domain"
+     },
+     "include_subdomains": {
+      "type": "boolean",
+      "title": "Include Subdomains",
+      "default": true
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "default": ""
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "type": "number",
+        "maximum": 1.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confidence"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "domain"
+    ],
+    "title": "EntryIn"
+   },
+   "EntryOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "domain": {
+      "type": "string",
+      "title": "Domain"
+     },
+     "includeSubdomains": {
+      "type": "boolean",
+      "title": "Includesubdomains"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "addedBy": {
+      "type": "string",
+      "title": "Addedby"
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confidence"
+     },
+     "addedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Addedat"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "domain",
+     "includeSubdomains",
+     "reason",
+     "addedBy",
+     "confidence",
+     "addedAt"
+    ],
+    "title": "EntryOut"
+   },
    "GroupIn": {
     "properties": {
      "name": {
@@ -3651,6 +3903,27 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "HostsPreviewOut": {
+    "properties": {
+     "domains": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Domains"
+     },
+     "unique_count": {
+      "type": "integer",
+      "title": "Unique Count"
+     }
+    },
+    "type": "object",
+    "required": [
+     "domains",
+     "unique_count"
+    ],
+    "title": "HostsPreviewOut"
    },
    "ImportIssue": {
     "properties": {
@@ -4497,6 +4770,29 @@
      "windows"
     ],
     "title": "ScheduleOut"
+   },
+   "SyncStatusOut": {
+    "properties": {
+     "entries": {
+      "type": "integer",
+      "title": "Entries"
+     },
+     "sinkhole_url": {
+      "type": "string",
+      "title": "Sinkhole Url"
+     },
+     "sync_configured": {
+      "type": "boolean",
+      "title": "Sync Configured"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entries",
+     "sinkhole_url",
+     "sync_configured"
+    ],
+    "title": "SyncStatusOut"
    },
    "TargetType": {
     "type": "string",

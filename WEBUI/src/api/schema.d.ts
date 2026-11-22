@@ -715,6 +715,92 @@ export interface paths {
         patch: operations["update_link_api_v1_shortlinks_links__link_id__patch"];
         trace?: never;
     };
+    "/api/v1/dns/blocklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Blocklist */
+        get: operations["list_blocklist_api_v1_dns_blocklist_get"];
+        put?: never;
+        /** Create Entry */
+        post: operations["create_entry_api_v1_dns_blocklist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/blocklist/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Entry */
+        delete: operations["delete_entry_api_v1_dns_blocklist__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/blocklist/import-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Import */
+        post: operations["preview_import_api_v1_dns_blocklist_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/blocklist/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Hosts */
+        post: operations["import_hosts_api_v1_dns_blocklist_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sync Status */
+        get: operations["sync_status_api_v1_dns_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -878,6 +964,43 @@ export interface components {
             notes?: string | null;
             status?: components["schemas"]["DeviceStatus"] | null;
         };
+        /** EntryIn */
+        EntryIn: {
+            /** Domain */
+            domain: string;
+            /**
+             * Include Subdomains
+             * @default true
+             */
+            include_subdomains: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Confidence */
+            confidence?: number | null;
+        };
+        /** EntryOut */
+        EntryOut: {
+            /** Id */
+            id: string;
+            /** Domain */
+            domain: string;
+            /** Includesubdomains */
+            includeSubdomains: boolean;
+            /** Reason */
+            reason: string;
+            /** Addedby */
+            addedBy: string;
+            /** Confidence */
+            confidence: number | null;
+            /**
+             * Addedat
+             * Format: date-time
+             */
+            addedAt: string;
+        };
         /** GroupIn */
         GroupIn: {
             /** Name */
@@ -944,6 +1067,13 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HostsPreviewOut */
+        HostsPreviewOut: {
+            /** Domains */
+            domains: string[];
+            /** Unique Count */
+            unique_count: number;
         };
         /** ImportIssue */
         ImportIssue: {
@@ -1277,6 +1407,15 @@ export interface components {
             windows: {
                 [key: string]: unknown;
             }[];
+        };
+        /** SyncStatusOut */
+        SyncStatusOut: {
+            /** Entries */
+            entries: number;
+            /** Sinkhole Url */
+            sinkhole_url: string;
+            /** Sync Configured */
+            sync_configured: boolean;
         };
         /**
          * TargetType
@@ -3426,6 +3565,148 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_blocklist_api_v1_dns_blocklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"][];
+                };
+            };
+        };
+    };
+    create_entry_api_v1_dns_blocklist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_entry_api_v1_dns_blocklist__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_import_api_v1_dns_blocklist_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostsPreviewOut"];
+                };
+            };
+        };
+    };
+    import_hosts_api_v1_dns_blocklist_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostsPreviewOut"];
+                };
+            };
+        };
+    };
+    sync_status_api_v1_dns_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncStatusOut"];
                 };
             };
         };

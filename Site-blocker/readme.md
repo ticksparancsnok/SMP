@@ -38,11 +38,18 @@ The Go status endpoint is:
 
 ```text
 GET /api/blocklist/status
+Authorization: Bearer <DNS_SYNC_TOKEN>
 ```
 
+**Every `/api/blocklist/*` endpoint** (`sync`, `status`, `import`, `entries`)
+requires `Authorization: Bearer <DNS_SYNC_TOKEN>`. Port 8080 also serves the
+block page to every client on the school network, so the API must not be open.
+If `DNS_SYNC_TOKEN` is not set, the API answers `503` (disabled, not open);
+DNS filtering and the block page keep working.
+
 Docker Compose configuration uses `SMP_DNS_SINKHOLE_URL`,
-`SMP_DNS_SYNC_TOKEN`, and the Go container's `DNS_SYNC_TOKEN`. Use the same
-sync token on both sides.
+`SMP_DNS_SYNC_TOKEN`, and the Go container's `DNS_SYNC_TOKEN`. Compose refuses
+to start without `SMP_DNS_SYNC_TOKEN` and passes the same value to both sides.
 
 ### Telepítés az IntelliJ SFTP deploymenttel
 
@@ -66,7 +73,9 @@ school-dns-demo/
         ├── blocklist.go
         ├── blocklist_test.go
         ├── blockpage.html
-        └── schoolfilter.go
+        ├── hostsimport.go
+        ├── schoolfilter.go
+        └── schoolfilter_test.go
 ```
 
 IntelliJ-ben használd a **Deployment → Upload to Debian** műveletet. Az
@@ -80,8 +89,12 @@ cd ~/school-dns-demo
 go mod tidy
 go test ./...
 go build .
+export DNS_SYNC_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ./school-dns-demo
 ```
+
+A `DNS_SYNC_TOKEN` nélkül a `/api/blocklist/*` végpontok le vannak tiltva
+(`503`), a DNS szűrés és a blokkoló oldal viszont működik.
 
 Az utolsó parancs addig fut, amíg meg nem szakítod például `Ctrl+C`-vel.
 Egy külön terminálból ellenőrizhetők a funkciók.
@@ -138,11 +151,14 @@ Az AI bejegyzés a bizonyossági értékét is megjeleníti.
 
 ### Hosts blokklista importálása
 
-Az importálási API a frontend feltöltött `hosts` fájlját fogadja. A feltöltő
-felhasználó neve kötelezően a frontend felől érkezik `X-Username` HTTP fejléccel:
+Az importálási API a feltöltött `hosts` fájlt fogadja. A hívás csak
+`DNS_SYNC_TOKEN` Bearer tokennel engedélyezett; a feltöltő felhasználó neve
+kötelezően `X-Username` HTTP fejléccel érkezik. (Az SMP webes felülete nem ezt a
+végpontot hívja: a Python API importál, majd szinkronizál.)
 
 ```bash
 curl -X POST \
+  -H "Authorization: Bearer $DNS_SYNC_TOKEN" \
   -H 'X-Username: kovacs.janos' \
   -F 'hosts=@/tmp/custom-hosts.txt' \
   http://127.0.0.1:8080/api/blocklist/import
@@ -166,10 +182,11 @@ Az importálás:
 
 ### Kézi blokklista-hozzáadás
 
-A frontend felhasználó nevének a kézi műveletnél is kötelezően meg kell érkeznie:
+A kézi művelethez is kötelező a Bearer token és a felhasználó neve:
 
 ```bash
 curl -X POST \
+  -H "Authorization: Bearer $DNS_SYNC_TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'X-Username: kovacs.janos' \
   -d '{
@@ -237,8 +254,10 @@ go test ./...
 ```
 
 A tesztek fedik az exact és aldomain matchinget, a záró pont nélküli és
-nagybetűs domaineket, valamint az AI confidence mező JSON-ből való
-betöltését.
+nagybetűs domaineket, az AI confidence mező JSON-ből való betöltését,
+valamint azt, hogy az `/api/blocklist/*` végpontok token nélkül, hibás tokennel
+vagy beállítatlan `DNS_SYNC_TOKEN` mellett elutasítják a kérést, a blokkoló
+oldal pedig nyilvános marad.
 
 ### Gyakori hibák
 

@@ -90,7 +90,11 @@ SMP_DNS_SYNC_TOKEN=<shared secret>
 
 In Docker Compose the sinkhole is available as `http://dns-sinkhole:8080`.
 Set the same `SMP_DNS_SYNC_TOKEN` value in the server and
-`DNS_SYNC_TOKEN` environment of the Go service.
+`DNS_SYNC_TOKEN` environment of the Go service (Compose does this from `.env`
+and refuses to start without it). Every `/api/blocklist/*` endpoint of the Go
+service requires this token; without one configured its API is disabled.
+`GET /api/v1/dns/status` reports `sync_configured: true` only when the sinkhole
+is reachable **and** accepts the token.
 
 Apply the database migration with:
 
@@ -115,3 +119,5 @@ smp migrate
 | `SMP_ENABLED_MODULES` | all | comma separated; core is always on |
 | `SMP_CORS_ORIGINS` | none | only if the UI is served from another origin |
 | `SMP_UI_DIR` | none | serve the built web UI (`WEBUI/dist`) at `/`; set in the Docker image |
+| `SMP_DNS_SINKHOLE_URL` | `http://127.0.0.1:8080` | Go DNS sinkhole; `http://dns-sinkhole:8080` inside Compose |
+| `SMP_DNS_SYNC_TOKEN` | none | **required for DNS sync**: shared secret, same value as the sinkhole's `DNS_SYNC_TOKEN` |

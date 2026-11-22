@@ -1,4 +1,4 @@
-# Security notes (v1.0.0)
+# Security notes (v1.0.1)
 
 How SMP's core protects accounts, what operators must configure, and the decisions taken on the two security reviews. Read with [architecture.md](architecture.md).
 
@@ -35,7 +35,8 @@ How SMP's core protects accounts, what operators must configure, and the decisio
        }
    }
    ```
-4. **Local development over plain http:** set `SMP_COOKIE_SECURE=false`, otherwise the browser drops the session cookie and you can't stay logged in. Never use it in production.
+4. **`SMP_DNS_SYNC_TOKEN`**: required by Compose, ≥32 random characters, same value on the server and the DNS sinkhole (`DNS_SYNC_TOKEN`). The sinkhole's port 8080 serves the block page to every client, so its `/api/blocklist/*` endpoints only accept this Bearer token; with no token set they are disabled.
+5. **Local development over plain http:** set `SMP_COOKIE_SECURE=false`, otherwise the browser drops the session cookie and you can't stay logged in. Never use it in production.
 
 ### Rotating `SMP_SECRET_KEY`
 1. Set the new key as `SMP_SECRET_KEY` and the old one as `SMP_SECRET_KEY_PREVIOUS`, then restart. Both keys decrypt, and new data uses the new key.
@@ -60,6 +61,12 @@ If a key is lost or leaked, rotate it and issue new one-time passwords to accoun
 - **Audit:** append-only (enforced by a database trigger). Logins, failures, resets and exports are all logged. Secrets (passwords, OTPs) never appear in it. If a failed-login audit row can't be written, it goes to the server log instead.
 
 ## Review decisions
+
+### v1.0.1
+| Finding | Decision |
+|---|---|
+| The DNS sinkhole's `/api/blocklist/import` and `/entries` accepted writes from anyone who could reach port 8080 (every client, since it also serves the block page), trusting a client-sent `X-Username`; `/sync` was open when no token was set | **Fixed:** every `/api/blocklist/*` endpoint requires `Authorization: Bearer <DNS_SYNC_TOKEN>` (constant-time compare); with no token configured the API answers 503 instead of being open; Compose requires the token. The block page stays public. Covered by `schoolfilter_test.go`. |
+| Slow clients could hold block-page connections open | **Fixed:** `ReadHeaderTimeout` of 10 s. |
 
 ### Second review (v1.0.0)
 | Finding | Decision |

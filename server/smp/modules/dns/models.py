@@ -1,7 +1,6 @@
-import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from smp.core.db import Base, OrgScoped, Timestamps, UUIDPk

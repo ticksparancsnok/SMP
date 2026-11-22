@@ -1,5 +1,5 @@
 import ipaddress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -156,7 +156,7 @@ async def create_entry(body: EntryIn, ctx: Ctx = Depends(require(WRITE))):
     domain = normalize_domain(body.domain)
     if domain is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid domain")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     row = DnsBlocklistEntry(
         org_id=ctx.org_id,
         domain=domain,
@@ -206,7 +206,7 @@ async def import_hosts(request: Request, ctx: Ctx = Depends(require(WRITE))):
     domains = parse_hosts(await request.body())
     if not domains:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "no valid domains found")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     imported = 0
     for domain in domains:
         existing = await ctx.db.scalar(
@@ -241,7 +241,7 @@ async def import_hosts(request: Request, ctx: Ctx = Depends(require(WRITE))):
 
 
 @router.get("/status", response_model=SyncStatusOut)
-async def status(ctx: Ctx = Depends(require(READ))):
+async def sync_status(ctx: Ctx = Depends(require(READ))):
     count = await ctx.db.scalar(
         select(func.count()).where(DnsBlocklistEntry.org_id == ctx.org_id)
     )
@@ -255,7 +255,8 @@ async def status(ctx: Ctx = Depends(require(READ))):
                 settings.dns_sinkhole_url.rstrip("/") + "/api/blocklist/status",
                 headers=headers,
             )
-            sync_configured = response.status_code < 500
+            # 200 only when the sinkhole is reachable *and* accepts our sync token.
+            sync_configured = response.status_code == 200
     except httpx.HTTPError:
         sync_configured = False
     return SyncStatusOut(

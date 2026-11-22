@@ -11,12 +11,12 @@ import (
 )
 
 type Entry struct {
-	Domain           string   `json:"domain"`
+	Domain            string   `json:"domain"`
 	IncludeSubdomains bool     `json:"includeSubdomains"`
-	Reason           string   `json:"reason,omitempty"`
-	AddedBy          string   `json:"addedBy"`
-	Confidence       *float64 `json:"confidence,omitempty"`
-	AddedAt          string   `json:"addedAt"`
+	Reason            string   `json:"reason,omitempty"`
+	AddedBy           string   `json:"addedBy"`
+	Confidence        *float64 `json:"confidence,omitempty"`
+	AddedAt           string   `json:"addedAt"`
 }
 
 type blocklistFile struct {
@@ -30,7 +30,7 @@ type Blocklist struct {
 
 func (b *Blocklist) Add(entry Entry) error {
 	normalized, err := normalizeDomain(entry.Domain)
-	if err != {
+	if err != nil {
 		return err
 	}
 	entry.Domain = normalized
@@ -63,16 +63,16 @@ func (b *Blocklist) Snapshot() blocklistFile {
 	for _, entry := range b.entries {
 		file.Entries = append(file.Entries, entry)
 	}
-
-	func (b *Blocklist) Count() int {
-		b.mu.RLock()
-		defer b.mu.RUnlock()
-		return len(b.entries)
-	}
 	sort.Slice(file.Entries, func(i, j int) bool {
 		return file.Entries[i].Domain < file.Entries[j].Domain
 	})
 	return file
+}
+
+func (b *Blocklist) Count() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.entries)
 }
 
 func (b *Blocklist) Save(path string) error {

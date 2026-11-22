@@ -33,7 +33,7 @@ services:
       # Encrypts one-time passwords at rest. Required; see .env.example.
       SMP_SECRET_KEY: ${SMP_SECRET_KEY:?set SMP_SECRET_KEY in .env (see .env.example)}
       SMP_DNS_SINKHOLE_URL: ${SMP_DNS_SINKHOLE_URL:-http://dns-sinkhole:8080}
-      SMP_DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:-}
+      SMP_DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
     ports:
       - "8000:8000"
     depends_on:
@@ -46,8 +46,10 @@ services:
       context: ./Site-blocker/school-dns-demo
       dockerfile: Dockerfile
     environment:
-      # The Corefile passes this token to the Go sync endpoint.
-      DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:-}
+      # Shared secret for every /api/blocklist/* endpoint; the server sends it as a
+      # Bearer token. Port 8080 is reachable by all clients (block page), so without
+      # a token the API is disabled rather than open.
+      DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
     ports:
       - "1053:1053/udp"
       - "1053:1053/tcp"
