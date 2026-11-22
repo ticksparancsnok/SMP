@@ -20,6 +20,13 @@ export const targetTypeLabel = (type: string) => tOr(`target.${type}`, type)
 export const DAY_INDEXES = [0, 1, 2, 3, 4, 5, 6] as const
 export const dayLabel = (d: number) => tOr(`day.${d}`, String(d))
 
+/** An agent key fingerprint as people compare it: the first 80 bits, "3F2A-91C4-...". */
+export function fmtFingerprint(fp: string | null | undefined): string {
+  if (!fp) return '–'
+  const head = fp.slice(0, 20).toUpperCase()
+  return head.match(/.{1,4}/g)!.join('-')
+}
+
 /** A module's title in the UI language (falls back to the manifest's English title). */
 export const moduleTitle = (m: { name: string; title: string }) => tOr(`module.${m.name}`, m.title)
 
@@ -49,9 +56,9 @@ export function fmtRelative(iso: string | null | undefined): string {
   return rtf().format(Math.round(sec / 86400), 'day')
 }
 
-/** Matches the server's 5-minute "online" window (smp/core/dashboard.py). */
+/** Online = the agent reported within 90 s (same window as smp/core/dashboard.py). */
 export function isOnline(lastSeen: string | null | undefined): boolean {
-  return !!lastSeen && Date.now() - new Date(lastSeen).getTime() < 5 * 60 * 1000
+  return !!lastSeen && Date.now() - new Date(lastSeen).getTime() < 90 * 1000
 }
 
 /** ISO string -> value for <input type="datetime-local"> (local time). */

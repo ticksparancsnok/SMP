@@ -183,14 +183,23 @@ async def resolve_ip(db: AsyncSession, org_id: uuid.UUID, ip: str) -> tuple[Devi
     ).scalar_one_or_none()
     if device is not None and device.room_id is not None:
         return device, await db.get(Room, device.room_id)
+    return device, await room_for_ip(db, org_id, str(addr))
 
+
+async def room_for_ip(db: AsyncSession, org_id: uuid.UUID, ip: str) -> Room | None:
+    """The room whose subnets contain `ip` (longest prefix wins), or None. Used for
+    devices without an agent, and for agents whose room follows the network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
     best: tuple[int, Room] | None = None
     for room in (await db.execute(select(Room).where(Room.org_id == org_id))).scalars():
         for cidr in room.subnets or []:
             net = ipaddress.ip_network(cidr, strict=False)
             if addr.version == net.version and addr in net and (best is None or net.prefixlen > best[0]):
                 best = (net.prefixlen, room)
-    return device, best[1] if best else None
+    return best[1] if best else None
 
 
 # --------------------------------------------------------------------------- change helpers

@@ -9,7 +9,10 @@ from smp.core.db import utcnow
 from smp.core.models import AuditLog, Device, Group, PolicyAssignment, RoleAssignment, Room, User
 from smp.core.module import Widget, WidgetItem
 
-ONLINE_WINDOW = timedelta(minutes=5)
+# A device is online while its agent reports; agents check in at least every ~25 s
+# (long poll), so 90 s without a heartbeat means it's off or off the network.
+# The web UI uses the same window (WEBUI/src/format.ts, isOnline).
+ONLINE_WINDOW = timedelta(seconds=90)
 ROLE_LABELS = {"admin": ("admin", "admins"), "teacher": ("teacher", "teachers"), "student": ("student", "students")}
 
 

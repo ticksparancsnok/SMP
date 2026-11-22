@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     login_lockout_seconds: int = 60  # ... lock it for this long
     login_ip_attempts_per_minute: int = 20  # all login attempts from one IP
 
+    # Device agents: how long a heartbeat may wait for a config change (long-poll).
+    # Below nginx's proxy_read_timeout; agents call again right away.
+    agent_longpoll_seconds: float = 25.0
+
     # Reverse proxies whose X-Forwarded-For is trusted (comma separated IPs/CIDRs, "*" = any).
     # Must include the proxy, or every client looks like the proxy's IP to the throttle.
     forwarded_allow_ips: str = "127.0.0.1"

@@ -21,6 +21,8 @@
 **/.env.*
 server/tests
 docs
+# The Rust agent isn't part of any image; its target/ folder alone is gigabytes.
+agent
 # The server image never needs nginx's files, and nginx/certs holds a root-only
 # private key once nginx has made its certificate: unreadable for the build.
 nginx

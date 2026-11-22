@@ -4,6 +4,7 @@ One platform for managing school computers: DNS-based site blocking with automat
 
 - `server/`: control plane (Python, FastAPI): core + modules. See [server/README.md](server/README.md)
 - `WEBUI/`: web interface (Vue 3 + TypeScript). See [WEBUI/readme.md](WEBUI/readme.md)
+- `agent/`: the program on the school's Windows 10/11 computers (Rust): screen monitoring, later lock and software. See [agent/README.md](agent/README.md)
 - `docs/architecture.md`: design decisions, domain model, policy resolution, permissions
 - `docs/writing-a-module.md`: how to add a service module (backend + UI page)
 - `docs/security.md`: operator checklist (secret key, reverse proxy, rate limits) and security review decisions
@@ -50,3 +51,11 @@ changes made in the web UI or API are stored in PostgreSQL and synchronized to t
 sinkhole, which keeps the last synced lists on a volume and keeps filtering while the
 server is down; `./install.sh` re-syncs on every run (`smp dns-sync`). Only nginx and
 the DNS port are published.
+
+**Computers (agent).** Build `smp-agent.exe` ([agent/README.md](agent/README.md)) and on
+each PC run, as administrator, `smp-agent.exe install` (it asks for SMP's address). The
+PC then shows up in **Devices → Waiting for approval** with a fingerprint; approve it
+if the fingerprint matches what the PC printed, and put it in a room (fixed, or
+"by network" for laptops that move between rooms/VLANs). Teachers then see the room's
+screens on the **Monitoring** page, while the page is open; the PCs show an SMP tray
+icon all the time, in colour while their screen is being viewed.

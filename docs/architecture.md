@@ -7,9 +7,9 @@
 | **Control plane** (`server/`): core + modules, REST API | Python (FastAPI, SQLAlchemy 2, Alembic, Postgres) | CRUD/RBAC/business logic; fastest for the team to extend; OpenAPI is generated automatically |
 | **Web UI** (`WEBUI/`) | Vue 3 + TypeScript (Vite) | API types are generated from the server's OpenAPI; built into the server image and served on the same origin |
 | **DNS sinkhole** (`Site-blocker/school-dns-demo/`) | Go, CoreDNS with a custom plugin | Mature DNS server; stays up when the control plane is down because it caches the blocklist locally |
-| **Agent** (`agent/`, planned, after the core is stable) | Rust | Single static `.exe`, Windows service + per-session helper for screen capture and lock |
+| **Agent** (`agent/`) | Rust | Single static `.exe` (cross-compiled on Linux), Windows service + per-session helper for screen capture and the tray icon; no async runtime, plain threads |
 
-Rule: the data plane (DNS, agent, and later the screen relay if Python can't keep up) runs as separate programs that talk to the control plane with API tokens / mTLS. Anything that is mostly "store, check permissions, audit" is a Python module.
+Rule: the data plane (DNS, agent, and later the screen relay if Python can't keep up) runs as separate programs that talk to the control plane with API tokens (DNS) or signed requests (agent). Anything that is mostly "store, check permissions, audit" is a Python module.
 
 ## Shared domain model (`server/smp/core/models.py`)
 
@@ -19,7 +19,7 @@ Every module speaks in these terms. Don't create a module-private "computer" or 
 - **User**, **Group** (class "10.B", staff, ...), **GroupMember**
 - **RoleAssignment**: `(user, role, room?)`. Roles are `admin`, `teacher`, `student`. A teacher can be assigned org-wide or only to specific rooms.
 - **Room**: physical location with `subnets` (CIDRs), so DNS can map an IP to a room even without an agent.
-- **Device**: hostname, MAC, last IP, room, agent ID/cert fingerprint, OS info.
+- **Device**: hostname, MAC, last IP, room, agent key + fingerprint, `room_mode` (`fixed`, or `network`: the room follows the IP the agent reports), logged-in user, OS info.
 - **Policy**: `(kind, name, data)`. `kind` is a module name (`dns`, `software`, `classroom`...), and `data` is validated by that module's `policy_model`.
 - **PolicyAssignment**: policy → target (`org` / `room` / `group` / `device` / `user`), with optional `schedule`, `starts_at`/`ends_at`, `priority`, `label`.
 - **Schedule**: weekly time windows in a timezone (lesson times).
@@ -108,6 +108,20 @@ The API is English-only. The web UI is Hungarian or English (a per-browser HU | 
 ### Module registry
 See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed in `server/smp/modules/__init__.py`) and can be switched off per install with `SMP_ENABLED_MODULES`. `GET /api/v1/modules` returns every manifest (permissions, UI routes, JSON schemas for settings and policies), so the UI can build navigation and settings forms from it.
 
+### Agents (`server/smp/modules/agent/`, `agent/`)
+- **Identity:** each PC makes an ECDSA P-256 key on install. Its fingerprint (SHA-256 of the public key) is the device's identity; the IP is not (it changes, laptops move between VLANs). There are no tokens or passwords: every request is signed (`X-SMP-Key`, `X-SMP-Time`, `X-SMP-Signature` over method, path, time and body hash; 5 minutes' clock skew; replayed signatures refused). The format is described in `agent/smp-agent/src/core/identity.rs` and `server/smp/modules/agent/crypto.py`, which must agree.
+- **Joining:** the installer asks only for SMP's address and sends a join request; an admin approves it in Devices by comparing the fingerprint the PC printed, as a new device or as an existing one (MAC/hostname suggestion), into a fixed room or "by network". Rejected/expired requests vanish; identity reset (Devices → edit) makes the PC ask again.
+- **Heartbeat = long poll:** the agent sends its config version; the server answers when the config changes (`AgentHub` wakes waiting agents on policy, room, device and `agent.config.changed` events) or after `SMP_AGENT_LONGPOLL_SECONDS` (25). No DB connection is held while waiting. Each heartbeat updates the last IP (and, for `network` devices, the room), the logged-in user and OS info.
+- **Config:** `Module.agent_config(db, device)` hooks; each module returns its section (`{"classroom": {...}}`), and the agent hands each section to its capability. New agent features = a module hook + a Rust capability; the core on both sides stays the same.
+- **TLS:** the agent trusts a certificate the OS trusts, or the one it pinned on first contact (SMP's nginx starts self-signed). A different, untrusted certificate is refused.
+
+### Monitoring (`server/smp/modules/classroom/`)
+- PCs send nothing unless someone has the room's Monitoring page open: the page sends a keep-alive every ≤5 s, a viewer without one for 20 s times out. Only the PC a teacher enlarged sends full-size pictures.
+- Pictures are JPEGs the agent shrinks itself (default 480 px wide, quality 60, every 5 s; enlarged: 1600 px every 2 s), set per school (Settings) and per room/schedule (policy kind `classroom`, e.g. slower on weak Wi-Fi, or `enabled: false` outside lessons). A screen that didn't change is confirmed with an empty request.
+- Frames live in server memory only (latest per PC), are dropped when nobody watches, and are never written to disk or the database. Who watched which room, whom they enlarged and when they stopped is in the audit log.
+- Seating plan per room (`classroom_layouts`): automatic order by hostname, or a rows × columns grid that teachers with `classroom.layout.edit` arrange.
+- One server process holds the viewer and frame state. Several server replicas would need it in Redis/NATS; see "Not done yet".
+
 ## Deployment
 
 `./install.sh` sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
@@ -122,7 +136,8 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 
 ## Not done yet (intentionally)
 
-- Agent enrolment, mTLS gateway, command signing (agent module)
+- Agent: key in the TPM, screen lock, software installation, automatic DNS setting on install; an MSI/installer around `smp-agent install`
+- Monitoring with several server processes (viewer/frame state is per process)
 - Per-org overrides of role → permission mappings (defaults come from manifests)
 - Roles granted via groups (e.g. everyone in "Staff" is a teacher). Planned with directory sync.
 - Audit retention job (setting `core.audit_retention_days` exists)

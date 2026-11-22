@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
-import type { Device, DeviceStatus, Page, Room } from '../api/types'
+import type { ApproveIn, Device, DeviceStatus, JoinRequest, Page, Room } from '../api/types'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
-import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtRelative, isOnline } from '../format'
+import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtFingerprint, fmtRelative, isOnline } from '../format'
 import { t } from '../i18n'
 import { can } from '../session'
 
@@ -59,13 +59,39 @@ watch(offset, load)
 
 onMounted(async () => {
   load()
+  loadJoinRequests()
   rooms.value = await api.get<Room[]>('/rooms').catch(() => [])
+  document.addEventListener('visibilitychange', onVisibility)
+  refresher = window.setInterval(refresh, REFRESH_MS)
 })
+onBeforeUnmount(() => {
+  window.clearInterval(refresher)
+  document.removeEventListener('visibilitychange', onVisibility)
+})
+
+// Agents report every ~25 s (IP, room "by network", user, online), and new PCs ask
+// to join: keep the page current while it's visible, like the home page does.
+const REFRESH_MS = 10_000
+let refresher: number | undefined
+function refresh() {
+  if (document.hidden) return
+  load()
+  loadJoinRequests()
+}
+const onVisibility = () => document.hidden || refresh()
 
 // ---------------------------------------------------------------- create / edit
 const edit = ref<Device | null>(null)
 const open = ref(false)
-const form = reactive({ hostname: '', display_name: '', mac: '', room_id: '', notes: '', status: 'pending' as DeviceStatus })
+const form = reactive({
+  hostname: '',
+  display_name: '',
+  mac: '',
+  room_id: '',
+  room_mode: 'fixed' as 'fixed' | 'network',
+  notes: '',
+  status: 'pending' as DeviceStatus,
+})
 const formError = ref('')
 
 function openEdit(d: Device | null) {
@@ -75,6 +101,7 @@ function openEdit(d: Device | null) {
     display_name: d?.display_name ?? '',
     mac: d?.mac ?? '',
     room_id: d?.room_id ?? (roomFilter.value !== '__none' ? roomFilter.value : ''),
+    room_mode: (d?.room_mode ?? 'fixed') as 'fixed' | 'network',
     notes: d?.notes ?? '',
     status: (d?.status ?? 'pending') as DeviceStatus,
   })
@@ -90,12 +117,79 @@ async function save() {
     notes: form.notes,
   }
   try {
-    if (edit.value) await api.patch(`/devices/${edit.value.id}`, { ...common, status: form.status })
+    if (edit.value) await api.patch(`/devices/${edit.value.id}`, { ...common, status: form.status, room_mode: form.room_mode })
     else await api.post('/devices', { ...common, hostname: form.hostname })
     open.value = false
     load()
   } catch (e) {
     formError.value = errorText(e)
+  }
+}
+
+async function resetIdentity(d: Device) {
+  if (!confirm(t('devices.confirm_reset_identity', { hostname: d.hostname }))) return
+  try {
+    await api.post(`/agent/devices/${d.id}/reset-identity`)
+    open.value = false
+    load()
+  } catch (e) {
+    formError.value = errorText(e)
+  }
+}
+
+// ---------------------------------------------------------------- join requests (agents asking to be managed)
+const joinRequests = ref<JoinRequest[]>([])
+const approving = ref<JoinRequest | null>(null)
+const approveForm = reactive({ as: 'new' as 'new' | 'existing', device_id: '', room_mode: 'fixed' as 'fixed' | 'network', room_id: '' })
+const approveError = ref('')
+// every device, for "approve as an existing device" (the paged list may not hold it)
+const allDevices = ref<Device[]>([])
+
+async function loadJoinRequests() {
+  if (!canWrite.value) return
+  try {
+    joinRequests.value = await api.get<JoinRequest[]>('/agent/join-requests')
+  } catch (e) {
+    error.value = errorText(e)
+  }
+}
+
+async function openApprove(r: JoinRequest) {
+  approving.value = r
+  approveError.value = ''
+  Object.assign(approveForm, {
+    as: r.suggested_device_id ? 'existing' : 'new',
+    device_id: r.suggested_device_id ?? '',
+    room_mode: 'fixed',
+    room_id: '',
+  })
+  allDevices.value = (await api.get<Page<Device>>('/devices', { limit: 2000 }).catch(() => ({ items: [], total: 0 }))).items
+}
+
+async function approve() {
+  const r = approving.value!
+  const body: ApproveIn = {
+    device_id: approveForm.as === 'existing' ? approveForm.device_id || null : null,
+    room_mode: approveForm.room_mode,
+    room_id: approveForm.room_mode === 'fixed' ? approveForm.room_id || null : null,
+  }
+  try {
+    await api.post(`/agent/join-requests/${r.id}/approve`, body)
+    approving.value = null
+    loadJoinRequests()
+    load()
+  } catch (e) {
+    approveError.value = errorText(e)
+  }
+}
+
+async function reject(r: JoinRequest) {
+  if (!confirm(t('devices.confirm_reject', { hostname: r.hostname }))) return
+  try {
+    await api.post(`/agent/join-requests/${r.id}/reject`)
+    loadJoinRequests()
+  } catch (e) {
+    error.value = errorText(e)
   }
 }
 
@@ -150,6 +244,41 @@ async function showPolicies(d: Device) {
 
   <div v-if="error" class="alert err">{{ error }}</div>
 
+  <!-- machines whose agent asks to be managed: compare the fingerprint with the PC's screen -->
+  <div v-if="joinRequests.length" class="card">
+    <h2>{{ t('devices.join_title', { count: joinRequests.length }) }}</h2>
+    <p class="muted small">{{ t('devices.join_intro') }}</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{{ t('devices.device') }}</th>
+            <th>MAC / IP</th>
+            <th>OS</th>
+            <th>{{ t('devices.fingerprint') }}</th>
+            <th>{{ t('devices.requested') }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in joinRequests" :key="r.id">
+            <td><strong class="mono">{{ r.hostname }}</strong></td>
+            <td class="mono">{{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span></td>
+            <td class="muted small">{{ [r.os_name, r.os_version].filter(Boolean).join(' ') || '–' }}</td>
+            <td class="mono">{{ r.fingerprint_display }}</td>
+            <td class="small">{{ fmtRelative(r.created_at) }}</td>
+            <td>
+              <div class="actions">
+                <button class="small" @click="openApprove(r)">{{ t('devices.approve') }}</button>
+                <button class="danger small" @click="reject(r)">{{ t('devices.reject') }}</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card table-wrap">
     <table>
       <thead>
@@ -168,8 +297,16 @@ async function showPolicies(d: Device) {
           <td>
             <strong class="mono">{{ d.hostname }}</strong>
             <br v-if="d.display_name" /><span class="muted small">{{ d.display_name }}</span>
+            <template v-if="d.logged_in_user && isOnline(d.last_seen_at)">
+              <br /><span class="muted small">👤 {{ d.logged_in_user }}</span>
+            </template>
           </td>
-          <td>{{ roomName(d.room_id) }}</td>
+          <td>
+            {{ roomName(d.room_id) }}
+            <span v-if="d.room_mode === 'network'" class="badge info" :title="t('devices.room_network_title')">
+              {{ t('devices.room_network_badge') }}
+            </span>
+          </td>
           <td class="mono">
             {{ d.mac ?? '–' }}<br /><span class="muted">{{ d.last_ip ?? '' }}</span>
           </td>
@@ -216,11 +353,26 @@ async function showPolicies(d: Device) {
         </div>
         <div class="field">
           <label>{{ t('common.room') }}</label>
-          <select v-model="form.room_id">
+          <select v-model="form.room_id" :disabled="form.room_mode === 'network'">
             <option value="">{{ t('devices.none') }}</option>
             <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
           </select>
         </div>
+      </div>
+      <div v-if="edit?.agent_id" class="field">
+        <label>{{ t('devices.room_mode') }}</label>
+        <select v-model="form.room_mode">
+          <option value="fixed">{{ t('devices.room_fixed') }}</option>
+          <option value="network">{{ t('devices.room_network') }}</option>
+        </select>
+      </div>
+      <div v-if="edit?.agent_id" class="field">
+        <label>{{ t('devices.agent') }}</label>
+        <span class="small">
+          <span class="mono">{{ fmtFingerprint(edit.agent_id) }}</span> · v{{ edit.agent_version ?? '?' }}
+          <template v-if="edit.logged_in_user && isOnline(edit.last_seen_at)"> · 👤 {{ edit.logged_in_user }}</template>
+        </span>
+        <div><button type="button" class="ghost small" @click="resetIdentity(edit)">{{ t('devices.reset_identity') }}</button></div>
       </div>
       <div v-if="edit" class="field">
         <label>{{ t('common.status') }}</label>
@@ -243,5 +395,41 @@ async function showPolicies(d: Device) {
     <p class="muted small">{{ t('devices.effective_intro') }}</p>
     <p v-if="effective && !Object.keys(effective).length" class="empty">{{ t('devices.no_effective') }}</p>
     <pre v-else class="json">{{ effective ? JSON.stringify(effective, null, 2) : t('common.loading') }}</pre>
+  </Modal>
+
+  <Modal v-if="approving" :title="t('devices.approve_title', { hostname: approving.hostname })" @close="approving = null">
+    <form class="stack" @submit.prevent="approve">
+      <div v-if="approveError" class="alert err">{{ approveError }}</div>
+      <div class="field">
+        <label>{{ t('devices.fingerprint') }}</label>
+        <span class="mono" style="font-size: 20px; letter-spacing: 0.05em">{{ approving.fingerprint_display }}</span>
+        <span class="muted small">{{ t('devices.compare_fingerprint') }}</span>
+      </div>
+      <div class="field">
+        <label>{{ t('devices.approve_as') }}</label>
+        <label class="check"><input v-model="approveForm.as" type="radio" value="new" /> {{ t('devices.approve_new') }}</label>
+        <label class="check"><input v-model="approveForm.as" type="radio" value="existing" /> {{ t('devices.approve_existing') }}</label>
+        <select v-if="approveForm.as === 'existing'" v-model="approveForm.device_id" required>
+          <option value="" disabled>{{ t('policies.choose') }}</option>
+          <option v-for="d in allDevices" :key="d.id" :value="d.id">
+            {{ d.hostname }}{{ d.mac ? ` (${d.mac})` : '' }}{{ d.id === approving.suggested_device_id ? ' ★' : '' }}
+          </option>
+        </select>
+        <span v-if="approveForm.as === 'existing'" class="muted small">{{ t('devices.approve_existing_hint') }}</span>
+      </div>
+      <div class="field">
+        <label>{{ t('devices.room_mode') }}</label>
+        <label class="check"><input v-model="approveForm.room_mode" type="radio" value="fixed" /> {{ t('devices.room_fixed') }}</label>
+        <select v-if="approveForm.room_mode === 'fixed'" v-model="approveForm.room_id">
+          <option value="">{{ approveForm.as === 'existing' ? t('devices.room_keep') : t('devices.none') }}</option>
+          <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+        </select>
+        <label class="check"><input v-model="approveForm.room_mode" type="radio" value="network" /> {{ t('devices.room_network') }}</label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" @click="approving = null">{{ t('common.cancel') }}</button>
+        <button>{{ t('devices.approve') }}</button>
+      </div>
+    </form>
   </Modal>
 </template>

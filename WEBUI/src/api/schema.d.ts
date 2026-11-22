@@ -858,6 +858,223 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join
+         * @description Signed with the key being registered, proving the agent holds it.
+         */
+        post: operations["join_api_v1_agent_join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join Status */
+        post: operations["join_status_api_v1_agent_join_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Heartbeat
+         * @description Report the device's state and get its config. With wait=true and an unchanged
+         *     config_version the answer is held until something changes or the long-poll time
+         *     runs out. No database connection is held while waiting.
+         */
+        post: operations["heartbeat_api_v1_agent_heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Join Requests */
+        get: operations["list_join_requests_api_v1_agent_join_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join-requests/{request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_api_v1_agent_join_requests__request_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join-requests/{request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject */
+        post: operations["reject_api_v1_agent_join_requests__request_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/devices/{device_id}/reset-identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Identity
+         * @description Forget the device's key (e.g. a stolen disk or a broken install). Its agent is
+         *     refused from now on and has to join again; approve it as this same device.
+         */
+        post: operations["reset_identity_api_v1_agent_devices__device_id__reset_identity_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rooms */
+        get: operations["list_rooms_api_v1_classroom_rooms_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/rooms/{room_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Room */
+        get: operations["get_room_api_v1_classroom_rooms__room_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/rooms/{room_id}/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Watch */
+        post: operations["watch_api_v1_classroom_rooms__room_id__watch_post"];
+        /** Stop Watching */
+        delete: operations["stop_watching_api_v1_classroom_rooms__room_id__watch_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/devices/{device_id}/frame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Frame */
+        get: operations["get_frame_api_v1_classroom_devices__device_id__frame_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/rooms/{room_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Layout */
+        put: operations["put_layout_api_v1_classroom_rooms__room_id__layout_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -903,6 +1120,19 @@ export interface components {
             public_suffixes: number;
             /** Public Suffix Source */
             public_suffix_source: string;
+        };
+        /** ApproveIn */
+        ApproveIn: {
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Room Mode
+             * @default fixed
+             * @enum {string}
+             */
+            room_mode: "fixed" | "network";
+            /** Room Id */
+            room_id?: string | null;
         };
         /** AssignmentIn */
         AssignmentIn: {
@@ -1043,6 +1273,10 @@ export interface components {
             os_version: string | null;
             /** Last Seen At */
             last_seen_at: string | null;
+            /** Room Mode */
+            room_mode: string;
+            /** Logged In User */
+            logged_in_user: string | null;
             /** Notes */
             notes: string;
         };
@@ -1059,6 +1293,8 @@ export interface components {
             mac?: string | null;
             /** Room Id */
             room_id?: string | null;
+            /** Room Mode */
+            room_mode?: ("fixed" | "network") | null;
             /** Notes */
             notes?: string | null;
             status?: components["schemas"]["DeviceStatus"] | null;
@@ -1106,6 +1342,21 @@ export interface components {
             active: boolean;
             /** Inactivereason */
             inactiveReason?: string | null;
+        };
+        /** FrameInfo */
+        FrameInfo: {
+            /** At */
+            at: number;
+            /** Age S */
+            age_s: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Screen Width */
+            screen_width: number;
+            /** Screen Height */
+            screen_height: number;
         };
         /** GroupIn */
         GroupIn: {
@@ -1174,6 +1425,19 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HeartbeatOut */
+        HeartbeatOut: {
+            /** Device Id */
+            device_id: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Config Version */
+            config_version: string;
+            /** Server Time */
+            server_time: string;
+        };
         /** HostsPreviewOut */
         HostsPreviewOut: {
             /** Domains */
@@ -1226,6 +1490,85 @@ export interface components {
              * @default []
              */
             errors: components["schemas"]["ImportIssue"][];
+        };
+        /** JoinOut */
+        JoinOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "unknown";
+            /** Fingerprint */
+            fingerprint: string;
+            /** Fingerprint Display */
+            fingerprint_display: string;
+            /** Server Time */
+            server_time: string;
+        };
+        /** JoinRequestOut */
+        JoinRequestOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Hostname */
+            hostname: string;
+            /** Mac */
+            mac: string | null;
+            /** Ip */
+            ip: string | null;
+            /** Os Name */
+            os_name: string | null;
+            /** Os Version */
+            os_version: string | null;
+            /** Agent Version */
+            agent_version: string | null;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Fingerprint Display */
+            fingerprint_display: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Suggested Device Id */
+            suggested_device_id?: string | null;
+        };
+        /** LayoutModel */
+        LayoutModel: {
+            /**
+             * Mode
+             * @default auto
+             * @enum {string}
+             */
+            mode: "auto" | "grid";
+            /**
+             * Rows
+             * @default 4
+             */
+            rows: number;
+            /**
+             * Cols
+             * @default 6
+             */
+            cols: number;
+            /**
+             * Positions
+             * @default {}
+             */
+            positions: {
+                [key: string]: [
+                    number,
+                    number
+                ];
+            };
         };
         /** LinkIn */
         LinkIn: {
@@ -1484,6 +1827,20 @@ export interface components {
              */
             device_count: number;
         };
+        /** RoomSummary */
+        RoomSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Devices */
+            devices: number;
+            /** Online */
+            online: number;
+        };
         /** RoomUpdate */
         RoomUpdate: {
             /** Name */
@@ -1494,6 +1851,25 @@ export interface components {
             description?: string | null;
             /** Subnets */
             subnets?: string[] | null;
+        };
+        /** RoomView */
+        RoomView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            layout: components["schemas"]["LayoutModel"];
+            /** Devices */
+            devices: components["schemas"]["ScreenDevice"][];
+            /** Can Edit Layout */
+            can_edit_layout: boolean;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
         };
         /** ScheduleIn */
         ScheduleIn: {
@@ -1527,6 +1903,22 @@ export interface components {
             windows: {
                 [key: string]: unknown;
             }[];
+        };
+        /** ScreenDevice */
+        ScreenDevice: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Hostname */
+            hostname: string;
+            /** Display Name */
+            display_name: string;
+            /** User */
+            user: string | null;
+            /** Online */
+            online: boolean;
         };
         /** SyncStatusOut */
         SyncStatusOut: {
@@ -1739,6 +2131,46 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WatchDevice
+         * @description The room's PCs as they are now (a laptop may have joined or left the room
+         *     since the page loaded), plus their latest pictures.
+         */
+        WatchDevice: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Hostname */
+            hostname: string;
+            /** Display Name */
+            display_name: string;
+            /** User */
+            user: string | null;
+            /** Online */
+            online: boolean;
+            thumb: components["schemas"]["FrameInfo"] | null;
+            detail: components["schemas"]["FrameInfo"] | null;
+        };
+        /** WatchIn */
+        WatchIn: {
+            /** Session */
+            session: string;
+            /** Detail Device Id */
+            detail_device_id?: string | null;
+        };
+        /** WatchOut */
+        WatchOut: {
+            /** Devices */
+            devices: components["schemas"]["WatchDevice"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Interval S */
+            interval_s: number;
+            /** Detail Interval S */
+            detail_interval_s: number;
         };
         /**
          * Widget
@@ -3967,6 +4399,367 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyncStatusOut"];
+                };
+            };
+        };
+    };
+    join_api_v1_agent_join_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinOut"];
+                };
+            };
+        };
+    };
+    join_status_api_v1_agent_join_status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinOut"];
+                };
+            };
+        };
+    };
+    heartbeat_api_v1_agent_heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatOut"];
+                };
+            };
+        };
+    };
+    list_join_requests_api_v1_agent_join_requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinRequestOut"][];
+                };
+            };
+        };
+    };
+    approve_api_v1_agent_join_requests__request_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_api_v1_agent_join_requests__request_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_identity_api_v1_agent_devices__device_id__reset_identity_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rooms_api_v1_classroom_rooms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomSummary"][];
+                };
+            };
+        };
+    };
+    get_room_api_v1_classroom_rooms__room_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    watch_api_v1_classroom_rooms__room_id__watch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_watching_api_v1_classroom_rooms__room_id__watch_delete: {
+        parameters: {
+            query: {
+                session: string;
+            };
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_frame_api_v1_classroom_devices__device_id__frame_get: {
+        parameters: {
+            query?: {
+                kind?: "thumb" | "detail";
+            };
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_layout_api_v1_classroom_rooms__room_id__layout_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LayoutModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
