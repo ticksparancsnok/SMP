@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from smp.core.config import get_settings
 from smp.core.context import Ctx, require
@@ -147,31 +148,47 @@ def _wire(row: DnsBlocklistEntry | DnsAllowlistEntry) -> dict:
     return out
 
 
-async def sync_sinkhole(ctx: Ctx) -> None:
-    """Push both lists to the Go sinkhole, which applies allowlist -> blocklist -> allow.
+async def sync_payload(db: AsyncSession, org_id: uuid.UUID) -> dict:
+    """The full state the sinkhole should have: both lists of the school.
     Public-suffix blocklist entries (legacy rows) are never sent."""
-    payload = {
-        "entries": [_wire(r) for r in await _blocklist(ctx) if not is_public_suffix(r.domain)],
-        "allowlist": [_wire(r) for r in await _allowlist(ctx)],
+    block = await db.execute(
+        select(DnsBlocklistEntry).where(DnsBlocklistEntry.org_id == org_id).order_by(DnsBlocklistEntry.domain)
+    )
+    allow = await db.execute(
+        select(DnsAllowlistEntry).where(DnsAllowlistEntry.org_id == org_id).order_by(DnsAllowlistEntry.domain)
+    )
+    return {
+        "entries": [_wire(r) for r in block.scalars() if not is_public_suffix(r.domain)],
+        "allowlist": [_wire(r) for r in allow.scalars()],
     }
+
+
+async def push_to_sinkhole(payload: dict) -> None:
+    """Replace the Go sinkhole's lists (it applies allowlist -> blocklist -> allow).
+    Raises httpx.HTTPError if it can't be reached or refuses the token."""
     settings = get_settings()
     headers = {}
     if settings.dns_sync_token:
         headers["Authorization"] = f"Bearer {settings.dns_sync_token}"
     async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            response = await client.post(
-                settings.dns_sinkhole_url.rstrip("/") + "/api/blocklist/sync",
-                json=payload,
-                headers=headers,
-            )
-            response.raise_for_status()
-        except (httpx.HTTPError, httpx.TimeoutException) as exc:
-            raise AppError(
-                status.HTTP_502_BAD_GATEWAY,
-                "dns.sync_failed",
-                "blocklist was saved, but the DNS sinkhole could not be synchronized",
-            ) from exc
+        response = await client.post(
+            settings.dns_sinkhole_url.rstrip("/") + "/api/blocklist/sync",
+            json=payload,
+            headers=headers,
+        )
+        response.raise_for_status()
+
+
+async def sync_sinkhole(ctx: Ctx) -> None:
+    """After a change: push the school's full state (also: `smp dns-sync`)."""
+    try:
+        await push_to_sinkhole(await sync_payload(ctx.db, ctx.org_id))
+    except httpx.HTTPError as exc:
+        raise AppError(
+            status.HTTP_502_BAD_GATEWAY,
+            "dns.sync_failed",
+            "blocklist was saved, but the DNS sinkhole could not be synchronized",
+        ) from exc
 
 
 def _valid_domain(raw: str) -> str:

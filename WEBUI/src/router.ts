@@ -24,6 +24,11 @@ const router = createRouter({
       meta: { perm: 'shortlinks.links.create' },
     },
     {
+      path: '/classroom',
+      component: () => import('./views/ClassroomView.vue'),
+      meta: { perm: 'classroom.screens.view' },
+    },
+    {
       path: '/dns',
       component: () => import('./views/DnsView.vue'),
       meta: { perm: 'dns.blocklist.read' },

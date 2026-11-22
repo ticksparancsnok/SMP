@@ -1,4 +1,4 @@
-# Security notes (v1.0.1)
+# Security notes (v1.0.2)
 
 How SMP's core protects accounts, what operators must configure, and the decisions taken on the two security reviews. Read with [architecture.md](architecture.md).
 
@@ -58,6 +58,15 @@ If a key is lost or leaked, rotate it and issue new one-time passwords to accoun
   - **Restarts:** the state is rebuilt from the audit log at startup.
 - **Sessions:** random 256-bit tokens; only their SHA-256 is stored. Cookies are HttpOnly and `SameSite=Strict`, with an Origin check on state-changing requests. A password change ends all sessions.
 - **Audit:** append-only (enforced by a database trigger). Logins, failures, resets and exports are all logged. Secrets (passwords, OTPs) never appear in it. If a failed-login audit row can't be written, it goes to the server log instead.
+
+## How the PC agents are protected (v1.0.2)
+- **Identity:** each PC's own ECDSA P-256 key, made on install. No shared secret or enrollment code exists that could leak; the server stores only public keys.
+- **Joining needs a human:** a join request does nothing until an admin approves it after comparing the fingerprint shown on the PC. Pending requests expire after 7 days and are capped (20 per IP, 500 in total). A key that already belongs to a device can't be approved for another one.
+- **Every request is signed** (method, path, time, body hash); requests more than 5 minutes off are refused, and a signature is accepted only once. Unknown, rejected and reset keys all get the same 401.
+- **The server's certificate:** OS-trusted, or the one pinned on first contact. A machine pretending to be SMP later (DNS/ARP spoofing) is refused. Trust on first use means the first contact happens at install time, when an admin is at the PC.
+- **On the PC:** the key file is readable only by SYSTEM and administrators and encrypted with DPAPI for that Windows installation (a copied file or disk image doesn't work elsewhere). The exe lives in `C:\Program Files\SMP` (admin-only), because the service runs it as SYSTEM. The screen helper runs as SYSTEM too, so students can't stop it or feed it fake screens; its pipe accepts only SYSTEM/admins and only the process the service started.
+- **Monitoring privacy:** screens are sent only while a teacher with `classroom.screens.view` for that room has the page open (20 s keep-alive), full-size only for the PC they enlarged; frames are kept in memory only (latest per PC), dropped when nobody watches, never stored. Who watched which room, whom they enlarged, and when they stopped are audited. The tray icon on the PC is always visible and turns colourful while the screen is viewed. A `classroom` policy with `enabled: false` (e.g. outside lesson times) turns monitoring off for a room.
+- **Known limits:** an administrator of the PC can read the key (they own the machine anyway; a TPM-held key is planned). One server process holds viewer state.
 
 ## Review decisions
 

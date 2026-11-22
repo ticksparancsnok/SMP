@@ -77,7 +77,13 @@ func setup(c *caddy.Controller) error {
 	if len(args) < 2 || len(args) > 4 {
 		return c.Err("schoolfilter requires blocklist path, sinkhole IP, optional HTTP address, and optional sync token")
 	}
-	blocklist, err := LoadBlocklist(args[0])
+	// BLOCKLIST_PATH (set by docker compose) puts the synced lists on a data volume,
+	// so they survive container rebuilds; the Corefile's path suits a local demo.
+	blocklistPath := args[0]
+	if env := strings.TrimSpace(os.Getenv("BLOCKLIST_PATH")); env != "" {
+		blocklistPath = env
+	}
+	blocklist, err := LoadBlocklist(blocklistPath)
 	if err != nil {
 		return plugin.Error("schoolfilter", err)
 	}
@@ -104,7 +110,7 @@ func setup(c *caddy.Controller) error {
 		blocklist:     blocklist,
 		sinkhole:      sinkhole,
 		httpAddr:      httpAddr,
-		blocklistPath: args[0],
+		blocklistPath: blocklistPath,
 		syncToken:     syncToken,
 	}
 

@@ -3319,6 +3319,499 @@
      }
     }
    }
+  },
+  "/api/v1/agent/join": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Join",
+    "description": "Signed with the key being registered, proving the agent holds it.",
+    "operationId": "join_api_v1_agent_join_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/JoinOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join/status": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Join Status",
+    "operationId": "join_status_api_v1_agent_join_status_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/JoinOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/heartbeat": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Heartbeat",
+    "description": "Report the device's state and get its config. With wait=true and an unchanged\nconfig_version the answer is held until something changes or the long-poll time\nruns out. No database connection is held while waiting.",
+    "operationId": "heartbeat_api_v1_agent_heartbeat_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HeartbeatOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join-requests": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "List Join Requests",
+    "operationId": "list_join_requests_api_v1_agent_join_requests_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/JoinRequestOut"
+         },
+         "type": "array",
+         "title": "Response List Join Requests Api V1 Agent Join Requests Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join-requests/{request_id}/approve": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Approve",
+    "operationId": "approve_api_v1_agent_join_requests__request_id__approve_post",
+    "parameters": [
+     {
+      "name": "request_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Request Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ApproveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         },
+         "title": "Response Approve Api V1 Agent Join Requests  Request Id  Approve Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join-requests/{request_id}/reject": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Reject",
+    "operationId": "reject_api_v1_agent_join_requests__request_id__reject_post",
+    "parameters": [
+     {
+      "name": "request_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Request Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/devices/{device_id}/reset-identity": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Reset Identity",
+    "description": "Forget the device's key (e.g. a stolen disk or a broken install). Its agent is\nrefused from now on and has to join again; approve it as this same device.",
+    "operationId": "reset_identity_api_v1_agent_devices__device_id__reset_identity_post",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Device Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/rooms": {
+   "get": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "List Rooms",
+    "operationId": "list_rooms_api_v1_classroom_rooms_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RoomSummary"
+         },
+         "type": "array",
+         "title": "Response List Rooms Api V1 Classroom Rooms Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/rooms/{room_id}": {
+   "get": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Get Room",
+    "operationId": "get_room_api_v1_classroom_rooms__room_id__get",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RoomView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/rooms/{room_id}/watch": {
+   "post": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Watch",
+    "operationId": "watch_api_v1_classroom_rooms__room_id__watch_post",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WatchIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WatchOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Stop Watching",
+    "operationId": "stop_watching_api_v1_classroom_rooms__room_id__watch_delete",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     },
+     {
+      "name": "session",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Session"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/devices/{device_id}/frame": {
+   "get": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Get Frame",
+    "operationId": "get_frame_api_v1_classroom_devices__device_id__frame_get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Device Id"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "thumb",
+        "detail"
+       ],
+       "type": "string",
+       "default": "thumb",
+       "title": "Kind"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       },
+       "image/jpeg": {}
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/rooms/{room_id}/layout": {
+   "put": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Put Layout",
+    "operationId": "put_layout_api_v1_classroom_rooms__room_id__layout_put",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LayoutModel"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LayoutModel"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -3414,6 +3907,45 @@
      "public_suffix_source"
     ],
     "title": "AllowlistOut"
+   },
+   "ApproveIn": {
+    "properties": {
+     "device_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Device Id"
+     },
+     "room_mode": {
+      "type": "string",
+      "enum": [
+       "fixed",
+       "network"
+      ],
+      "title": "Room Mode",
+      "default": "fixed"
+     },
+     "room_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room Id"
+     }
+    },
+    "type": "object",
+    "title": "ApproveIn"
    },
    "AssignmentIn": {
     "properties": {
@@ -3848,6 +4380,21 @@
       ],
       "title": "Last Seen At"
      },
+     "room_mode": {
+      "type": "string",
+      "title": "Room Mode"
+     },
+     "logged_in_user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Logged In User"
+     },
      "notes": {
       "type": "string",
       "title": "Notes"
@@ -3867,6 +4414,8 @@
      "os_name",
      "os_version",
      "last_seen_at",
+     "room_mode",
+     "logged_in_user",
      "notes"
     ],
     "title": "DeviceOut"
@@ -3915,6 +4464,21 @@
        }
       ],
       "title": "Room Id"
+     },
+     "room_mode": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "fixed",
+         "network"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room Mode"
      },
      "notes": {
       "anyOf": [
@@ -4047,6 +4611,44 @@
      "addedAt"
     ],
     "title": "EntryOut"
+   },
+   "FrameInfo": {
+    "properties": {
+     "at": {
+      "type": "number",
+      "title": "At"
+     },
+     "age_s": {
+      "type": "number",
+      "title": "Age S"
+     },
+     "width": {
+      "type": "integer",
+      "title": "Width"
+     },
+     "height": {
+      "type": "integer",
+      "title": "Height"
+     },
+     "screen_width": {
+      "type": "integer",
+      "title": "Screen Width"
+     },
+     "screen_height": {
+      "type": "integer",
+      "title": "Screen Height"
+     }
+    },
+    "type": "object",
+    "required": [
+     "at",
+     "age_s",
+     "width",
+     "height",
+     "screen_width",
+     "screen_height"
+    ],
+    "title": "FrameInfo"
    },
    "GroupIn": {
     "properties": {
@@ -4207,6 +4809,35 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "HeartbeatOut": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "title": "Device Id"
+     },
+     "config": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Config"
+     },
+     "config_version": {
+      "type": "string",
+      "title": "Config Version"
+     },
+     "server_time": {
+      "type": "string",
+      "title": "Server Time"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id",
+     "config",
+     "config_version",
+     "server_time"
+    ],
+    "title": "HeartbeatOut"
+   },
    "HostsPreviewOut": {
     "properties": {
      "domains": {
@@ -4318,6 +4949,202 @@
      "dry_run"
     ],
     "title": "ImportResult"
+   },
+   "JoinOut": {
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "approved",
+       "unknown"
+      ],
+      "title": "Status"
+     },
+     "fingerprint": {
+      "type": "string",
+      "title": "Fingerprint"
+     },
+     "fingerprint_display": {
+      "type": "string",
+      "title": "Fingerprint Display"
+     },
+     "server_time": {
+      "type": "string",
+      "title": "Server Time"
+     }
+    },
+    "type": "object",
+    "required": [
+     "status",
+     "fingerprint",
+     "fingerprint_display",
+     "server_time"
+    ],
+    "title": "JoinOut"
+   },
+   "JoinRequestOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "hostname": {
+      "type": "string",
+      "title": "Hostname"
+     },
+     "mac": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mac"
+     },
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "os_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Os Name"
+     },
+     "os_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Os Version"
+     },
+     "agent_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Agent Version"
+     },
+     "fingerprint": {
+      "type": "string",
+      "title": "Fingerprint"
+     },
+     "fingerprint_display": {
+      "type": "string",
+      "title": "Fingerprint Display"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Expires At"
+     },
+     "suggested_device_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Suggested Device Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "hostname",
+     "mac",
+     "ip",
+     "os_name",
+     "os_version",
+     "agent_version",
+     "fingerprint",
+     "fingerprint_display",
+     "created_at",
+     "expires_at"
+    ],
+    "title": "JoinRequestOut"
+   },
+   "LayoutModel": {
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "grid"
+      ],
+      "title": "Mode",
+      "default": "auto"
+     },
+     "rows": {
+      "type": "integer",
+      "maximum": 20.0,
+      "minimum": 1.0,
+      "title": "Rows",
+      "default": 4
+     },
+     "cols": {
+      "type": "integer",
+      "maximum": 20.0,
+      "minimum": 1.0,
+      "title": "Cols",
+      "default": 6
+     },
+     "positions": {
+      "additionalProperties": {
+       "prefixItems": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "integer"
+        }
+       ],
+       "type": "array",
+       "maxItems": 2,
+       "minItems": 2
+      },
+      "propertyNames": {
+       "format": "uuid"
+      },
+      "type": "object",
+      "title": "Positions",
+      "default": {}
+     }
+    },
+    "type": "object",
+    "title": "LayoutModel"
    },
    "LinkIn": {
     "properties": {
@@ -4985,6 +5812,35 @@
     ],
     "title": "RoomOut"
    },
+   "RoomSummary": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "devices": {
+      "type": "integer",
+      "title": "Devices"
+     },
+     "online": {
+      "type": "integer",
+      "title": "Online"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "devices",
+     "online"
+    ],
+    "title": "RoomSummary"
+   },
    "RoomUpdate": {
     "properties": {
      "name": {
@@ -5039,6 +5895,48 @@
     },
     "type": "object",
     "title": "RoomUpdate"
+   },
+   "RoomView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "layout": {
+      "$ref": "#/components/schemas/LayoutModel"
+     },
+     "devices": {
+      "items": {
+       "$ref": "#/components/schemas/ScreenDevice"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "can_edit_layout": {
+      "type": "boolean",
+      "title": "Can Edit Layout"
+     },
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "layout",
+     "devices",
+     "can_edit_layout",
+     "params"
+    ],
+    "title": "RoomView"
    },
    "ScheduleIn": {
     "properties": {
@@ -5101,6 +5999,47 @@
      "windows"
     ],
     "title": "ScheduleOut"
+   },
+   "ScreenDevice": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "hostname": {
+      "type": "string",
+      "title": "Hostname"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     },
+     "user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User"
+     },
+     "online": {
+      "type": "boolean",
+      "title": "Online"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "hostname",
+     "display_name",
+     "user",
+     "online"
+    ],
+    "title": "ScreenDevice"
    },
    "SyncStatusOut": {
     "properties": {
@@ -5751,6 +6690,128 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "WatchDevice": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "hostname": {
+      "type": "string",
+      "title": "Hostname"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     },
+     "user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User"
+     },
+     "online": {
+      "type": "boolean",
+      "title": "Online"
+     },
+     "thumb": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FrameInfo"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "detail": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FrameInfo"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "hostname",
+     "display_name",
+     "user",
+     "online",
+     "thumb",
+     "detail"
+    ],
+    "title": "WatchDevice",
+    "description": "The room's PCs as they are now (a laptop may have joined or left the room\nsince the page loaded), plus their latest pictures."
+   },
+   "WatchIn": {
+    "properties": {
+     "session": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 8,
+      "title": "Session"
+     },
+     "detail_device_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Detail Device Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "session"
+    ],
+    "title": "WatchIn"
+   },
+   "WatchOut": {
+    "properties": {
+     "devices": {
+      "items": {
+       "$ref": "#/components/schemas/WatchDevice"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "interval_s": {
+      "type": "integer",
+      "title": "Interval S"
+     },
+     "detail_interval_s": {
+      "type": "integer",
+      "title": "Detail Interval S"
+     }
+    },
+    "type": "object",
+    "required": [
+     "devices",
+     "enabled",
+     "interval_s",
+     "detail_interval_s"
+    ],
+    "title": "WatchOut"
    },
    "Widget": {
     "properties": {

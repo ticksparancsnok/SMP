@@ -46,8 +46,11 @@ smp/
   modules/
     __init__.py     the list of compiled-in modules
     shortlinks/     reference module
+    dns/            DNS blocklist/allowlist, synced to the Go sinkhole
+    agent/          PC agents: join requests, approval, signed heartbeats (long poll)
+    classroom/      monitoring: who watches which room, screen frames (memory only), seating plans
   migrations/       Alembic (one history for all modules)
-  cli.py            smp preflight | status | migrate | bootstrap | create-token | reencrypt-otps | openapi | serve
+  cli.py            smp preflight | status | migrate | bootstrap | dns-sync | create-token | reencrypt-otps | openapi | serve
 ```
 
 See `../docs/architecture.md` and `../docs/writing-a-module.md`.
@@ -121,6 +124,7 @@ smp migrate
 | `SMP_FORWARDED_ALLOW_IPS` | `127.0.0.1` | reverse proxies trusted for the client IP (IPs or CIDRs; must include yours). Compose sets it to SMP's docker network, where the bundled nginx runs |
 | `SMP_HASH_CONCURRENCY` | half the CPUs | argon2 hashes running at once (64 MiB each) |
 | `SMP_ENABLED_MODULES` | all | comma separated; core is always on |
+| `SMP_AGENT_LONGPOLL_SECONDS` | `25` | how long a PC's heartbeat waits for a config change before the server answers anyway |
 | `SMP_CORS_ORIGINS` | none | only if the UI is served from another origin |
 | `SMP_UI_DIR` | none | serve the built web UI (`WEBUI/dist`) at `/`; set in the Docker image |
 | `SMP_DNS_SINKHOLE_URL` | `http://127.0.0.1:8080` | Go DNS sinkhole; `http://dns-sinkhole:8080` inside Compose |

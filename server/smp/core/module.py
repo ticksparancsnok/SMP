@@ -17,6 +17,8 @@ What a module provides (optional hooks):
   - subscribe(bus)    : register event handlers
   - identity_providers(): extra login backends (ldap, google, ...)
   - dashboard(ctx)    : cards for the portal's home page
+  - agent_config(db, device): this module's section of the config the device agent
+                        receives (e.g. "screen": interval, size); None = nothing
   - startup()/shutdown()
 """
 
@@ -32,10 +34,12 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from smp.core.context import Ctx
     from smp.core.events import EventBus
     from smp.core.identity import IdentityProvider
+    from smp.core.models import Device
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
@@ -116,6 +120,14 @@ class Module:
         """Home-page cards for the calling user. Check permissions here: only
         return what ctx.principal is allowed to see."""
         return ()
+
+    async def agent_config(self, db: AsyncSession, device: Device) -> dict[str, Any] | None:
+        """This module's section of a device agent's config (see modules/agent). Return
+        the same answer for the same state (database, or in-memory state such as who is
+        watching a room): the agent module hashes the whole config to tell agents
+        whether anything changed. Publish `agent.config.changed` when that state
+        changes, so waiting agents ask again at once."""
+        return None
 
     async def startup(self) -> None:  # noqa: B027
         pass

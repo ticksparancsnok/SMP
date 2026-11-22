@@ -128,6 +128,19 @@ Rules:
 
 They authenticate with an API token that has only the permissions they need (e.g. `core.devices.read`, `core.policies.read`), and they should cache what they fetch so they keep working when the control plane is down. Put the endpoints they call (e.g. "full DNS policy snapshot") in your module's router.
 
+**The agent on the PCs** works differently: no tokens, every request is signed with the PC's own key. To give PCs something to do:
+
+1. Return your section from the module hook (keep it small; it is sent on every config change):
+
+   ```python
+   async def agent_config(self, db, device) -> dict | None:
+       return {"active": True, "interval_s": 5}   # arrives at the agent as config["<module name>"]
+   ```
+
+   When something that changes the answer happens, publish `agent.config.changed` (or one of the `core.*` events the agent module already listens to): waiting agents get the new config at once.
+2. Endpoints the agent calls use `smp.modules.agent.api.authenticate_agent(request)` (returns the device and the raw body; rejects unsigned, unknown or replayed requests).
+3. In `agent/`, add a capability that reads your section (see `agent/README.md`, "Adding a capability"). The screen monitor (`classroom` module + `capabilities/screen`) is the worked example.
+
 ## 6. Web UI page
 
 The menu is built from your manifest's `ui_routes`, so the entry appears automatically (greyed-out placeholders for `dns`/`classroom`/`software` vanish once the module is enabled). To give it a page:

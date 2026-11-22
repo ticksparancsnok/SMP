@@ -85,15 +85,25 @@ services:
       DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
       # Blocked names resolve to this address: the server's LAN IP, where nginx serves
       # the block page. ./install.sh fills it.
-      SINKHOLE_IP: ${SMP_SINKHOLE_IP:-127.0.0.1}
+      SINKHOLE_IP: ${SMP_SINKHOLE_IP:?set SMP_SINKHOLE_IP (this server's LAN address) in .env}
+      # The last lists synced from the server live on a volume: DNS keeps filtering
+      # after a rebuild/restart even while the server is down (install.sh re-syncs too).
+      BLOCKLIST_PATH: /app/data/blocklist.json
+    volumes:
+      - dnsdata:/app/data
     expose:
       - "8080"  # block page + sync API, through nginx / for the server only
     ports:
-      # TODO(evaluate, issue #5): published on every interface, and the resolver answers anyone
+      # DNS for the school's computers: port 53 on this server's LAN address (clients
+      # can't use another port: Windows has no setting for it). Only that address:
+      # 0.0.0.0:53 usually collides with the host's own resolver (systemd-resolved
+      # listens on 127.0.0.53:53). CoreDNS itself listens on 1053 inside the container.
+      # SMP_DNS_PORT=1053 in .env keeps a test machine's port 53 free.
+      # TODO(evaluate, issue #5): the resolver answers anyone who can reach this address
       # (open resolver). OK on a NATed school network; if it's ever internet-facing,
-      # bind it to the LAN address or add an acl to the Corefile (see the note there).
-      - "1053:1053/udp"
-      - "1053:1053/tcp"
+      # add an acl to the Corefile (see the note there).
+      - "${SMP_SINKHOLE_IP:?set SMP_SINKHOLE_IP in .env}:${SMP_DNS_PORT:-53}:1053/udp"
+      - "${SMP_SINKHOLE_IP:?set SMP_SINKHOLE_IP in .env}:${SMP_DNS_PORT:-53}:1053/tcp"
     restart: unless-stopped
 
 networks:
@@ -106,3 +116,4 @@ networks:
 
 volumes:
   pgdata:
+  dnsdata:

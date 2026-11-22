@@ -8,6 +8,7 @@ agent is installed.
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, IPvAnyAddress, field_validator
@@ -46,6 +47,8 @@ class DeviceUpdate(BaseModel):
     display_name: str | None = None
     mac: str | None = None
     room_id: uuid.UUID | None = None
+    # "fixed": room_id as set here; "network": the agent's current subnet decides
+    room_mode: Literal["fixed", "network"] | None = None
     notes: str | None = None
     status: DeviceStatus | None = None
 
@@ -60,11 +63,13 @@ class DeviceOut(ORMModel):
     last_ip: str | None
     room_id: uuid.UUID | None
     status: str
-    agent_id: str | None
+    agent_id: str | None  # the agent key's SHA-256 fingerprint (null: no enrolled agent)
     agent_version: str | None
     os_name: str | None
     os_version: str | None
     last_seen_at: datetime | None
+    room_mode: str
+    logged_in_user: str | None
     notes: str
 
 

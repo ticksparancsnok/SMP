@@ -3,6 +3,7 @@
     smp preflight                     check config + database login, explain what's wrong
     smp status                        is the database reachable, is the school set up?
     smp migrate                       apply DB migrations
+    smp dns-sync                      push the DNS block/allowlists to the sinkhole (install.sh does)
     smp bootstrap --org-name "X" ...  create the first org + admin (idempotent per org slug)
                   --otp               ...with a one-time password instead of a typed one
     smp create-token --name dns --perm core.policies.read --perm core.devices.read
@@ -148,6 +149,34 @@ async def _status(args) -> None:
     print(f"bootstrapped={'yes' if org is not None and admins else 'no'}")
     print(f"school_name={org.name if org else ''}")
     print(f"admins={admins}")
+
+
+async def _dns_sync(args) -> None:
+    """Push the school's DNS lists to the sinkhole. The server pushes after every change;
+    this covers the rest (a new or emptied sinkhole volume, a restored database)."""
+    import httpx
+
+    from smp.core import db
+    from smp.core.config import get_settings
+    from smp.core.models import Organization
+    from smp.modules.dns.api import push_to_sinkhole, sync_payload
+
+    db.init_engine()
+    try:
+        async with db.sessionmaker()() as s:
+            org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()
+            if org is None:
+                print("dns-sync: school not set up yet, nothing to sync")
+                return
+            payload = await sync_payload(s, org.id)
+    finally:
+        await db.dispose_engine()
+    url = get_settings().dns_sinkhole_url
+    try:
+        await push_to_sinkhole(payload)
+    except httpx.HTTPError as e:
+        sys.exit(f"dns-sync: the DNS sinkhole at {url} didn't take the lists ({type(e).__name__}: {e})")
+    print(f"dns-sync: {len(payload['entries'])} blocked and {len(payload['allowlist'])} allowed domain(s) sent to {url}")
 
 
 def _preflight_problems() -> list[tuple[str, str]]:
@@ -325,6 +354,10 @@ def main(argv: list[str] | None = None) -> None:
     st = sub.add_parser("status", help="database reachable? school set up? (KEY=value lines)")
     st.add_argument("--org-slug", default=get_settings().default_org)
     st.set_defaults(func=lambda a: asyncio.run(_status(a)))
+
+    ds = sub.add_parser("dns-sync", help="push the DNS block/allowlists to the sinkhole")
+    ds.add_argument("--org-slug", default=get_settings().default_org)
+    ds.set_defaults(func=lambda a: asyncio.run(_dns_sync(a)))
 
     pf = sub.add_parser("preflight", help="check configuration and database login; explain problems")
     pf.add_argument("--fail-delay", type=int, default=30, help="seconds to wait before exiting on failure")

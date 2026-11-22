@@ -63,9 +63,6 @@ lan=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 [ -n "$lan" ] || lan=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' || true)
 host_short=$(hostname 2>/dev/null || true)
 host_fqdn=$(hostname -f 2>/dev/null || true)
-if ! docker buildx version </dev/null >/dev/null 2>&1; then
-    warn "Tip: the docker buildx plugin isn't installed; builds use docker's older builder (slower, occasionally flaky)."
-fi
 say "docker OK; database volume $volume: $([ $db_exists = yes ] && echo exists || echo "not created yet"); LAN address: ${lan:-unknown}"
 
 # ------------------------------------------------------------------ .env: secrets
@@ -143,7 +140,9 @@ fi
 
 sinkhole=$(env_get SMP_SINKHOLE_IP)
 if [ -z "$sinkhole" ]; then
-    say "Blocked sites resolve to this server's LAN address, where nginx shows the block page."
+    say "The school's computers will use this server's LAN address as their DNS server,"
+    say "and blocked sites resolve to it (nginx shows the block page there). Give the"
+    say "server a fixed address (e.g. a DHCP reservation), or the clients lose DNS when it changes."
     while :; do
         ask sinkhole "This server's LAN IPv4 address" "${lan:-127.0.0.1}"
         is_ipv4 "$sinkhole" && break
@@ -151,7 +150,24 @@ if [ -z "$sinkhole" ]; then
     done
     env_set SMP_SINKHOLE_IP "$sinkhole"
 else
-    say "block page address (SMP_SINKHOLE_IP in .env): $sinkhole"
+    say "DNS / block page address (SMP_SINKHOLE_IP in .env): $sinkhole"
+fi
+dns_port=$(env_get SMP_DNS_PORT)
+dns_port=${dns_port:-53}
+
+# Port 53 must be free on that address (unless our own DNS container already holds it).
+# A program listening on all addresses (0.0.0.0 / [::]) or on this one blocks it;
+# systemd-resolved's usual 127.0.0.53 / 127.0.0.54 doesn't.
+if command -v ss >/dev/null && [ -z "$(dc ps -q dns-sinkhole 2>/dev/null)" ]; then
+    taken=$(ss -H -ln -u -t "sport = :$dns_port" 2>/dev/null | awk '{print $5}' \
+        | grep -E "^(0\.0\.0\.0|\*|\[::\]|${sinkhole//./\\.}):$dns_port$" | sort -u | tr '\n' ' ' || true)
+    if [ -n "$taken" ]; then
+        warn "Port $dns_port on $sinkhole is already in use by another program (listening on: $taken)."
+        say  "SMP's DNS needs it, because Windows clients can only use port 53. Stop that program"
+        say  "(often dnsmasq, bind/named, or a DNS server enabled for the whole network), or for a"
+        say  "test machine set SMP_DNS_PORT=1053 in .env. Then run ./install.sh again."
+        die "port $dns_port is taken on $sinkhole"
+    fi
 fi
 mkdir -p nginx/certs
 
@@ -166,12 +182,7 @@ fi
 
 step "Building and starting the containers (the first build takes a few minutes)"
 if ! dc up -d --build; then
-    # docker's legacy builder (no buildx) occasionally fails while packing a build
-    # context ("read/write on closed pipe"); a second attempt normally succeeds.
-    warn "starting failed; trying once more"
-    if ! dc up -d --build; then
-        die "starting the containers failed (see above). If port 80 or 443 is already in use on this machine, set SMP_HTTP_PORT / SMP_HTTPS_PORT in .env and run ./install.sh again"
-    fi
+    die "starting the containers failed (see above). If a port is already in use on this machine: SMP_HTTP_PORT / SMP_HTTPS_PORT (80/443) and SMP_DNS_PORT (53) in .env, then run ./install.sh again"
 fi
 
 step "Waiting for the server"
@@ -234,6 +245,14 @@ else
     created=yes
 fi
 
+# The DNS container keeps its lists on a volume, but a new or emptied volume (or a
+# restored database) needs them pushed again; the server only pushes on changes.
+if sync=$(dc exec -T server smp dns-sync 2>&1); then
+    say "$sync"
+else
+    warn "couldn't send the DNS lists to the sinkhole yet; they go out with the next blocklist change ($sync)"
+fi
+
 # ------------------------------------------------------------------ summary
 https_port=$(env_get SMP_HTTPS_PORT)
 https_port=${https_port:-443}
@@ -245,6 +264,15 @@ say "Open SMP:    https://localhost$suffix/"
 for n in ${names//,/ }; do
     case $n in localhost|127.0.0.1) ;; *) say "             https://$n$suffix/" ;; esac
 done
+say ""
+if [ "$dns_port" = 53 ]; then
+    say "DNS server:  $sinkhole   (give this to the school's computers as their only DNS server)"
+    say "             Easiest: hand it out via the school's DHCP (DNS server option) instead of"
+    say "             setting each PC. Don't add a public DNS as secondary: clients would use it"
+    say "             to get around the filter."
+else
+    warn "DNS server:  $sinkhole port $dns_port (test setting: clients need port 53; set SMP_DNS_PORT=53 in .env)"
+fi
 if grep -qs "SMP self-signed" <(dc exec -T nginx openssl x509 -in /etc/nginx/certs/fullchain.pem -noout -subject 2>/dev/null); then
     say ""
     warn "The certificate is self-signed: browsers warn once per device; accept it to continue."

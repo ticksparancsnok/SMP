@@ -40,3 +40,14 @@ dist/
 # ---- logs
 *.log
 npm-debug.log*
+
+# ---- Rust agent
+# build output (also if cargo was run inside a sub-folder)
+/agent/target/
+/agent/**/target/
+# built programs: hand them out as release files, never commit them
+/agent/**/*.exe
+/agent/**/*.pdb
+# an agent's state file holds that PC's private key (e.g. `smp-agent --state ./agent.json`)
+agent.json
+agent.json.tmp

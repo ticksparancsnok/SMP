@@ -212,8 +212,14 @@ class Device(UUIDPk, Timestamps, OrgScoped, Base):
     room_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("rooms.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(16), default=DeviceStatus.PENDING)
 
-    # Filled in by the agent module.
+    # Filled in by the agent module. agent_id is the SHA-256 fingerprint (hex) of the
+    # agent's public key: the device's identity, independent of its IP address.
     agent_id: Mapped[str | None] = mapped_column(String(64))
+    agent_public_key: Mapped[str | None] = mapped_column(Text)  # P-256 point, base64url
+    # "fixed": the room is set by an admin (desktops). "network": the room follows the
+    # subnet of the IP the agent reports from (laptops moving between VLANs / APs).
+    room_mode: Mapped[str] = mapped_column(String(16), default="fixed", server_default="fixed")
+    logged_in_user: Mapped[str | None] = mapped_column(String(256))  # console session user
     agent_version: Mapped[str | None] = mapped_column(String(32))
     cert_fingerprint: Mapped[str | None] = mapped_column(String(128))
     os_name: Mapped[str | None] = mapped_column(String(64))
