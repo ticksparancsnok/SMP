@@ -8,15 +8,37 @@ One platform for managing school computers: DNS-based site blocking with automat
 - `docs/writing-a-module.md`: how to add a service module (backend + UI page)
 - `docs/security.md`: operator checklist (secret key, reverse proxy, rate limits) and security review decisions
 
-Quick start:
+Quick start (needs Docker with the compose plugin):
 
 ```sh
-docker compose up -d --build
-docker compose exec server smp bootstrap --org-name "My School"
-# open http://localhost:8000 (API docs: /api/docs)
+./install.sh
 ```
 
-The Docker stack also starts the Go DNS sinkhole on UDP/TCP port 1053 and its
-block page on port 8080. Mutations made in the web UI or control-plane API are
-stored in PostgreSQL and synchronized to
-`http://dns-sinkhole:8080/api/blocklist/sync`.
+The installer creates `.env` with random secrets, works out SMP's addresses (it
+asks for extra names such as `smp.iskola.hu`), builds and starts the containers,
+waits until everything is up, and on first setup asks for the school name and the
+administrator's username. It ends by printing the administrator's **one-time
+password**: sign in at https://localhost (or the LAN address it lists) with it, and
+SMP asks you to choose your own. Run `./install.sh` again after updating SMP: it rebuilds, migrates and leaves
+your data and admin alone. Keep a backup of `.env`; without it the database can't be
+opened.
+
+If the server doesn't come up, `docker compose logs server` starts with a plain
+explanation (e.g. a database password that no longer matches the existing database).
+
+API docs: https://localhost/api/docs (administrators only).
+
+All web traffic goes through **nginx** (ports 80 and 443; change them with
+`SMP_HTTP_PORT` / `SMP_HTTPS_PORT` in `.env`):
+
+- requests for SMP's own names (`SMP_SERVER_NAMES`) get the portal, always over HTTPS;
+- any other name is a site the DNS filter blocked, and gets the block page.
+
+HTTPS starts with a self-signed certificate (browsers warn once). For a real one, put
+`fullchain.pem` and `privkey.pem` into `nginx/certs/` and run
+`docker compose restart nginx`; SMP never overwrites a certificate you provide.
+
+The stack also runs the Go DNS sinkhole on UDP/TCP port 1053. Blocked names resolve to
+this server (`SMP_SINKHOLE_IP`), where nginx shows the block page. Blocklist changes
+made in the web UI or API are stored in PostgreSQL and synchronized to the sinkhole
+inside the docker network. Only nginx and the DNS port are published.

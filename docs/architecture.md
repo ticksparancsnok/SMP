@@ -53,7 +53,7 @@ This gives you:
   - **Storage:** the OTP's argon2 hash is the account password until first login. An encrypted copy (Fernet, key from `SMP_SECRET_KEY`) is kept so admins can export login slips (`GET /users/credentials.xlsx`: the import columns plus One-time password and Valid until (Egyszeri jelszó, Érvényes eddig with `?lang=hu`); admin-only and audited by username, never by value) until the OTP is used. Without `SMP_SECRET_KEY` these endpoints answer 503.
   - **Forced change:** any admin-set password (OTP or typed) sets `must_change_password`. Until it's changed, the server answers every endpoint except `/auth/me`, `/auth/password`, `/auth/logout` and `/modules` with `403 password change required`. Changing the password rotates the session (all of the user's sessions end and a new cookie is issued) and clears the OTP.
   - **Who sees activation state:** `must_change_password` and `otp_status` appear in user listings only for admins (`core.users.write`).
-  - **Exempt:** the bootstrap admin from `smp bootstrap` chose their own password.
+  - **The first admin too:** `./install.sh` runs `smp bootstrap --otp`, so the bootstrap admin also starts with a one-time password and must replace it at first sign-in. (`smp bootstrap` without `--otp` asks for a password instead and keeps it, for development.)
 - **Class teachers** (`group_teachers`, set on the Csoportok page via `PUT /groups/{id}/teachers`) are teachers responsible for a group. They're kept separate from members, so they don't inherit the students' group policies or count as members. A class teacher (`core.users.reset_class_password`, granted to teachers by default) can issue a **new one-time password** (`POST /users/{id}/password` with an empty body) to users who are members of a group they teach and have only the student role. They can't do it for teachers, admins or themselves, and can't set typed passwords. The user list returns `can_reset_password` per row, and shows activation state to whoever may reset that account. Resets are audited with `"as": "class_teacher"`.
 - Password policy (`smp/core/passwords.py`) for passwords people choose: at least 8 characters, letters and digits, at least 5 distinct characters, not a common password, and not containing the username. It applies to password changes, admin-typed passwords and `smp bootstrap`.
 - User import/export (`server/smp/core/xlsx_users.py`): `.xlsx` with the columns **Name | Username | Class** (classes comma separated). Downloads take `?lang=en|hu` (the UI sends its language; Hungarian headers are **Név | Felhasználónév | Osztály**), and import accepts either header set.
@@ -110,13 +110,15 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 
 ## Deployment
 
-`docker compose up -d --build` runs Postgres and the server. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). The server applies migrations on start. Then run once:
+`./install.sh` sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
 
-```
-docker compose exec server smp bootstrap --org-name "My School"
-```
+**nginx** (`nginx/`, an image built on `nginx:1.30.7-alpine`) is the only web entry point:
 
-Production: put a TLS reverse proxy (Caddy/nginx) in front and set `SMP_COOKIE_SECURE=true` (the default outside compose). Run uvicorn with `--forwarded-allow-ips` set to the proxy so audit IPs are real.
+- **Routing by name:** `SMP_SERVER_NAMES` → the portal (HTTP redirects to HTTPS); any other name → the DNS sinkhole's block page (port 80, and 443 after the browser's certificate warning). A name that is neither SMP's nor blocked gets a short "unknown address" page.
+- **TLS:** on start the container creates a self-signed certificate for exactly `SMP_SERVER_NAMES` (renewed when the names change) unless `nginx/certs/` holds a certificate someone else issued, which is never touched. No HSTS while the certificate is self-signed, or browsers wouldn't let users past the warning.
+- **Hardening:** login and general rate limits, `nosniff`, `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `Referrer-Policy`, 64 MB upload limit (imports).
+- **Client IPs:** nginx overwrites `X-Forwarded-For` with the real client address; the server trusts it only from SMP's docker network (`SMP_DOCKER_SUBNET`, fixed so it can be trusted), so audit IPs and the login throttle see real clients and nobody can fake theirs.
+- The server (8000) and the block page/sync API (8080) are not published; only nginx (80/443) and DNS (1053) are.
 
 ## Not done yet (intentionally)
 

@@ -81,9 +81,16 @@ func setup(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error("schoolfilter", err)
 	}
-	sinkhole := net.ParseIP(args[1])
+	// SINKHOLE_IP (set by docker compose from SMP_SINKHOLE_IP) overrides the Corefile:
+	// blocked names must resolve to the server's LAN address, where nginx shows the
+	// block page; the Corefile's 127.0.0.1 only suits a local demo.
+	sinkholeArg := args[1]
+	if env := strings.TrimSpace(os.Getenv("SINKHOLE_IP")); env != "" {
+		sinkholeArg = env
+	}
+	sinkhole := net.ParseIP(sinkholeArg)
 	if sinkhole == nil || sinkhole.To4() == nil {
-		return c.Errf("invalid IPv4 sinkhole address %q", args[1])
+		return c.Errf("invalid IPv4 sinkhole address %q", sinkholeArg)
 	}
 	httpAddr := ":8080"
 	if len(args) == 3 {

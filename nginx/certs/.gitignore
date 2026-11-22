@@ -1,0 +1,4 @@
+# Certificates and keys never go into git. Put fullchain.pem + privkey.pem here to
+# replace the self-signed certificate, then: docker compose restart nginx
+*
+!.gitignore
