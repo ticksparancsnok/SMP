@@ -17,7 +17,7 @@ class CoreSettings(BaseModel):
     school_name: str = ""
     audit_retention_days: int = Field(365, ge=30, le=3650)
     otp_valid_days: int = Field(
-        14, ge=1, le=180, description="Az egyszeri (kezdő) jelszavak ennyi napig érvényesek, utána újat kell generálni."
+        14, ge=1, le=180, description="One-time (initial) passwords are valid for this many days; after that a new one is needed."
     )
 
 
@@ -51,15 +51,16 @@ class CoreModule(Module):
     )
 
     ui_routes = (
-        UiRoute("/", "Kezdőlap", "🏠", None, "overview"),
-        UiRoute("/account", "Saját fiók", "👤", None, "account"),
-        UiRoute("/users", "Felhasználók", "🎓", "core.users.read", "admin"),
-        UiRoute("/groups", "Csoportok", "👥", "core.groups.read", "admin"),
-        UiRoute("/rooms", "Termek", "🏢", "core.rooms.read", "admin"),
-        UiRoute("/devices", "Gépek", "💻", "core.devices.read", "admin"),
-        UiRoute("/policies", "Szabályok", "📋", "core.policies.read", "admin"),
-        UiRoute("/audit", "Audit napló", "📜", "core.audit.read", "admin"),
-        UiRoute("/settings", "Beállítások", "⚙️", "core.settings.read", "admin"),
+        # Titles are English; the web UI translates them by path.
+        UiRoute("/", "Home", "🏠", None, "overview"),
+        UiRoute("/account", "My account", "👤", None, "account"),
+        UiRoute("/users", "Users", "🎓", "core.users.read", "admin"),
+        UiRoute("/groups", "Groups", "👥", "core.groups.read", "admin"),
+        UiRoute("/rooms", "Rooms", "🏢", "core.rooms.read", "admin"),
+        UiRoute("/devices", "Devices", "💻", "core.devices.read", "admin"),
+        UiRoute("/policies", "Policies", "📋", "core.policies.read", "admin"),
+        UiRoute("/audit", "Audit log", "📜", "core.audit.read", "admin"),
+        UiRoute("/settings", "Settings", "⚙️", "core.settings.read", "admin"),
     )
 
     events = (

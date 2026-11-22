@@ -17,6 +17,7 @@ dependencies = [
     "defusedxml>=0.7",  # openpyxl uses it automatically to parse untrusted .xlsx safely
     "cryptography>=43",  # encrypts one-time passwords at rest (Fernet)
     "httpx>=0.27",  # dns module: pushes the blocklist to the Go sinkhole
+    "tldextract>=5.1",  # dns module: Public Suffix List (bundled snapshot, used offline)
 ]
 
 [project.optional-dependencies]

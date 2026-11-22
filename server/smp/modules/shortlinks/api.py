@@ -2,13 +2,14 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import RedirectResponse
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 
 from smp.core.context import Ctx, public_ctx, require
 from smp.core.db import utcnow
+from smp.core.errors import AppError
 from smp.modules.shortlinks import ShortlinksSettings
 from smp.modules.shortlinks.models import ShortLink
 
@@ -51,7 +52,7 @@ class LinkOut(BaseModel):
 async def _own_link(ctx: Ctx, link_id: uuid.UUID) -> ShortLink:
     link = await ctx.get(ShortLink, link_id)
     if link.owner_id != ctx.principal.id and not ctx.principal.can(MANAGE_ALL):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "ShortLink not found")
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "ShortLink not found", entity="ShortLink")
     return link
 
 
@@ -70,7 +71,9 @@ async def create_link(body: LinkIn, ctx: Ctx = Depends(require(CREATE))):
         select(func.count()).where(ShortLink.org_id == ctx.org_id, ShortLink.owner_id == ctx.principal.id)
     )
     if (owned or 0) >= settings.max_links_per_user:
-        raise HTTPException(status.HTTP_409_CONFLICT, "link limit reached")
+        raise AppError(
+            status.HTTP_409_CONFLICT, "shortlinks.limit_reached", "link limit reached", max=settings.max_links_per_user
+        )
 
     expires_at = body.expires_at
     if expires_at is None and settings.default_expiry_days:
@@ -128,6 +131,6 @@ async def follow(code: str, ctx: Ctx = Depends(public_ctx)):
         .returning(ShortLink.target_url)
     )
     if target is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "link not found or expired")
+        raise AppError(status.HTTP_404_NOT_FOUND, "shortlinks.not_found_or_expired", "link not found or expired")
     await ctx.commit()
     return RedirectResponse(target, status_code=status.HTTP_302_FOUND)

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from smp.core.api import ORMModel
 from smp.core.context import Ctx, require
+from smp.core.errors import AppError
 from smp.core.models import Device, Group, Policy, PolicyAssignment, Room, Schedule, TargetType, User
 from smp.core.policy import effective_policies, emit_policy_changed, resolve_ip, validate_windows
 
@@ -199,8 +200,11 @@ async def delete_schedule(schedule_id: uuid.UUID, ctx: Ctx = Depends(require("co
         select(func.count()).where(PolicyAssignment.org_id == ctx.org_id, PolicyAssignment.schedule_id == s.id)
     )
     if in_use:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"schedule is used by {in_use} policy assignment(s); remove those first"
+        raise AppError(
+            status.HTTP_409_CONFLICT,
+            "policies.schedule_in_use",
+            f"schedule is used by {in_use} policy assignment(s); remove those first",
+            count=in_use,
         )
     ctx.audit("core.schedule.delete", s, {"name": s.name})
     emit_policy_changed(ctx, schedule_id=s.id)
@@ -227,7 +231,7 @@ async def _check_assign(
         obj = await ctx.db.get(model, target_id)
         if obj is None or obj.org_id != ctx.org_id:
             if not allow_missing:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, f"{model.__name__} not found")
+                raise AppError(status.HTTP_404_NOT_FOUND, "not_found", f"{model.__name__} not found", entity=model.__name__)
         elif target_type == TargetType.ROOM:
             room_id = obj.id
         elif target_type == TargetType.DEVICE:

@@ -1,12 +1,16 @@
 // Thin fetch wrapper for /api/v1. Auth is the HttpOnly session cookie set by
 // /auth/login, so there is no token handling here.
+import { t, tOr, type Params } from '../i18n'
 
 export class ApiError extends Error {
   constructor(
     public status: number,
     public detail: unknown,
+    /** Stable error code from the server (smp/core/errors.py), translated by the UI. */
+    public code: string | null = null,
+    public params: Params = {},
   ) {
-    super(describe(status, detail))
+    super(typeof detail === 'string' ? detail : `HTTP ${status}`)
   }
 }
 
@@ -53,14 +57,20 @@ async function send(method: string, path: string, opts: Options = {}): Promise<R
   if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized()
   if (!res.ok) {
     let detail: unknown = res.statusText
+    let code: string | null = null
+    let params: Params = {}
     try {
-      detail = (await res.json()).detail
+      const body = await res.json()
+      detail = body.detail
+      if (typeof body.code === 'string') code = body.code
+      if (body.params && typeof body.params === 'object') params = body.params
     } catch {
       /* not JSON */
     }
     // Safety net: an admin reset this user's password while they were using the app.
-    if (res.status === 403 && detail === 'password change required') onPasswordChangeRequired()
-    throw new ApiError(res.status, detail)
+    if (res.status === 403 && (code === 'auth.password_change_required' || detail === 'password change required'))
+      onPasswordChangeRequired()
+    throw new ApiError(res.status, detail, code, params)
   }
   return res
 }
@@ -72,7 +82,7 @@ async function request<T>(method: string, path: string, opts: Options = {}): Pro
 }
 
 /** GET a file and hand it to the browser as a download (keeps cookie auth and error handling). */
-async function download(path: string, query?: Query, fallbackName = 'letoltes'): Promise<void> {
+async function download(path: string, query?: Query, fallbackName = 'download'): Promise<void> {
   const res = await send('GET', path, { query })
   const disposition = res.headers.get('content-disposition') ?? ''
   const name = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName
@@ -104,7 +114,16 @@ interface FieldError {
   msg?: string
 }
 
-function describe(status: number, detail: unknown): string {
+/** The text to show for an API error, in the current UI language: the translation of
+ *  its code if we have one, otherwise a generic message by status (plus the server's
+ *  English detail where that helps). */
+function describe(e: ApiError): string {
+  const { status, detail } = e
+  const text = typeof detail === 'string' ? detail : ''
+  if (e.code) {
+    const translated = tOr(`code.${e.code}`, '', e.params)
+    if (translated) return translated
+  }
   if (Array.isArray(detail)) {
     // FastAPI / pydantic validation errors
     return (detail as FieldError[])
@@ -114,22 +133,22 @@ function describe(status: number, detail: unknown): string {
       })
       .join('; ')
   }
-  const text = typeof detail === 'string' ? detail : ''
   switch (status) {
     case 401:
-      return text || 'Nincs bejelentkezve.'
+      return text || t('error.not_signed_in')
     case 403:
-      return `Nincs jogosultságod ehhez a művelethez. (${text})`
+      return t('error.forbidden', { detail: text })
     case 404:
-      return text || 'Nem található.'
+      return text || t('error.not_found')
     case 409:
-      return 'Ütközés: már létezik ilyen elem, vagy elérted a korlátot.'
+      return t('error.conflict')
     default:
-      return text || `Hiba (${status})`
+      return text || t('error.generic', { status })
   }
 }
 
 export function errorText(e: unknown): string {
+  if (e instanceof ApiError) return describe(e)
   if (e instanceof Error) return e.message
   return String(e)
 }

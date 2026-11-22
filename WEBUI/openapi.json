@@ -265,7 +265,7 @@
      "users"
     ],
     "summary": "Export Users",
-    "description": "The users matching the same filters as GET /users, as Név | Felhasználónév |\nOsztály (the user's class-type groups, comma separated).",
+    "description": "The users matching the same filters as GET /users, as Name | Username | Class\n(the user's class-type groups, comma separated). `lang` picks the column headers\n(en: Name | Username | Class, hu: Név | Felhasználónév | Osztály).",
     "operationId": "export_users_api_v1_users_export_xlsx_get",
     "parameters": [
      {
@@ -315,6 +315,20 @@
         }
        ],
        "title": "Group Id"
+      }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
       }
      }
     ],
@@ -395,6 +409,20 @@
        ],
        "title": "Group Id"
       }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
+      }
      }
     ],
     "responses": {
@@ -423,13 +451,39 @@
      "users"
     ],
     "summary": "Import Sample",
-    "description": "Example file in the import/export format (same content as docs/samples/).",
+    "description": "Example file in the import/export format, with `lang` headers (same content as\ndocs/samples/users-sample.xlsx and felhasznalok-minta.xlsx).",
     "operationId": "import_sample_api_v1_users_import_sample_xlsx_get",
+    "parameters": [
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
       }
      }
     }
@@ -3105,6 +3159,146 @@
     }
    }
   },
+  "/api/v1/dns/allowlist": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "List Allowlist",
+    "operationId": "list_allowlist_api_v1_dns_allowlist_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AllowlistOut"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Create Allow Entry",
+    "operationId": "create_allow_entry_api_v1_dns_allowlist_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AllowIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AllowEntryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/allowlist/{entry_id}": {
+   "delete": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Delete Allow Entry",
+    "operationId": "delete_allow_entry_api_v1_dns_allowlist__entry_id__delete",
+    "parameters": [
+     {
+      "name": "entry_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Entry Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/check": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Check Domain",
+    "description": "Would this domain be blocked right now? (Same decision as the sinkhole.)",
+    "operationId": "check_domain_api_v1_dns_check_get",
+    "parameters": [
+     {
+      "name": "domain",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Check Domain Api V1 Dns Check Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/dns/status": {
    "get": {
     "tags": [
@@ -3129,6 +3323,98 @@
  },
  "components": {
   "schemas": {
+   "AllowEntryOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "domain": {
+      "type": "string",
+      "title": "Domain"
+     },
+     "includeSubdomains": {
+      "type": "boolean",
+      "title": "Includesubdomains"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "addedBy": {
+      "type": "string",
+      "title": "Addedby"
+     },
+     "addedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Addedat"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "domain",
+     "includeSubdomains",
+     "reason",
+     "addedBy",
+     "addedAt"
+    ],
+    "title": "AllowEntryOut"
+   },
+   "AllowIn": {
+    "properties": {
+     "domain": {
+      "type": "string",
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Domain"
+     },
+     "include_subdomains": {
+      "type": "boolean",
+      "title": "Include Subdomains",
+      "default": true
+     },
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "title": "Reason",
+      "default": ""
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "domain"
+    ],
+    "title": "AllowIn"
+   },
+   "AllowlistOut": {
+    "properties": {
+     "entries": {
+      "items": {
+       "$ref": "#/components/schemas/AllowEntryOut"
+      },
+      "type": "array",
+      "title": "Entries"
+     },
+     "public_suffixes": {
+      "type": "integer",
+      "title": "Public Suffixes"
+     },
+     "public_suffix_source": {
+      "type": "string",
+      "title": "Public Suffix Source"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entries",
+     "public_suffixes",
+     "public_suffix_source"
+    ],
+    "title": "AllowlistOut"
+   },
    "AssignmentIn": {
     "properties": {
      "policy_id": {
@@ -3670,6 +3956,7 @@
      },
      "reason": {
       "type": "string",
+      "maxLength": 500,
       "title": "Reason",
       "default": ""
      },
@@ -3731,6 +4018,22 @@
       "type": "string",
       "format": "date-time",
       "title": "Addedat"
+     },
+     "active": {
+      "type": "boolean",
+      "title": "Active",
+      "default": true
+     },
+     "inactiveReason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Inactivereason"
      }
     },
     "type": "object",
@@ -3916,6 +4219,14 @@
      "unique_count": {
       "type": "integer",
       "title": "Unique Count"
+     },
+     "skipped": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Skipped",
+      "default": []
      }
     },
     "type": "object",
@@ -3934,12 +4245,32 @@
      "error": {
       "type": "string",
       "title": "Error"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "params": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Params",
+      "default": {}
      }
     },
     "type": "object",
     "required": [
      "row",
-     "error"
+     "error",
+     "code"
     ],
     "title": "ImportIssue"
    },
@@ -4777,6 +5108,11 @@
       "type": "integer",
       "title": "Entries"
      },
+     "allowlist_entries": {
+      "type": "integer",
+      "title": "Allowlist Entries",
+      "default": 0
+     },
      "sinkhole_url": {
       "type": "string",
       "title": "Sinkhole Url"
@@ -5456,6 +5792,24 @@
       "type": "string",
       "title": "Hint",
       "default": ""
+     },
+     "data": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Data",
+      "default": {}
      },
      "icon": {
       "type": "string",

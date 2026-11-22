@@ -2,6 +2,7 @@
 session rotation, upload limits. Section names refer to the security review IDs."""
 
 import io
+import re
 
 import httpx
 from openpyxl import load_workbook
@@ -25,7 +26,7 @@ async def login(c, username, password):
 def credentials(xlsx_bytes: bytes) -> dict[str, tuple]:
     ws = load_workbook(io.BytesIO(xlsx_bytes)).active
     rows = [tuple(c.value for c in r) for r in ws.iter_rows()]
-    assert rows[0] == ("Név", "Felhasználónév", "Osztály", "Egyszeri jelszó", "Érvényes eddig")
+    assert rows[0] == ("Name", "Username", "Class", "One-time password", "Valid until")  # API default: English
     return {r[1]: r for r in rows[1:]}
 
 
@@ -76,6 +77,7 @@ async def test_expired_otp_cannot_log_in(app, admin):
     async with make_client(app) as c:
         r = await login(c, "otp.old", otp)
         assert r.status_code == 401 and r.json()["detail"] == "invalid username or password"
+        assert r.json()["code"] == "auth.invalid_credentials"
     entry = (await admin.get("/api/v1/audit", params={"action": "core.auth.login_failed"})).json()[0]
     assert entry["details"]["reason"] == "one-time password expired"
     listed = (await admin.get("/api/v1/users", params={"q": "otp.old"})).json()["items"][0]
@@ -107,7 +109,13 @@ async def test_credentials_export(app, admin):
     rows = credentials((await admin.get("/api/v1/users/credentials.xlsx")).content)
     assert set(rows) == {"slip.a", "slip.b"}
     assert rows["slip.a"][:4] == ("Slip A", "slip.a", "7.C", a["one_time_password"])
-    assert rows["slip.a"][4]  # valid-until date
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", rows["slip.a"][4])  # valid-until, English format
+    # Hungarian headers and date format on request
+    hu = await admin.get("/api/v1/users/credentials.xlsx", params={"lang": "hu"})
+    hu_rows = [tuple(c.value for c in r) for r in load_workbook(io.BytesIO(hu.content)).active.iter_rows()]
+    assert hu_rows[0] == ("Név", "Felhasználónév", "Osztály", "Egyszeri jelszó", "Érvényes eddig")
+    assert re.fullmatch(r"\d{4}\.\d{2}\.\d{2}\. \d{2}:\d{2}", {r[1]: r for r in hu_rows[1:]}["slip.a"][4])
+    assert 'filename="belepesi-adatok-' in hu.headers["content-disposition"]
     # same filters as the list
     rows = credentials((await admin.get("/api/v1/users/credentials.xlsx", params={"group_id": g["id"]})).content)
     assert set(rows) == {"slip.a"}
@@ -135,6 +143,7 @@ async def test_missing_secret_key_is_503_not_silent(admin):
     try:
         r = await admin.post("/api/v1/users", json={"username": "nokey"})
         assert r.status_code == 503 and "SMP_SECRET_KEY" in r.json()["detail"]
+        assert r.json()["code"] == "otp.secret_key_missing"
         # an explicit password still works without the key
         r = await admin.post("/api/v1/users", json={"username": "withpw", "password": "Tavaszi-Szel-42"})
         assert r.status_code == 201
@@ -146,19 +155,31 @@ async def test_missing_secret_key_is_503_not_silent(admin):
 # --------------------------------------------------------------------------- SEC-02 / SEC-03: throttling
 
 
-async def test_throttle_is_per_ip_and_username_and_reveals_nothing(app, admin):
-    # SMP_LOGIN_MAX_FAILURES=3 in tests
-    async with client_from(app, "10.1.1.1") as attacker:
+async def test_account_lockout_across_ips_and_reveals_nothing(app, admin):
+    """5 failed logins for one account (defaults) lock it for 60 s, whichever IPs they
+    come from: rotating addresses (e.g. inside an IPv6 /64) doesn't help an attacker."""
+    throttle = app.state.login_throttle
+    now = [10_000.0]
+    saved_clock, throttle._clock = throttle._clock, lambda: now[0]
+    try:
+        assert (throttle.max_failures, throttle.lockout) == (5, 60)
         for name in ("admin", "nobody-here"):
-            for _ in range(3):
-                assert (await login(attacker, name, "wrong")).status_code == 401
-            # 4th try: same answer for an existing and a non-existing user (no oracle) ...
-            assert (await login(attacker, name, "wrong")).status_code == 429
-        # ... and even the right password is refused from this IP for now
-        assert (await login(attacker, "admin", ADMIN_PW)).status_code == 429
-    # the real admin, elsewhere, is not locked out (no lockout DoS)
-    async with client_from(app, "10.2.2.2") as real_admin:
-        assert (await login(real_admin, "admin", ADMIN_PW)).status_code == 200
+            for i in range(5):
+                async with client_from(app, f"2001:db8::{name[0]}{i}") as c:
+                    assert (await login(c, name, "wrong")).status_code == 401
+            # 6th try, from yet another address: same answer for an existing and a
+            # non-existing user (no oracle) ...
+            async with client_from(app, "2001:db8::99") as c:
+                assert (await login(c, name, "wrong")).status_code == 429
+        # ... and even the right password is refused while the lockout lasts
+        async with client_from(app, "10.2.2.2") as real_admin:
+            assert (await login(real_admin, "admin", ADMIN_PW)).status_code == 429
+            now[0] += 59
+            assert (await login(real_admin, "admin", ADMIN_PW)).status_code == 429
+            now[0] += 2  # 61 s later: the lockout is over
+            assert (await login(real_admin, "admin", ADMIN_PW)).status_code == 200
+    finally:
+        throttle._clock = saved_clock
 
 
 async def test_ip_attempt_cap_stops_before_hashing_and_logging(app, admin):
@@ -175,20 +196,33 @@ async def test_ip_attempt_cap_stops_before_hashing_and_logging(app, admin):
         throttle.ip_per_minute = saved
 
 
-def test_throttle_window_expires():
+def test_throttle_lockout_rules():
+    from smp.core.config import Settings
+    from smp.core.throttle import FAILURE_MEMORY_SECONDS
+
+    defaults = Settings.model_fields
+    assert defaults["login_max_failures"].default == 5 and defaults["login_lockout_seconds"].default == 60
+
     now = [1000.0]
-    t = LoginThrottle(max_failures=2, window_seconds=60, ip_per_minute=100, clock=lambda: now[0])
-    for _ in range(2):
-        t.record_attempt("ip")
-        t.record_failure("ip", "Kiss.Peter")
-    assert not t.allowed("ip", "kiss.peter")  # usernames compared case-insensitively
-    assert t.allowed("other-ip", "kiss.peter")
+    t = LoginThrottle(max_failures=2, lockout_seconds=60, ip_per_minute=100, clock=lambda: now[0])
+    t.record_failure("Kiss.Peter")
+    assert t.allowed("ip", "kiss.peter")
+    t.record_failure("kiss.peter ")
+    assert not t.allowed("ip", "kiss.peter") and not t.allowed("other-ip", "KISS.PETER")  # per account, any IP
     now[0] += 61
     assert t.allowed("ip", "kiss.peter")
-    t.record_failure("ip", "x")
-    t.record_success("ip", "x")
-    t.record_failure("ip", "x")
+    t.record_failure("kiss.peter")  # a lockout starts a fresh count
+    assert t.allowed("ip", "kiss.peter")
+
+    t.record_failure("x")
+    t.record_success("x")
+    t.record_failure("x")
     assert t.allowed("ip", "x")  # success cleared the earlier failure
+
+    t.record_failure("slow")
+    now[0] += FAILURE_MEMORY_SECONDS + 1
+    t.record_failure("slow")
+    assert t.allowed("ip", "slow")  # failures that old no longer count
 
 
 # --------------------------------------------------------------------------- SEC-06: password policy
@@ -198,17 +232,21 @@ async def test_password_policy(app, admin):
     async with login_as(app, admin, "policy.user", [{"role": "student"}]) as c:
         from tests.conftest import OWN_PW
 
-        for weak, why in [
-            ("password123", "gyakori"),
-            ("Iskola2026", "gyakori"),
-            ("abcdefghij", "betűt és számot"),
-            ("aaaa1111", "különböző"),
-            ("policy.user1", "felhasználónevet"),
+        for weak, code in [
+            ("password123", "password.too_common"),
+            ("Iskola2026", "password.too_common"),
+            ("abcdefghij", "password.letters_and_digits"),
+            ("aaaa1111", "password.too_few_distinct"),
+            ("policy.user1", "password.contains_username"),
         ]:
             r = await c.post("/api/v1/auth/password", json={"current_password": OWN_PW, "new_password": weak})
-            assert r.status_code == 400 and why in r.json()["detail"], weak
+            body = r.json()
+            # English detail for API clients, stable code (+ params) for the UI to translate
+            assert r.status_code == 400 and body["code"] == code and body["detail"].startswith(("The ", "This ")), weak
+        r = await c.post("/api/v1/auth/password", json={"current_password": "wrong-pw-1", "new_password": "Tavaszi-Szel-42"})
+        assert r.status_code == 400 and r.json()["code"] == "auth.wrong_current_password"
     r = await admin.post("/api/v1/users", json={"username": "weak.admin.pw", "password": "12345678"})
-    assert r.status_code == 422
+    assert r.status_code == 422 and r.json()["code"] == "password.letters_and_digits"
 
 
 # --------------------------------------------------------------------------- SEC-07: session rotation

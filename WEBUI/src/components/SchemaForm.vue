@@ -2,9 +2,12 @@
 // Renders a form for a module's settings from its JSON schema (pydantic model).
 // Supports the field types settings typically use: string, integer, number,
 // boolean, list of strings, and Optional[...] of those.
+// Labels: `<i18nPrefix>.<field>` and `<i18nPrefix>.<field>.help` when translated,
+// otherwise the schema's (English) title and description.
 import type { JsonSchema } from '../api/types'
+import { t, tOr } from '../i18n'
 
-const props = defineProps<{ schema: JsonSchema; disabled?: boolean }>()
+const props = defineProps<{ schema: JsonSchema; disabled?: boolean; i18nPrefix?: string }>()
 const model = defineModel<Record<string, unknown>>({ required: true })
 
 interface Field {
@@ -20,7 +23,15 @@ function fields(): Field[] {
     const variants = s.anyOf ?? [s]
     const main = variants.find((v) => v.type !== 'null') ?? s
     const type = main.type === 'array' ? `array:${main.items?.type ?? 'string'}` : (main.type ?? 'string')
-    return { key, title: s.title ?? key, description: s.description ?? '', type, nullable: variants.some((v) => v.type === 'null') }
+    const title = s.title ?? key
+    const description = s.description ?? ''
+    return {
+      key,
+      title: props.i18nPrefix ? tOr(`${props.i18nPrefix}.${key}`, title) : title,
+      description: props.i18nPrefix ? tOr(`${props.i18nPrefix}.${key}.help`, description) : description,
+      type,
+      nullable: variants.some((v) => v.type === 'null'),
+    }
   })
 }
 
@@ -48,7 +59,7 @@ function setText(f: Field, raw: string) {
         {{ f.title }}
       </label>
       <template v-else>
-        <label>{{ f.title }}<span v-if="f.nullable" class="muted"> (opcionális)</span></label>
+        <label>{{ f.title }}<span v-if="f.nullable" class="muted"> {{ t('common.optional') }}</span></label>
         <input
           v-if="f.type === 'integer' || f.type === 'number'"
           type="number"

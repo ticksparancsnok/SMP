@@ -19,15 +19,15 @@ class ShortlinksSettings(BaseModel):
 
 class ShortlinksModule(Module):
     name = "shortlinks"
-    title = "Rövid linkek"
+    title = "Short links"
     version = "1.0.0"
     description = "Short links with expiry and per-teacher ownership"
 
     permissions = (
-        Permission("shortlinks.links.create", "Create and manage own short links", ("teacher", "student")),
+        Permission("shortlinks.links.create", "Create and manage own short links", ("teacher",)),
         Permission("shortlinks.links.manage_all", "Manage everyone's short links"),
     )
-    ui_routes = (UiRoute("/shortlinks", "Rövid linkek", "🔗", "shortlinks.links.create", "services"),)
+    ui_routes = (UiRoute("/shortlinks", "Short links", "🔗", "shortlinks.links.create", "services"),)
     events = (
         EventSubject("shortlinks.link.created", "A short link was created"),
         EventSubject("shortlinks.link.deleted", "A short link was deleted"),
@@ -48,7 +48,8 @@ class ShortlinksModule(Module):
                 )
             )
         ).one()
-        return [Widget(id="shortlinks.mine", title="Rövid linkjeim", value=n, hint=f"{clicks} kattintás",
+        return [Widget(id="shortlinks.mine", title="My short links", value=n,
+                       hint=f"{clicks} click" + ("" if clicks == 1 else "s"), data={"clicks": int(clicks)},
                        icon="🔗", link="/shortlinks", order=70)]
 
     def router(self) -> APIRouter:

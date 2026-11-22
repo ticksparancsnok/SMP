@@ -10,7 +10,7 @@ from smp.core.models import AuditLog, Device, Group, PolicyAssignment, RoleAssig
 from smp.core.module import Widget, WidgetItem
 
 ONLINE_WINDOW = timedelta(minutes=5)
-ROLE_LABELS = {"admin": "admin", "teacher": "tanár", "student": "diák"}
+ROLE_LABELS = {"admin": ("admin", "admins"), "teacher": ("teacher", "teachers"), "student": ("student", "students")}
 
 
 async def core_widgets(ctx: Ctx) -> list[Widget]:
@@ -26,7 +26,7 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
         stmt = select(func.count()).select_from(Room).where(Room.org_id == ctx.org_id)
         if (allowed := p.rooms_with("core.rooms.read")) is not None:
             stmt = stmt.where(Room.id.in_(allowed))
-        out.append(Widget(id="core.rooms", title="Termek", value=await count(stmt), icon="🏢", link="/rooms", order=10))
+        out.append(Widget(id="core.rooms", title="Rooms", value=await count(stmt), icon="🏢", link="/rooms", order=10))
 
     if p.can_anywhere("core.devices.read"):
         base = select(func.count()).select_from(Device).where(Device.org_id == ctx.org_id)
@@ -35,11 +35,15 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
         total = await count(base)
         online = await count(base.where(Device.last_seen_at >= now - ONLINE_WINDOW))
         hint = f"{online} online"
+        data: dict[str, int] = {"online": online}
         if p.can("core.devices.read"):
             unassigned = await count(base.where(Device.room_id.is_(None)))
+            data["unassigned"] = unassigned
             if unassigned:
-                hint += f" · {unassigned} terem nélkül"
-        out.append(Widget(id="core.devices", title="Gépek", value=total, hint=hint, icon="💻", link="/devices", order=20))
+                hint += f" · {unassigned} without a room"
+        out.append(
+            Widget(id="core.devices", title="Devices", value=total, hint=hint, data=data, icon="💻", link="/devices", order=20)
+        )
 
     if p.can("core.users.read"):
         total = await count(select(func.count()).select_from(User).where(User.org_id == ctx.org_id))
@@ -49,12 +53,17 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
             .group_by(RoleAssignment.role)
         )
         by_role = dict(rows.all())
-        hint = " · ".join(f"{by_role[r]} {label}" for r, label in ROLE_LABELS.items() if by_role.get(r))
-        out.append(Widget(id="core.users", title="Felhasználók", value=total, hint=hint, icon="🎓", link="/users", order=30))
+        hint = " · ".join(
+            f"{by_role[r]} {one if by_role[r] == 1 else many}" for r, (one, many) in ROLE_LABELS.items() if by_role.get(r)
+        )
+        data = {r: by_role.get(r, 0) for r in ROLE_LABELS}
+        out.append(
+            Widget(id="core.users", title="Users", value=total, hint=hint, data=data, icon="🎓", link="/users", order=30)
+        )
 
     if p.can("core.groups.read"):
         n = await count(select(func.count()).select_from(Group).where(Group.org_id == ctx.org_id))
-        out.append(Widget(id="core.groups", title="Csoportok", value=n, icon="👥", link="/groups", order=40))
+        out.append(Widget(id="core.groups", title="Groups", value=n, icon="👥", link="/groups", order=40))
 
     if p.can_anywhere("core.policies.read"):
         n = await count(
@@ -68,7 +77,7 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
             )
         )
         out.append(
-            Widget(id="core.temporary_policies", title="Ideiglenes szabályok", value=n, hint="pl. vizsgamód",
+            Widget(id="core.temporary_policies", title="Temporary policies", value=n, hint="e.g. exam mode",
                    icon="📋", link="/policies?tab=assignments", order=50)
         )
 
@@ -79,7 +88,7 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
             .where(AuditLog.org_id == ctx.org_id, AuditLog.action == "core.auth.login_failed", AuditLog.at >= now - timedelta(hours=24))
         )
         out.append(
-            Widget(id="core.failed_logins", title="Sikertelen belépések", value=failed, hint="utolsó 24 óra",
+            Widget(id="core.failed_logins", title="Failed logins", value=failed, hint="last 24 hours",
                    icon="🔒", link="/audit?action=core.auth.login_failed", order=60)
         )
         recent = await ctx.db.execute(
@@ -89,7 +98,7 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
             Widget(
                 id="core.recent_activity",
                 kind="list",
-                title="Legutóbbi események",
+                title="Recent activity",
                 icon="📜",
                 link="/audit",
                 order=200,

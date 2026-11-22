@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { api, errorText } from '../api/client'
 import type { Group, Role, Room, User } from '../api/types'
-import { GROUP_KINDS, PASSWORD_RULES, ROLE_LABELS } from '../format'
+import { groupKindLabel, passwordRules, roleLabel, ROLES } from '../format'
+import { t } from '../i18n'
 import { can } from '../session'
 import Modal from './Modal.vue'
 import OtpDisplay from './OtpDisplay.vue'
@@ -91,7 +92,7 @@ async function save() {
 async function resetPassword(generate: boolean) {
   error.value = info.value = ''
   if (!generate && newPassword.value.length < 8) {
-    error.value = 'Az új jelszó legalább 8 karakter legyen.'
+    error.value = t('userdlg.reset_too_short')
     return
   }
   try {
@@ -102,8 +103,7 @@ async function resetPassword(generate: boolean) {
     if (r.one_time_password) {
       issued.value = { username: props.user!.username, otp: r.one_time_password, until: r.otp_expires_at }
     } else {
-      info.value =
-        'Új jelszó beállítva. A felhasználó minden munkamenete megszűnt, és következő belépéskor új jelszót kell választania.'
+      info.value = t('userdlg.reset_done')
     }
     newPassword.value = ''
     emit('changed')
@@ -114,11 +114,11 @@ async function resetPassword(generate: boolean) {
 </script>
 
 <template>
-  <Modal :title="isNew ? 'Új felhasználó' : `Szerkesztés: ${props.user!.username}`" @close="issued ? emit('saved') : emit('close')">
+  <Modal :title="isNew ? t('userdlg.new_title') : t('userdlg.edit_title', { username: props.user!.username })" @close="issued ? emit('saved') : emit('close')">
     <div v-if="issued" class="stack">
       <OtpDisplay :username="issued.username" :otp="issued.otp" :until="issued.until" show-export-hint />
       <div class="modal-foot">
-        <button type="button" @click="emit('saved')">Kész</button>
+        <button type="button" @click="emit('saved')">{{ t('common.done') }}</button>
       </div>
     </div>
     <form v-else class="stack" @submit.prevent="save">
@@ -126,25 +126,25 @@ async function resetPassword(generate: boolean) {
       <div v-if="info" class="alert ok">{{ info }}</div>
       <div class="row">
         <div class="field">
-          <label>Felhasználónév</label>
+          <label>{{ t('common.username') }}</label>
           <input v-model="form.username" :disabled="!isNew" required pattern="[A-Za-z0-9._@\-]+" />
         </div>
         <div class="field">
-          <label>Megjelenített név</label>
+          <label>{{ t('common.display_name') }}</label>
           <input v-model="form.display_name" />
         </div>
       </div>
       <div class="field">
-        <label>E-mail</label>
+        <label>{{ t('common.email') }}</label>
         <input v-model="form.email" type="email" />
       </div>
       <div v-if="isNew" class="field">
-        <label>Jelszó – első belépéskor cserélni kell</label>
+        <label>{{ t('userdlg.password_label') }}</label>
         <div class="stack" style="gap: 6px">
           <label class="check">
-            <input v-model="passwordMode" type="radio" value="otp" /> Egyszeri jelszó generálása (ajánlott)
+            <input v-model="passwordMode" type="radio" value="otp" /> {{ t('userdlg.password_otp') }}
           </label>
-          <label class="check"><input v-model="passwordMode" type="radio" value="custom" /> Egyedi jelszó</label>
+          <label class="check"><input v-model="passwordMode" type="radio" value="custom" /> {{ t('userdlg.password_custom') }}</label>
           <template v-if="passwordMode === 'custom'">
             <input
               v-model="form.password"
@@ -152,44 +152,44 @@ async function resetPassword(generate: boolean) {
               minlength="8"
               required
               autocomplete="new-password"
-              placeholder="jelszó"
+              :placeholder="t('userdlg.password_placeholder')"
             />
-            <span class="muted small">{{ PASSWORD_RULES }}</span>
+            <span class="muted small">{{ passwordRules() }}</span>
           </template>
         </div>
       </div>
-      <label v-else class="check"><input v-model="form.disabled" type="checkbox" /> Letiltva (nem tud belépni)</label>
+      <label v-else class="check"><input v-model="form.disabled" type="checkbox" /> {{ t('userdlg.disabled') }}</label>
 
       <div class="field">
-        <label>Szerepkörök – a tanár szerepkör termenként is adható</label>
+        <label>{{ t('userdlg.roles_label') }}</label>
         <div class="stack" style="gap: 6px">
           <div v-for="(r, i) in roles" :key="i" class="row" style="align-items: center">
             <select v-model="r.role" style="flex: 1">
-              <option v-for="(label, key) in ROLE_LABELS" :key="key" :value="key">{{ label }}</option>
+              <option v-for="role in ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
             </select>
             <select v-model="r.room_id" :disabled="r.role === 'admin'" style="flex: 1">
-              <option value="">Minden terem</option>
+              <option value="">{{ t('common.all_rooms') }}</option>
               <option v-for="room in props.rooms" :key="room.id" :value="room.id">{{ room.name }}</option>
             </select>
             <button type="button" class="ghost small" @click="roles.splice(i, 1)">✕</button>
           </div>
           <div>
             <button type="button" class="ghost small" @click="roles.push({ role: 'teacher', room_id: '' })">
-              + Szerepkör
+              {{ t('userdlg.add_role') }}
             </button>
           </div>
         </div>
       </div>
 
       <div class="field">
-        <label>Osztály / csoportok</label>
+        <label>{{ t('userdlg.groups_label') }}</label>
         <div v-if="sortedGroups.length" class="chips">
           <label
             v-for="g in sortedGroups"
             :key="g.id"
             class="check badge"
             :class="{ info: groupIds.has(g.id) }"
-            :title="GROUP_KINDS[g.kind] ?? g.kind"
+            :title="groupKindLabel(g.kind)"
             :style="{ cursor: canEditGroups ? 'pointer' : 'default' }"
           >
             <input
@@ -201,12 +201,12 @@ async function resetPassword(generate: boolean) {
             />{{ g.kind === 'class' ? '🎓 ' : '' }}{{ g.name }}
           </label>
         </div>
-        <span v-else class="muted small">Még nincs csoport – a Csoportok oldalon hozható létre.</span>
+        <span v-else class="muted small">{{ t('userdlg.no_groups') }}</span>
       </div>
 
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="emit('close')">Mégse</button>
-        <button :disabled="busy">Mentés</button>
+        <button type="button" class="ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
+        <button :disabled="busy">{{ t('common.save') }}</button>
       </div>
     </form>
 
@@ -217,11 +217,11 @@ async function resetPassword(generate: boolean) {
       @submit.prevent="resetPassword(false)"
     >
       <div class="field">
-        <label>Jelszó visszaállítása (következő belépéskor cserélni kell)</label>
-        <input v-model="newPassword" type="password" minlength="8" autocomplete="new-password" placeholder="új jelszó" />
+        <label>{{ t('userdlg.reset_label') }}</label>
+        <input v-model="newPassword" type="password" minlength="8" autocomplete="new-password" :placeholder="t('userdlg.reset_placeholder')" />
       </div>
-      <button class="ghost">Beállítás</button>
-      <button type="button" class="ghost" @click="resetPassword(true)">Új egyszeri jelszó</button>
+      <button class="ghost">{{ t('userdlg.reset_set') }}</button>
+      <button type="button" class="ghost" @click="resetPassword(true)">{{ t('users.new_otp') }}</button>
     </form>
   </Modal>
 </template>

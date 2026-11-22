@@ -107,8 +107,9 @@ export interface paths {
         };
         /**
          * Export Users
-         * @description The users matching the same filters as GET /users, as Név | Felhasználónév |
-         *     Osztály (the user's class-type groups, comma separated).
+         * @description The users matching the same filters as GET /users, as Name | Username | Class
+         *     (the user's class-type groups, comma separated). `lang` picks the column headers
+         *     (en: Name | Username | Class, hu: Név | Felhasználónév | Osztály).
          */
         get: operations["export_users_api_v1_users_export_xlsx_get"];
         put?: never;
@@ -151,7 +152,8 @@ export interface paths {
         };
         /**
          * Import Sample
-         * @description Example file in the import/export format (same content as docs/samples/).
+         * @description Example file in the import/export format, with `lang` headers (same content as
+         *     docs/samples/users-sample.xlsx and felhasznalok-minta.xlsx).
          */
         get: operations["import_sample_api_v1_users_import_sample_xlsx_get"];
         put?: never;
@@ -784,6 +786,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dns/allowlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Allowlist */
+        get: operations["list_allowlist_api_v1_dns_allowlist_get"];
+        put?: never;
+        /** Create Allow Entry */
+        post: operations["create_allow_entry_api_v1_dns_allowlist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/allowlist/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Allow Entry */
+        delete: operations["delete_allow_entry_api_v1_dns_allowlist__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check Domain
+         * @description Would this domain be blocked right now? (Same decision as the sinkhole.)
+         */
+        get: operations["check_domain_api_v1_dns_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dns/status": {
         parameters: {
             query?: never;
@@ -805,6 +862,48 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AllowEntryOut */
+        AllowEntryOut: {
+            /** Id */
+            id: string;
+            /** Domain */
+            domain: string;
+            /** Includesubdomains */
+            includeSubdomains: boolean;
+            /** Reason */
+            reason: string;
+            /** Addedby */
+            addedBy: string;
+            /**
+             * Addedat
+             * Format: date-time
+             */
+            addedAt: string;
+        };
+        /** AllowIn */
+        AllowIn: {
+            /** Domain */
+            domain: string;
+            /**
+             * Include Subdomains
+             * @default true
+             */
+            include_subdomains: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** AllowlistOut */
+        AllowlistOut: {
+            /** Entries */
+            entries: components["schemas"]["AllowEntryOut"][];
+            /** Public Suffixes */
+            public_suffixes: number;
+            /** Public Suffix Source */
+            public_suffix_source: string;
+        };
         /** AssignmentIn */
         AssignmentIn: {
             /**
@@ -1000,6 +1099,13 @@ export interface components {
              * Format: date-time
              */
             addedAt: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Inactivereason */
+            inactiveReason?: string | null;
         };
         /** GroupIn */
         GroupIn: {
@@ -1074,6 +1180,11 @@ export interface components {
             domains: string[];
             /** Unique Count */
             unique_count: number;
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: string[];
         };
         /** ImportIssue */
         ImportIssue: {
@@ -1081,6 +1192,15 @@ export interface components {
             row: number;
             /** Error */
             error: string;
+            /** Code */
+            code: string;
+            /**
+             * Params
+             * @default {}
+             */
+            params: {
+                [key: string]: string | number;
+            };
         };
         /** ImportResult */
         ImportResult: {
@@ -1412,6 +1532,11 @@ export interface components {
         SyncStatusOut: {
             /** Entries */
             entries: number;
+            /**
+             * Allowlist Entries
+             * @default 0
+             */
+            allowlist_entries: number;
             /** Sinkhole Url */
             sinkhole_url: string;
             /** Sync Configured */
@@ -1639,6 +1764,13 @@ export interface components {
              */
             hint: string;
             /**
+             * Data
+             * @default {}
+             */
+            data: {
+                [key: string]: number | string;
+            };
+            /**
              * Icon
              * @default
              */
@@ -1855,6 +1987,7 @@ export interface operations {
                 q?: string | null;
                 role?: components["schemas"]["Role"] | null;
                 group_id?: string | null;
+                lang?: "en" | "hu";
             };
             header?: never;
             path?: never;
@@ -1888,6 +2021,7 @@ export interface operations {
                 q?: string | null;
                 role?: components["schemas"]["Role"] | null;
                 group_id?: string | null;
+                lang?: "en" | "hu";
             };
             header?: never;
             path?: never;
@@ -1917,7 +2051,9 @@ export interface operations {
     };
     import_sample_api_v1_users_import_sample_xlsx_get: {
         parameters: {
-            query?: never;
+            query?: {
+                lang?: "en" | "hu";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1931,6 +2067,15 @@ export interface operations {
                 };
                 content: {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3687,6 +3832,121 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostsPreviewOut"];
+                };
+            };
+        };
+    };
+    list_allowlist_api_v1_dns_allowlist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllowlistOut"];
+                };
+            };
+        };
+    };
+    create_allow_entry_api_v1_dns_allowlist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllowIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllowEntryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_allow_entry_api_v1_dns_allowlist__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_domain_api_v1_dns_check_get: {
+        parameters: {
+            query: {
+                domain: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

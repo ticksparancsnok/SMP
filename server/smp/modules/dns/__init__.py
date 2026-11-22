@@ -18,19 +18,20 @@ class DnsPolicy(BaseModel):
 
 class DnsModule(Module):
     name = "dns"
-    title = "DNS tartalomszűrés"
-    description = "Host blokklista, DNS sinkhole szinkronizáció és importálás"
+    title = "DNS content filtering"
+    description = "Hosts blocklist and allowlist, DNS sinkhole synchronization and import"
     permissions = (
-        Permission("dns.blocklist.read", "DNS blokklista megtekintése", ("admin", "teacher")),
-        Permission("dns.blocklist.write", "DNS blokklista módosítása", ("admin", "teacher")),
-        Permission("dns.review.manage", "DNS AI felülvizsgálati sor kezelése", ("admin", "teacher")),
+        Permission("dns.blocklist.read", "View the DNS blocklist and allowlist", ("admin", "teacher")),
+        Permission("dns.blocklist.write", "Edit the DNS blocklist and allowlist", ("admin", "teacher")),
+        Permission("dns.review.manage", "Manage the DNS AI review queue", ("admin", "teacher")),
     )
-    ui_routes = (UiRoute("/dns", "Oldal blokkoló", "🌐", "dns.blocklist.read", "services"),)
+    ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.blocklist.read", "services"),)
     policy_model = DnsPolicy
     events = (
-        EventSubject("dns.blocklist.updated", "A DNS blokklista megváltozott"),
-        EventSubject("dns.policy.sync", "A DNS policy szinkronizálásra vár"),
-        EventSubject("dns.domain.unclassified", "Egy ismeretlen domain besorolásra vár"),
+        EventSubject("dns.blocklist.updated", "The DNS blocklist changed"),
+        EventSubject("dns.allowlist.updated", "The DNS allowlist changed"),
+        EventSubject("dns.policy.sync", "A DNS policy is waiting to be synchronized"),
+        EventSubject("dns.domain.unclassified", "An unknown domain is waiting to be classified"),
     )
 
     def router(self):
@@ -51,9 +52,9 @@ class DnsModule(Module):
         return [
             Widget(
                 id="dns.blocklist",
-                title="Blokkolt domainek",
+                title="Blocked domains",
                 value=count or 0,
-                hint="DNS blokklista bejegyzések",
+                hint="DNS blocklist entries",
                 icon="🌐",
                 link="/dns",
                 order=60,

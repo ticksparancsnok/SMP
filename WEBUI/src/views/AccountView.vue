@@ -2,7 +2,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { api, errorText } from '../api/client'
 import type { Room } from '../api/types'
-import { PASSWORD_RULES, ROLE_LABELS } from '../format'
+import { passwordRules, roleLabel } from '../format'
+import { t } from '../i18n'
 import { canAnywhere, session } from '../session'
 
 const rooms = ref<Room[]>([])
@@ -19,13 +20,13 @@ const roomName = (id: string) => rooms.value.find((r) => r.id === id)?.name ?? i
 async function changePassword() {
   msg.value = null
   if (pw.next !== pw.again) {
-    msg.value = { ok: false, text: 'A két új jelszó nem egyezik.' }
+    msg.value = { ok: false, text: t('password.mismatch') }
     return
   }
   busy.value = true
   try {
     await api.post('/auth/password', { current_password: pw.current, new_password: pw.next })
-    msg.value = { ok: true, text: 'Jelszó megváltoztatva. A többi eszközön kijelentkeztettünk.' }
+    msg.value = { ok: true, text: t('account.changed') }
     pw.current = pw.next = pw.again = ''
   } catch (e) {
     msg.value = { ok: false, text: errorText(e) }
@@ -37,28 +38,28 @@ async function changePassword() {
 
 <template>
   <div class="page-head">
-    <h1>Saját fiók</h1>
+    <h1>{{ t('nav./account') }}</h1>
   </div>
   <div v-if="session.me" class="grid">
     <div class="card">
-      <h2>Adatok</h2>
+      <h2>{{ t('account.details') }}</h2>
       <table>
         <tbody>
-          <tr><th>Felhasználónév</th><td>{{ session.me.username }}</td></tr>
-          <tr><th>Név</th><td>{{ session.me.display_name }}</td></tr>
-          <tr><th>Iskola</th><td>{{ session.me.org_name }}</td></tr>
+          <tr><th>{{ t('common.username') }}</th><td>{{ session.me.username }}</td></tr>
+          <tr><th>{{ t('common.name') }}</th><td>{{ session.me.display_name }}</td></tr>
+          <tr><th>{{ t('account.school') }}</th><td>{{ session.me.org_name }}</td></tr>
           <tr>
-            <th>Szerepkörök</th>
+            <th>{{ t('common.roles') }}</th>
             <td><div class="chips">
               <span v-for="(r, i) in session.me.roles" :key="i" class="badge info">
-                {{ ROLE_LABELS[r.role ?? ''] ?? r.role }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
+                {{ roleLabel(r.role) }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
               </span>
             </div></td>
           </tr>
         </tbody>
       </table>
       <details style="margin-top: 12px">
-        <summary>Jogosultságok ({{ session.me.permissions.length }})</summary>
+        <summary>{{ t('common.permissions') }} ({{ session.me.permissions.length }})</summary>
         <div class="chips" style="margin-top: 8px">
           <span v-for="p in session.me.permissions" :key="p" class="badge mono">{{ p }}</span>
         </div>
@@ -66,22 +67,22 @@ async function changePassword() {
     </div>
 
     <form class="card stack" @submit.prevent="changePassword">
-      <h2>Jelszó módosítása</h2>
+      <h2>{{ t('account.change_password') }}</h2>
       <div v-if="msg" class="alert" :class="msg.ok ? 'ok' : 'err'">{{ msg.text }}</div>
       <div class="field">
-        <label>Jelenlegi jelszó</label>
+        <label>{{ t('account.current_password') }}</label>
         <input v-model="pw.current" type="password" autocomplete="current-password" required />
       </div>
       <div class="field">
-        <label>Új jelszó</label>
+        <label>{{ t('pwchange.new') }}</label>
         <input v-model="pw.next" type="password" autocomplete="new-password" minlength="8" required />
-        <span class="muted small">{{ PASSWORD_RULES }}</span>
+        <span class="muted small">{{ passwordRules() }}</span>
       </div>
       <div class="field">
-        <label>Új jelszó még egyszer</label>
+        <label>{{ t('pwchange.again') }}</label>
         <input v-model="pw.again" type="password" autocomplete="new-password" minlength="8" required />
       </div>
-      <button :disabled="busy">Mentés</button>
+      <button :disabled="busy">{{ t('common.save') }}</button>
     </form>
   </div>
 </template>

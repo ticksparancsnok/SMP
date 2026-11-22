@@ -2,6 +2,7 @@
 import { reactive } from 'vue'
 import { api, ApiError } from './api/client'
 import type { Manifest, Me, UiRoute } from './api/types'
+import { tOr } from './i18n'
 
 export const session = reactive({
   me: null as Me | null,
@@ -59,34 +60,19 @@ export function hasModule(name: string): boolean {
 
 // ---------------------------------------------------------------- navigation
 
-export const SECTIONS: Record<string, string> = {
-  overview: 'Áttekintés',
-  account: 'Fiók',
-  admin: 'Adminisztráció',
-  services: 'Szolgáltatások',
-}
+/** Menu sections in display order (titles: nav.section.<name> in i18n). */
+export const SECTIONS = ['overview', 'account', 'admin', 'services']
 
-/** Services we plan to build. Shown greyed out until the backend module exists. */
-export const PLANNED: (UiRoute & { module: string; blurb: string })[] = [
-  {
-    module: 'classroom',
-    path: '/classroom',
-    title: 'Monitorozás',
-    icon: '🖥️',
-    permission: null,
-    section: 'services',
-    blurb: 'A tanulói gépek képernyőjének megtekintése és zárolása termenként.',
-  },
-  {
-    module: 'software',
-    path: '/software',
-    title: 'Programtelepítés',
-    icon: '⏬',
-    permission: null,
-    section: 'services',
-    blurb: 'Programok telepítése és eltávolítása Windows 10/11 gépekre, termenként.',
-  },
+/** Services we plan to build. Shown greyed out until the backend module exists.
+ *  Title and blurb are translated by path (nav.<path>, planned.<path>). */
+export const PLANNED: (UiRoute & { module: string })[] = [
+  { module: 'classroom', path: '/classroom', title: 'Monitoring', icon: '🖥️', permission: null, section: 'services' },
+  { module: 'software', path: '/software', title: 'Software deployment', icon: '⏬', permission: null, section: 'services' },
 ]
+
+/** A menu/route title in the UI language; the server's (English) title is the fallback. */
+export const routeTitle = (r: { path: string; title: string }) => tOr(`nav.${r.path}`, r.title)
+export const plannedBlurb = (path: string) => tOr(`planned.${path}`, '')
 
 export interface NavEntry extends UiRoute {
   planned: boolean
@@ -103,10 +89,9 @@ export function navSections(): { title: string; entries: NavEntry[] }[] {
   for (const p of PLANNED) {
     if (!hasModule(p.module) && isStaff()) entries.push({ ...p, planned: true })
   }
-  const order = Object.keys(SECTIONS)
   const bySection = new Map<string, NavEntry[]>()
-  for (const e of entries) bySection.set(e.section, [...(bySection.get(e.section) ?? []), e])
+  for (const e of entries) bySection.set(e.section, [...(bySection.get(e.section) ?? []), { ...e, title: routeTitle(e) }])
   return [...bySection.entries()]
-    .sort(([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99))
-    .map(([s, list]) => ({ title: SECTIONS[s] ?? s, entries: list }))
+    .sort(([a], [b]) => (SECTIONS.indexOf(a) + 1 || 99) - (SECTIONS.indexOf(b) + 1 || 99))
+    .map(([s, list]) => ({ title: tOr(`nav.section.${s}`, s), entries: list }))
 }

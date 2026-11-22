@@ -108,7 +108,7 @@ async def test_class_teacher_downloads_slips_for_own_students_only(app, admin):
 
     def usernames(content: bytes) -> set[str]:
         rows = list(load_workbook(io.BytesIO(content)).active.iter_rows(values_only=True))
-        assert rows[0][3] == "Egyszeri jelszó"
+        assert rows[0][3] == "One-time password"
         return {r[1] for r in rows[1:]}
 
     async with login_as(app, admin, "osztalyfonok2", [{"role": "teacher"}]) as teacher:

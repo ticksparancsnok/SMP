@@ -296,7 +296,7 @@ func (s *SchoolFilter) handleSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid blocklist JSON", http.StatusBadRequest)
 		return
 	}
-	if err := s.blocklist.Replace(payload.Entries); err != nil {
+	if err := s.blocklist.Replace(payload.Entries, payload.Allowlist); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -305,7 +305,7 @@ func (s *SchoolFilter) handleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]int{"entries": len(payload.Entries)})
+	_ = json.NewEncoder(w).Encode(map[string]int{"entries": len(payload.Entries), "allowlist": len(payload.Allowlist)})
 }
 
 func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -316,8 +316,9 @@ func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":  "ok",
-		"entries": s.blocklist.Count(),
+		"status":    "ok",
+		"entries":   s.blocklist.Count(),
+		"allowlist": s.blocklist.AllowCount(),
 	})
 }
 

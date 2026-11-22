@@ -16,7 +16,7 @@ What a module provides (optional hooks):
   - public_router()   : mounted at the site root (e.g. /s/{code} for short links)
   - subscribe(bus)    : register event handlers
   - identity_providers(): extra login backends (ldap, google, ...)
-  - dashboard(ctx)    : cards for the portal's home page (Kezdőlap)
+  - dashboard(ctx)    : cards for the portal's home page
   - startup()/shutdown()
 """
 
@@ -79,9 +79,10 @@ class Widget(BaseModel):
 
     id: str  # "<module>.<name>", e.g. "dns.top_blocked"
     kind: Literal["stat", "list"] = "stat"
-    title: str
+    title: str  # English; the UI translates by `id`
     value: int | float | str | None = None
-    hint: str = ""
+    hint: str = ""  # English; the UI rebuilds it in the user's language from `data`
+    data: dict[str, int | float | str] = {}  # the numbers behind `hint`
     icon: str = ""
     link: str | None = None
     items: list[WidgetItem] = []

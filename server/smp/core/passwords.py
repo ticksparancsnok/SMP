@@ -2,10 +2,14 @@
 
 Deliberately modest: these are school accounts, many used by children. The rules
 stop the passwords that get guessed first, without composition rules nobody can
-remember. Messages are Hungarian because they're shown to end users verbatim.
+remember. Each problem has a stable code; the web UI shows it in the user's
+language, other clients get the English message.
 """
 
+from smp.core.errors import Problem
+
 MIN_LENGTH = 8
+MIN_DISTINCT = 5
 
 # Very common passwords (international lists) plus local favourites, compared
 # case-insensitively. Together with the letter+digit and distinct-character rules
@@ -22,24 +26,31 @@ COMMON = {
     "iskola2026", "iskola2027", "diak1234", "diák1234", "tanulo123", "tanuló123", "tanar123", "tanár123",
     "osztaly123", "magyar123", "magyarorszag1", "budapest1", "budapest123", "szeretlek1", "szeretlek123",
     "minecraft1", "minecraft123", "fortnite1", "fortnite123", "roblox123", "pokemon123", "naruto123",
-    "barcelona1", "realmadrid1", "ronaldo7", "messi1010", "liverpool1", "chelsea123", "arsenal123",
+    "barcelona1", "realmadrid1", "ronaldo7", "messi1010", "liverpool1", "chelsea123", "arsenal123", "logiscool",
+    "scoolcode", "kaki", "valami", "valami123",
 }
 
 
-def password_problem(password: str, username: str = "") -> str | None:
-    """None if acceptable, otherwise a message for the user."""
+def password_problem(password: str, username: str = "") -> Problem | None:
+    """None if acceptable, otherwise what's wrong (code + English message)."""
     if password != password.strip():
         # Not stripped silently (that would change someone's secret behind their
         # back); usually a copy-paste accident, so say so.
-        return "A jelszó nem kezdődhet és nem végződhet szóközzel."
+        return Problem("password.surrounding_space", "The password must not start or end with a space.")
     if len(password) < MIN_LENGTH:
-        return f"A jelszó legalább {MIN_LENGTH} karakter legyen."
+        return Problem(
+            "password.too_short", f"The password must be at least {MIN_LENGTH} characters long.", {"min": MIN_LENGTH}
+        )
     if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-        return "A jelszó tartalmazzon betűt és számot is."
-    if len(set(password.casefold())) < 5:
-        return "A jelszó legalább 5 különböző karakterből álljon."
+        return Problem("password.letters_and_digits", "The password must contain both letters and digits.")
+    if len(set(password.casefold())) < MIN_DISTINCT:
+        return Problem(
+            "password.too_few_distinct",
+            f"The password must contain at least {MIN_DISTINCT} different characters.",
+            {"min": MIN_DISTINCT},
+        )
     if password.casefold() in COMMON:
-        return "Ez a jelszó túl gyakori, könnyen kitalálható. Válassz másikat."
+        return Problem("password.too_common", "This password is too common and easy to guess. Choose another one.")
     if len(username) >= 3 and username.casefold() in password.casefold():
-        return "A jelszó nem tartalmazhatja a felhasználónevet."
+        return Problem("password.contains_username", "The password must not contain the username.")
     return None

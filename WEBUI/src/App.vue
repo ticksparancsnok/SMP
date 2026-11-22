@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { ROLE_LABELS } from './format'
+import LangSwitch from './components/LangSwitch.vue'
+import { roleLabel } from './format'
+import { t } from './i18n'
 import { logout, navSections, session } from './session'
 
 const route = useRoute()
@@ -11,7 +13,7 @@ const navOpen = ref(false)
 const sections = computed(() => navSections())
 const version = computed(() => session.modules.find((m) => m.name === 'core')?.version ?? '')
 const roleText = computed(() =>
-  [...new Set((session.me?.roles ?? []).map((r) => ROLE_LABELS[r.role ?? ''] ?? r.role))].join(', '),
+  [...new Set((session.me?.roles ?? []).map((r) => roleLabel(r.role)))].join(', '),
 )
 
 watch(
@@ -29,7 +31,7 @@ async function signOut() {
   <RouterView v-if="route.meta.public || route.meta.bare" />
   <div v-else-if="session.me" class="shell" :class="{ 'nav-open': navOpen }">
     <header class="topbar">
-      <button class="ghost" aria-label="Menü" :aria-expanded="navOpen" @click="navOpen = !navOpen">☰</button>
+      <button class="ghost" :aria-label="t('app.menu')" :aria-expanded="navOpen" @click="navOpen = !navOpen">☰</button>
       <strong>SMP</strong>
     </header>
     <div class="backdrop" @click="navOpen = false"></div>
@@ -48,7 +50,7 @@ async function signOut() {
             :key="e.path"
             :to="e.path"
             :class="{ off: e.planned }"
-            :title="e.planned ? 'Fejlesztés alatt' : ''"
+            :title="e.planned ? t('common.in_development') : ''"
           >
             <span class="ico">{{ e.icon }}</span>{{ e.title }}
           </RouterLink>
@@ -59,7 +61,10 @@ async function signOut() {
           <strong>{{ session.me.display_name || session.me.username }}</strong><br />
           {{ roleText }} · {{ session.me.org_name }}
         </div>
-        <button class="ghost small" @click="signOut">Kijelentkezés</button>
+        <div class="row" style="align-items: center; justify-content: space-between">
+          <button class="ghost small" @click="signOut">{{ t('common.sign_out') }}</button>
+          <LangSwitch />
+        </div>
       </div>
     </aside>
     <main class="main">

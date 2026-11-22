@@ -4,12 +4,13 @@ import { RouterLink, useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Assignment, Device, Group, Page, Policy, Room, Schedule, TargetType, User } from '../api/types'
 import Modal from '../components/Modal.vue'
-import { DAYS, describeWindows, fmtDate, fromLocalInput, TARGET_TYPES } from '../format'
+import { DAY_INDEXES, dayLabel, describeWindows, fmtDate, fromLocalInput, moduleTitle, TARGET_TYPES, targetTypeLabel } from '../format'
+import { t } from '../i18n'
 import { can, canAnywhere, session } from '../session'
 
 const route = useRoute()
 const tab = computed(() => (route.query.tab as string) || 'assignments')
-const TABS = { assignments: 'Hozzárendelések', policies: 'Szabályok', schedules: 'Időbeosztások' }
+const TABS = ['assignments', 'policies', 'schedules'] as const
 
 const policies = ref<Policy[]>([])
 const schedules = ref<Schedule[]>([])
@@ -54,7 +55,7 @@ function targetName(a: Assignment): string {
   const id = a.target_id
   switch (a.target_type) {
     case 'org':
-      return 'Egész iskola'
+      return targetTypeLabel('org')
     case 'room':
       return rooms.value.find((x) => x.id === id)?.name ?? id ?? ''
     case 'group':
@@ -75,7 +76,7 @@ function isActiveNow(a: Assignment): boolean {
 }
 
 async function del(path: string, what: string) {
-  if (!confirm(`Biztosan törlöd: ${what}?`)) return
+  if (!confirm(t('common.confirm_delete', { what }))) return
   try {
     await api.del(path)
     load()
@@ -105,7 +106,7 @@ async function savePolicy() {
   try {
     data = JSON.parse(pForm.data)
   } catch {
-    pError.value = 'A beállítások mező nem érvényes JSON.'
+    pError.value = t('policies.invalid_json')
     return
   }
   try {
@@ -214,7 +215,7 @@ function openAssign() {
 function examPreset(minutes: number) {
   aForm.target_type = 'room'
   aForm.priority = 100
-  aForm.label = 'vizsgamód'
+  aForm.label = t('policies.exam_label')
   aForm.starts_at = ''
   const end = new Date(Date.now() + minutes * 60_000)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -243,16 +244,13 @@ async function saveAssign() {
 
 <template>
   <div class="page-head">
-    <h1>Szabályok</h1>
-    <p>
-      Szabály = egy modul beállításcsomagja (pl. DNS szűrés). Hozzárendeléssel érvényes az iskolára, teremre, csoportra
-      vagy gépre – időbeosztással vagy határidővel is. Ütközésnél a nagyobb prioritás, majd a konkrétabb cél nyer.
-    </p>
+    <h1>{{ t('nav./policies') }}</h1>
+    <p>{{ t('policies.intro') }}</p>
   </div>
 
   <nav class="tabs">
-    <RouterLink v-for="(label, key) in TABS" :key="key" :to="{ query: { tab: key } }" :class="{ active: tab === key }">
-      {{ label }}
+    <RouterLink v-for="key in TABS" :key="key" :to="{ query: { tab: key } }" :class="{ active: tab === key }">
+      {{ t(`policies.tab.${key}`) }}
     </RouterLink>
   </nav>
 
@@ -262,18 +260,18 @@ async function saveAssign() {
   <template v-if="tab === 'assignments'">
     <div class="toolbar">
       <span class="grow"></span>
-      <button v-if="canAssign" :disabled="!policies.length" @click="openAssign">+ Hozzárendelés</button>
+      <button v-if="canAssign" :disabled="!policies.length" @click="openAssign">{{ t('policies.new_assignment') }}</button>
     </div>
     <div class="card table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Szabály</th>
-            <th>Cél</th>
-            <th>Időbeosztás</th>
-            <th>Prioritás</th>
-            <th>Időszak</th>
-            <th>Állapot</th>
+            <th>{{ t('policies.policy') }}</th>
+            <th>{{ t('policies.target') }}</th>
+            <th>{{ t('policies.schedule') }}</th>
+            <th>{{ t('policies.priority') }}</th>
+            <th>{{ t('policies.period') }}</th>
+            <th>{{ t('common.status') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -284,22 +282,22 @@ async function saveAssign() {
               <span class="badge" style="margin-left: 6px">{{ policyOf(a.policy_id)?.kind }}</span>
               <br v-if="a.label" /><span class="muted small">{{ a.label }}</span>
             </td>
-            <td>{{ TARGET_TYPES[a.target_type] }}: {{ targetName(a) }}</td>
+            <td>{{ targetTypeLabel(a.target_type) }}: {{ targetName(a) }}</td>
             <td>{{ scheduleName(a.schedule_id) ?? '–' }}</td>
             <td>{{ a.priority }}</td>
             <td class="small">{{ fmtDate(a.starts_at) }} → {{ fmtDate(a.ends_at) }}</td>
             <td>
-              <span v-if="isActiveNow(a)" class="badge ok">Érvényes</span>
-              <span v-else class="badge closed">Inaktív</span>
+              <span v-if="isActiveNow(a)" class="badge ok">{{ t('policies.in_effect') }}</span>
+              <span v-else class="badge closed">{{ t('policies.inactive') }}</span>
             </td>
             <td>
               <div v-if="canAssign" class="actions">
-                <button class="danger small" @click="del(`/policy-assignments/${a.id}`, 'a hozzárendelést')">Törlés</button>
+                <button class="danger small" @click="del(`/policy-assignments/${a.id}`, t('policies.the_assignment'))">{{ t('common.delete') }}</button>
               </div>
             </td>
           </tr>
           <tr v-if="!assignments.length">
-            <td colspan="7" class="empty">Nincs hozzárendelés.</td>
+            <td colspan="7" class="empty">{{ t('policies.no_assignments') }}</td>
           </tr>
         </tbody>
       </table>
@@ -308,22 +306,19 @@ async function saveAssign() {
 
   <!-- ------------------------------------------------------------ policies -->
   <template v-if="tab === 'policies'">
-    <div v-if="!kinds.length" class="alert ok">
-      Még egyik modul sem definiál szabálytípust. A DNS, monitorozás és programtelepítés modulok fognak – addig itt nem
-      hozható létre szabály.
-    </div>
+    <div v-if="!kinds.length" class="alert ok">{{ t('policies.no_kinds') }}</div>
     <div class="toolbar">
       <span class="grow"></span>
-      <button v-if="canWrite" :disabled="!kinds.length" @click="openPolicy(null)">+ Új szabály</button>
+      <button v-if="canWrite" :disabled="!kinds.length" @click="openPolicy(null)">{{ t('policies.new_policy') }}</button>
     </div>
     <div class="card table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Név</th>
-            <th>Típus</th>
-            <th>Leírás</th>
-            <th>Módosítva</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('common.type') }}</th>
+            <th>{{ t('common.description') }}</th>
+            <th>{{ t('policies.modified') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -335,13 +330,13 @@ async function saveAssign() {
             <td class="muted">{{ fmtDate(p.updated_at) }}</td>
             <td>
               <div v-if="canWrite" class="actions">
-                <button class="ghost small" @click="openPolicy(p)">Szerkesztés</button>
-                <button class="danger small" @click="del(`/policies/${p.id}`, p.name)">Törlés</button>
+                <button class="ghost small" @click="openPolicy(p)">{{ t('common.edit') }}</button>
+                <button class="danger small" @click="del(`/policies/${p.id}`, p.name)">{{ t('common.delete') }}</button>
               </div>
             </td>
           </tr>
           <tr v-if="!policies.length">
-            <td colspan="5" class="empty">Nincs szabály.</td>
+            <td colspan="5" class="empty">{{ t('policies.no_policies') }}</td>
           </tr>
         </tbody>
       </table>
@@ -352,15 +347,15 @@ async function saveAssign() {
   <template v-if="tab === 'schedules'">
     <div class="toolbar">
       <span class="grow"></span>
-      <button v-if="canWrite" @click="openSchedule(null)">+ Új időbeosztás</button>
+      <button v-if="canWrite" @click="openSchedule(null)">{{ t('policies.new_schedule') }}</button>
     </div>
     <div class="card table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Név</th>
-            <th>Idősávok</th>
-            <th>Időzóna</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('policies.windows') }}</th>
+            <th>{{ t('policies.timezone') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -371,13 +366,13 @@ async function saveAssign() {
             <td class="muted">{{ s.timezone }}</td>
             <td>
               <div v-if="canWrite" class="actions">
-                <button class="ghost small" @click="openSchedule(s)">Szerkesztés</button>
-                <button class="danger small" @click="del(`/schedules/${s.id}`, s.name)">Törlés</button>
+                <button class="ghost small" @click="openSchedule(s)">{{ t('common.edit') }}</button>
+                <button class="danger small" @click="del(`/schedules/${s.id}`, s.name)">{{ t('common.delete') }}</button>
               </div>
             </td>
           </tr>
           <tr v-if="!schedules.length">
-            <td colspan="4" class="empty">Nincs időbeosztás.</td>
+            <td colspan="4" class="empty">{{ t('policies.no_schedules') }}</td>
           </tr>
         </tbody>
       </table>
@@ -385,56 +380,56 @@ async function saveAssign() {
   </template>
 
   <!-- ------------------------------------------------------------ dialogs -->
-  <Modal v-if="policyDlg" :title="policyDlg.policy ? 'Szabály szerkesztése' : 'Új szabály'" wide @close="policyDlg = null">
+  <Modal v-if="policyDlg" :title="policyDlg.policy ? t('policies.edit_policy') : t('policies.new_policy_title')" wide @close="policyDlg = null">
     <form class="stack" @submit.prevent="savePolicy">
       <div v-if="pError" class="alert err">{{ pError }}</div>
       <div class="row">
         <div class="field">
-          <label>Típus (modul)</label>
+          <label>{{ t('policies.kind') }}</label>
           <select v-model="pForm.kind" :disabled="!!policyDlg.policy">
-            <option v-for="k in kinds" :key="k.name" :value="k.name">{{ k.title }} ({{ k.name }})</option>
+            <option v-for="k in kinds" :key="k.name" :value="k.name">{{ moduleTitle(k) }} ({{ k.name }})</option>
           </select>
         </div>
         <div class="field">
-          <label>Név</label>
+          <label>{{ t('common.name') }}</label>
           <input v-model="pForm.name" required />
         </div>
       </div>
       <div class="field">
-        <label>Leírás</label>
+        <label>{{ t('common.description') }}</label>
         <input v-model="pForm.description" />
       </div>
       <div class="field">
-        <label>Beállítások (JSON – a modul ellenőrzi)</label>
+        <label>{{ t('policies.data') }}</label>
         <textarea v-model="pForm.data" class="mono" style="min-height: 180px"></textarea>
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="policyDlg = null">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="policyDlg = null">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>
 
-  <Modal v-if="scheduleDlg" :title="scheduleDlg.schedule ? 'Időbeosztás szerkesztése' : 'Új időbeosztás'" wide @close="scheduleDlg = null">
+  <Modal v-if="scheduleDlg" :title="scheduleDlg.schedule ? t('policies.edit_schedule') : t('policies.new_schedule_title')" wide @close="scheduleDlg = null">
     <form class="stack" @submit.prevent="saveSchedule">
       <div v-if="sError" class="alert err">{{ sError }}</div>
       <div class="row">
         <div class="field">
-          <label>Név</label>
-          <input v-model="sForm.name" required placeholder="pl. Tanórák" />
+          <label>{{ t('common.name') }}</label>
+          <input v-model="sForm.name" required :placeholder="t('policies.schedule_name_placeholder')" />
         </div>
         <div class="field">
-          <label>Időzóna</label>
+          <label>{{ t('policies.timezone') }}</label>
           <input v-model="sForm.timezone" required />
         </div>
       </div>
       <div class="field">
-        <label>Idősávok (éjfélen átnyúló sáv is megadható, pl. 22:00–06:00)</label>
+        <label>{{ t('policies.windows_label') }}</label>
         <div class="stack" style="gap: 8px">
           <div v-for="(w, i) in sForm.windows" :key="i" class="row" style="align-items: center">
             <div class="chips">
-              <label v-for="(d, di) in DAYS" :key="di" class="check badge" :class="{ info: w.days.includes(di) }">
-                <input type="checkbox" :checked="w.days.includes(di)" style="display: none" @change="toggleDay(w, di)" />{{ d }}
+              <label v-for="di in DAY_INDEXES" :key="di" class="check badge" :class="{ info: w.days.includes(di) }">
+                <input type="checkbox" :checked="w.days.includes(di)" style="display: none" @change="toggleDay(w, di)" />{{ dayLabel(di) }}
               </label>
             </div>
             <input v-model="w.start" type="time" required style="width: 110px" />
@@ -444,77 +439,77 @@ async function saveAssign() {
           </div>
           <div>
             <button type="button" class="ghost small" @click="sForm.windows.push({ days: [0, 1, 2, 3, 4], start: '08:00', end: '08:45' })">
-              + Idősáv
+              {{ t('policies.add_window') }}
             </button>
           </div>
         </div>
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="scheduleDlg = null">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="scheduleDlg = null">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>
 
-  <Modal v-if="assignOpen" title="Új hozzárendelés" wide @close="assignOpen = false">
+  <Modal v-if="assignOpen" :title="t('policies.new_assignment_title')" wide @close="assignOpen = false">
     <form class="stack" @submit.prevent="saveAssign">
       <div v-if="aError" class="alert err">{{ aError }}</div>
       <div class="row">
-        <span class="muted small">Gyors beállítás:</span>
-        <button type="button" class="ghost small" @click="examPreset(45)">Vizsgamód 45 percre</button>
-        <button type="button" class="ghost small" @click="examPreset(90)">Vizsgamód 90 percre</button>
+        <span class="muted small">{{ t('policies.quick') }}</span>
+        <button type="button" class="ghost small" @click="examPreset(45)">{{ t('policies.exam', { minutes: 45 }) }}</button>
+        <button type="button" class="ghost small" @click="examPreset(90)">{{ t('policies.exam', { minutes: 90 }) }}</button>
       </div>
       <div class="field">
-        <label>Szabály</label>
+        <label>{{ t('policies.policy') }}</label>
         <select v-model="aForm.policy_id" required>
           <option v-for="p in policies" :key="p.id" :value="p.id">{{ p.name }} ({{ p.kind }})</option>
         </select>
       </div>
       <div class="row">
         <div class="field">
-          <label>Cél típusa</label>
+          <label>{{ t('policies.target_type') }}</label>
           <select v-model="aForm.target_type">
-            <option v-for="(label, key) in TARGET_TYPES" :key="key" :value="key">{{ label }}</option>
+            <option v-for="tt in TARGET_TYPES" :key="tt" :value="tt">{{ targetTypeLabel(tt) }}</option>
           </select>
         </div>
         <div v-if="aForm.target_type !== 'org'" class="field">
-          <label>Cél</label>
+          <label>{{ t('policies.target') }}</label>
           <select v-model="aForm.target_id" required>
-            <option value="" disabled>– válassz –</option>
+            <option value="" disabled>{{ t('policies.choose') }}</option>
             <option v-for="o in targetOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
           </select>
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label>Időbeosztás (opcionális)</label>
+          <label>{{ t('policies.schedule_optional') }}</label>
           <select v-model="aForm.schedule_id">
-            <option value="">– mindig –</option>
+            <option value="">{{ t('policies.always') }}</option>
             <option v-for="s in schedules" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </div>
         <div class="field">
-          <label>Prioritás</label>
+          <label>{{ t('policies.priority') }}</label>
           <input v-model.number="aForm.priority" type="number" min="-1000" max="1000" />
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label>Kezdete (opcionális)</label>
+          <label>{{ t('policies.starts') }}</label>
           <input v-model="aForm.starts_at" type="datetime-local" />
         </div>
         <div class="field">
-          <label>Vége (opcionális)</label>
+          <label>{{ t('policies.ends') }}</label>
           <input v-model="aForm.ends_at" type="datetime-local" />
         </div>
       </div>
       <div class="field">
-        <label>Címke</label>
-        <input v-model="aForm.label" placeholder="pl. vizsgamód" />
+        <label>{{ t('policies.label') }}</label>
+        <input v-model="aForm.label" :placeholder="t('policies.label_placeholder')" />
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="assignOpen = false">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="assignOpen = false">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>

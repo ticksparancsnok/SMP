@@ -1,3 +1,11 @@
+# TODO(evaluate): this resolver answers anyone who can reach the port (an "open
+# resolver"). Fine behind the school's NAT; if the port is ever reachable from the
+# internet it can be abused for DNS amplification. Then restrict clients with the
+# acl plugin, e.g.:
+#     acl {
+#         allow net 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+#         block
+#     }
 .:1053 {
     schoolfilter ./blocklist.json 127.0.0.1 :8080
     log

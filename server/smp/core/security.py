@@ -18,6 +18,13 @@ _hasher = PasswordHasher()  # argon2id, 64 MiB, for passwords people choose
 # human-chosen passwords to keep bulk imports fast (~7 ms each, ~7 s per 1000
 # students). argon2 hashes carry their parameters, so verify_password() handles both.
 _otp_hasher = PasswordHasher(time_cost=1, memory_cost=16 * 1024, parallelism=1)
+# TODO(evaluate): timing side channel. A failed login against an account that still
+# has its one-time password takes ~16 ms (this cheap hash), against an unknown
+# username ~47 ms (_DUMMY_HASH), so response times tell "exists and not activated
+# yet" apart from "doesn't exist". Not exploitable for guessing (OTPs are ~59 bits)
+# and SMP normally runs on the school's own network; if it's ever exposed publicly,
+# make every failed login cost the same, e.g. also verify _DUMMY_HASH when the
+# stored hash is an OTP hash (see login() in core/api/auth.py).
 # Used to spend the same time on unknown usernames as on wrong passwords.
 _DUMMY_HASH = _hasher.hash("smp-dummy-password")
 

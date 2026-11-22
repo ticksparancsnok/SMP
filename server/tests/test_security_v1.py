@@ -111,18 +111,25 @@ def _xlsx_cells(data: bytes) -> bytes:
 
 async def test_throttle_survives_restart(app, admin):
     async with client_from(app, "10.9.9.9") as attacker:
-        for _ in range(3):  # SMP_LOGIN_MAX_FAILURES=3 in tests
+        for _ in range(4):  # one short of the default lockout (5)
             assert (await attacker.post("/api/v1/auth/login", json={"username": "admin", "password": "nope"})).status_code == 401
 
     # "restart": a brand-new app with an empty in-memory throttle, seeded on startup
     fresh = create_app(registry=ModuleRegistry(all_modules()), bus=InProcessEventBus())
     async with fresh.router.lifespan_context(fresh):
-        async with client_from(fresh, "10.9.9.9") as attacker:
+        async with client_from(fresh, "10.8.8.8") as attacker:
+            # the 4 earlier failures still count: the 5th locks the account, from any IP
+            r = await attacker.post("/api/v1/auth/login", json={"username": "admin", "password": "nope"})
+            assert r.status_code == 401
             r = await attacker.post("/api/v1/auth/login", json={"username": "admin", "password": ADMIN_PW})
             assert r.status_code == 429
-        async with client_from(fresh, "10.8.8.8") as elsewhere:
-            r = await elsewhere.post("/api/v1/auth/login", json={"username": "admin", "password": ADMIN_PW})
-            assert r.status_code == 200
+
+    # and a lockout itself survives a restart too
+    again = create_app(registry=ModuleRegistry(all_modules()), bus=InProcessEventBus())
+    async with again.router.lifespan_context(again):
+        async with client_from(again, "10.7.7.1") as real_admin:
+            r = await real_admin.post("/api/v1/auth/login", json={"username": "admin", "password": ADMIN_PW})
+            assert r.status_code == 429
 
 
 # --------------------------------------------------------------------------- audit fallback
@@ -149,8 +156,12 @@ async def test_failed_login_audit_commit_failure_still_401(app, admin, monkeypat
 
 
 def test_password_surrounding_whitespace_rejected():
-    assert "szóközzel" in password_problem(" Tavaszi-Szel-42")
-    assert "szóközzel" in password_problem("Tavaszi-Szel-42 ")
+    assert password_problem(" Tavaszi-Szel-42").code == "password.surrounding_space"
+    assert password_problem("Tavaszi-Szel-42 ").code == "password.surrounding_space"
+    assert "space" in str(password_problem(" Tavaszi-Szel-42"))  # English message for the CLI
+    # Values in the message travel as params, so the UI can translate it.
+    short = password_problem("abc12")
+    assert short.code == "password.too_short" and short.params == {"min": 8} and "8 characters" in short.message
     assert password_problem("Tavaszi Szel 42") is None  # inner spaces are fine (passphrases)
 
 
@@ -159,7 +170,7 @@ async def test_email_unique_per_school(admin):
     assert r.status_code == 201
     a = r.json()
     r = await admin.post("/api/v1/users", json={"username": "mail.b", "email": "kiss.peter@ISKOLA.hu"})
-    assert r.status_code == 409 and "e-mail" in r.json()["detail"]
+    assert r.status_code == 409 and "e-mail" in r.json()["detail"] and r.json()["code"] == "users.email_taken"
     b = (await admin.post("/api/v1/users", json={"username": "mail.b"})).json()
     assert (await admin.patch(f"/api/v1/users/{b['id']}", json={"email": "kiss.peter@iskola.hu"})).status_code == 409
     # keeping your own address, or having none, is fine

@@ -36,15 +36,36 @@ src/
 
 `npm run build` typechecks and writes `dist/`. The server Docker image does this automatically and serves it.
 
+## Languages (HU / EN)
+
+The UI is Hungarian or English, switched with the HU | EN toggle on the login page,
+the password-change page and in the sidebar. The choice is remembered per browser
+(`localStorage`), and Hungarian is the default. The API itself is English-only.
+
+- `src/i18n/index.ts`: `t(key, params)`, `tOr(key, fallback, params)`, the reactive `locale`
+- `src/i18n/en.ts`: the reference dictionary; `hu.ts` must have exactly the same keys
+  (`npm run typecheck` fails otherwise)
+- A message is a string with `{param}` placeholders, or a function when the wording
+  depends on the values (plurals, optional parts)
+- Text from the server is translated by stable keys (menu titles by route path, dashboard
+  cards by widget id, errors by `code`, ...) and falls back to the server's English.
+  See "Languages" in `../docs/writing-a-module.md` for the key list.
+- User .xlsx downloads (export, login slips, import sample) send `lang` with the current
+  language, so the column headers match the UI (Name | Username | Class or
+  Név | Felhasználónév | Osztály). Import accepts either.
+
 ## DNS blocklist page
 
-The web UI includes `/dns` for users with `dns.blocklist.read`. Users with
-`dns.blocklist.write` can:
+The web UI includes `/dns` for users with `dns.blocklist.read`, with a Blocklist and
+an Allowlist tab. The allowlist is checked first, then the blocklist; everything else
+is allowed. Public suffixes (com, hu, co.uk, …) are built in and can't go on either
+list. Users with `dns.blocklist.write` can:
 
-- add an individual domain,
-- delete an entry,
-- preview a hosts-file import,
+- add or delete blocklist and allowlist entries,
+- preview a hosts-file import (allowlisted domains and public suffixes are skipped),
 - confirm the import.
+
+Blocklist entries the allowlist overrides are shown as "not applied".
 
 The frontend never sends `addedBy`. The control-plane API derives it from the
 authenticated principal:

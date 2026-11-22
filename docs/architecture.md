@@ -46,20 +46,20 @@ This gives you:
 ### Auth
 - Browser: `POST /api/v1/auth/login` sets an HttpOnly, `SameSite=Strict` session cookie. Only the SHA-256 of the token is stored, so sessions are revocable. Cross-origin unsafe requests are rejected as CSRF defence.
 - Services (DNS container, gateway, scripts): API tokens (`Authorization: Bearer smpt_...`) with an explicit permission list. Create them with `smp create-token` or `POST /api/v1/tokens`. A token can't hold more than its creator.
-- Brute force (`smp/core/throttle.py`): no per-account lockout (that would let anyone lock out the admin). Failed logins are counted per **(client IP, username)**: after `SMP_LOGIN_MAX_FAILURES` within `SMP_LOGIN_LOCKOUT_MINUTES` that IP gets 429 for that username, and an IP gets at most `SMP_LOGIN_IP_ATTEMPTS_PER_MINUTE` attempts. Both are checked before any hashing or DB work, and both behave identically for existing and unknown usernames, so they're no enumeration oracle. The state is in memory, per process. Behind a reverse proxy, uvicorn must see the real client IP (`--forwarded-allow-ips`). Argon2 runs in a worker thread with a concurrency cap, so a login flood can't stall the event loop or exhaust RAM. Every non-throttled failed attempt is audited, and the throttle is rebuilt from those audit rows on restart. See [security.md](security.md).
+- Brute force (`smp/core/throttle.py`): failed logins are counted **per account, from any IP**: `SMP_LOGIN_MAX_FAILURES` (5) failures within 15 minutes lock that username for `SMP_LOGIN_LOCKOUT_SECONDS` (60 s); while locked, even the right password gets 429, so rotating source IPs doesn't help an attacker. Separately an IP gets at most `SMP_LOGIN_IP_ATTEMPTS_PER_MINUTE` attempts. Both are checked before any hashing or DB work, and both behave identically for existing and unknown usernames, so they're no enumeration oracle. The cost: anyone can keep an account locked by failing 5 times a minute, which is why the lockout is short (full lockouts / OTP resets are marked `TODO(evaluate)` in throttle.py). The state is in memory, per process. Behind a reverse proxy, uvicorn must see the real client IP (`--forwarded-allow-ips`). Argon2 runs in a worker thread with a concurrency cap, so a login flood can't stall the event loop or exhaust RAM. Every non-throttled failed attempt is audited, and the throttle is rebuilt from those audit rows on restart. See [security.md](security.md).
 - **One-time passwords (OTPs)** (`smp/core/otp.py`): accounts someone else sets up get an *individual* random OTP (`xxxx-xxxx-xxxx`), never a shared default password. A shared one would let any student claim any not-yet-activated account.
   - **Where it comes from:** creating a user without a password, every imported student, and an admin reset without a password.
   - **Validity:** `core.otp_valid_days` (Beállítások). An expired OTP fails login, and the admin generates a new one.
-  - **Storage:** the OTP's argon2 hash is the account password until first login. An encrypted copy (Fernet, key from `SMP_SECRET_KEY`) is kept so admins can export login slips (`GET /users/credentials.xlsx`: the import columns plus Egyszeri jelszó and Érvényes eddig; admin-only and audited by username, never by value) until the OTP is used. Without `SMP_SECRET_KEY` these endpoints answer 503.
+  - **Storage:** the OTP's argon2 hash is the account password until first login. An encrypted copy (Fernet, key from `SMP_SECRET_KEY`) is kept so admins can export login slips (`GET /users/credentials.xlsx`: the import columns plus One-time password and Valid until (Egyszeri jelszó, Érvényes eddig with `?lang=hu`); admin-only and audited by username, never by value) until the OTP is used. Without `SMP_SECRET_KEY` these endpoints answer 503.
   - **Forced change:** any admin-set password (OTP or typed) sets `must_change_password`. Until it's changed, the server answers every endpoint except `/auth/me`, `/auth/password`, `/auth/logout` and `/modules` with `403 password change required`. Changing the password rotates the session (all of the user's sessions end and a new cookie is issued) and clears the OTP.
   - **Who sees activation state:** `must_change_password` and `otp_status` appear in user listings only for admins (`core.users.write`).
   - **Exempt:** the bootstrap admin from `smp bootstrap` chose their own password.
 - **Class teachers** (`group_teachers`, set on the Csoportok page via `PUT /groups/{id}/teachers`) are teachers responsible for a group. They're kept separate from members, so they don't inherit the students' group policies or count as members. A class teacher (`core.users.reset_class_password`, granted to teachers by default) can issue a **new one-time password** (`POST /users/{id}/password` with an empty body) to users who are members of a group they teach and have only the student role. They can't do it for teachers, admins or themselves, and can't set typed passwords. The user list returns `can_reset_password` per row, and shows activation state to whoever may reset that account. Resets are audited with `"as": "class_teacher"`.
 - Password policy (`smp/core/passwords.py`) for passwords people choose: at least 8 characters, letters and digits, at least 5 distinct characters, not a common password, and not containing the username. It applies to password changes, admin-typed passwords and `smp bootstrap`.
-- User import/export (`server/smp/core/xlsx_users.py`): `.xlsx` with the columns **Név | Felhasználónév | Osztály** (classes comma separated).
+- User import/export (`server/smp/core/xlsx_users.py`): `.xlsx` with the columns **Name | Username | Class** (classes comma separated). Downloads take `?lang=en|hu` (the UI sends its language; Hungarian headers are **Név | Felhasználónév | Osztály**), and import accepts either header set.
   - `GET /users/export.xlsx` takes the same filters as `GET /users` and exports every matching user, not just one page. It's audited, and cells are forced to text so names can't act as spreadsheet formulas.
   - `POST /users/import` (raw file body, streamed with a 5 MB cap; `?dry_run=true` previews) creates **students**, each with their own one-time password. Download the OTPs right after the import, or later, with the credentials export. Existing usernames are skipped, missing classes are created, and any invalid row rejects the whole file (422 with per-row errors).
-  - The sample file is [`docs/samples/felhasznalok-minta.xlsx`](samples/felhasznalok-minta.xlsx), and the UI downloads the same content from `GET /users/import-sample.xlsx`. A test keeps the two identical.
+  - The sample files are [`docs/samples/users-sample.xlsx`](samples/users-sample.xlsx) (English) and [`docs/samples/felhasznalok-minta.xlsx`](samples/felhasznalok-minta.xlsx) (Hungarian), and the UI downloads the same content from `GET /users/import-sample.xlsx?lang=…`. A test keeps them identical.
 - Identity providers: `User.auth_source` selects who verifies the password. `local` (argon2) exists now. The identity module adds `ldap`, `google` and `entra` by returning providers from `Module.identity_providers()`. Users are always mirrored locally so roles, groups and audit work the same for everyone.
 
 ### RBAC
@@ -67,7 +67,8 @@ This gives you:
 - Permissions about things that live in a room are marked `room_scoped=True` (`core.rooms.read`, `core.devices.read`, `core.policies.assign`, later screen lock etc.). A role assigned *for a room* grants its room-scoped permissions only in that room. Its other permissions (view users, create short links) apply org-wide. So "teacher in Lab 1" is a teacher everywhere but controls only Lab 1's machines.
 - `require("perm")` checks for an org-wide grant. `require("perm", any_room=True)` accepts a grant for some room, and the handler must then filter or check per room (`ctx.principal.rooms_with(perm)`, `ctx.check(perm, room_id)`). Safe by default: forgetting the room check means room-scoped teachers are denied, not over-granted.
 
-- Default role grants: teachers get read access plus room-scoped control. Students only get `shortlinks.links.create`, so the UI shows them Kezdőlap, Saját fiók and Rövid linkek and nothing else (the "Fejlesztés alatt" placeholders are hidden from them too). A new module decides per permission whether students get it.
+- Default role grants: teachers get read access plus room-scoped control. Students get no permissions at all, so the UI shows them only the home page and their own account (the "in development" placeholders are hidden from them too). Short links used to be open to students; they were removed because `/s/<code>` on the school's own domain made a convenient phishing tool. A new module decides per permission whether students get it.
+- API tokens die with their creator: deleting a user deletes the tokens they created, including tokens those tokens created, and audits which ones (`core.token.delete_with_user`: id, name, permissions; never the token itself).
 
 ### Audit
 - `ctx.audit(action, target, details)` writes into the same transaction as the change, so there's no change without its audit row and no audit row for a rolled-back change.
@@ -81,17 +82,28 @@ This gives you:
 ### DNS control-plane integration
 
 The `dns` module is a normal control-plane module with PostgreSQL-backed
-blocklist entries and the `/api/v1/dns/*` endpoints. Browser actions and hosts
-imports always identify the user on the server. `addedBy` is never accepted from
-a client payload.
+blocklist and allowlist entries and the `/api/v1/dns/*` endpoints. Browser actions
+and hosts imports always identify the user on the server. `addedBy` is never
+accepted from a client payload.
 
-After a blocklist mutation, the API pushes the complete canonical JSON state to
-the Go service over `POST /api/blocklist/sync`. The Go service replaces its
-in-memory blocklist and persists `blocklist.json`. The DNS hot path performs only
+Decision order for a query (`smp/modules/dns/domains.py`, and `Match` in the Go
+plugin): **allowlist → blocklist → allow everything else**. Public suffixes (com,
+hu, co.uk, …, from the Public Suffix List bundled with `tldextract`, used offline)
+are a built-in part of the allowlist: they can't be put on either list, because one
+such entry would block or unblock a whole top-level domain. Domain names are
+validated strictly (labels, length, no wildcards or single labels; IDN as punycode).
+Total allowlist control (block everything else) is marked `TODO(evaluate)`.
+
+After any change to either list, the API pushes the complete canonical JSON state
+(`entries` and `allowlist`) to the Go service over `POST /api/blocklist/sync`. The Go
+service replaces its in-memory lists and persists `blocklist.json`. The DNS hot path performs only
 memory matching and never queries PostgreSQL or calls the API.
 
 ### Home page (Kezdőlap)
 `GET /api/v1/dashboard` collects cards from every module's `dashboard(ctx)` hook, already filtered by the caller's permissions. A failing module only loses its own cards. The UI refreshes them every 10 s while the tab is visible (and immediately when it becomes visible again), and renders them generically: "stat" cards with a value, and "list" cards. Each card links to its page. The DNS module will contribute "top blocked domains" this way, and until it exists the UI shows a placeholder card.
+
+### Languages
+The API is English-only. The web UI is Hungarian or English (a per-browser HU | EN switch, Hungarian by default) and translates everything it shows: its own text, plus server text by stable keys (menu titles by route path, dashboard cards by widget id with the numbers in `Widget.data`, settings fields by name). Errors a user can see are raised as `AppError` (`smp/core/errors.py`): `{"detail": "<English>", "code": "...", "params": {...}}`, and the UI translates the code. The .xlsx import/export files use the UI language's column headers (`?lang=`), and import accepts both. Details: [writing-a-module.md](writing-a-module.md) (section 6) and `WEBUI/readme.md`.
 
 ### Module registry
 See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed in `server/smp/modules/__init__.py`) and can be switched off per install with `SMP_ENABLED_MODULES`. `GET /api/v1/modules` returns every manifest (permissions, UI routes, JSON schemas for settings and policies), so the UI can build navigation and settings forms from it.

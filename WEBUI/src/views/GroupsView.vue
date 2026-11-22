@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api, errorText } from '../api/client'
 import type { Group, Member, Page, User } from '../api/types'
 import Modal from '../components/Modal.vue'
-import { GROUP_KINDS } from '../format'
+import { GROUP_KINDS, groupKindLabel } from '../format'
+import { t } from '../i18n'
 import { can } from '../session'
 
 const groups = ref<Group[]>([])
@@ -45,7 +46,7 @@ async function saveGroup() {
 }
 
 async function remove(g: Group) {
-  if (!confirm(`Biztosan törlöd a csoportot: ${g.name}? (A felhasználók megmaradnak.)`)) return
+  if (!confirm(t('groups.confirm_delete', { name: g.name }))) return
   try {
     await api.del(`/groups/${g.id}`)
     load()
@@ -139,10 +140,10 @@ async function saveMembers() {
 <template>
   <div class="page-head spread">
     <div>
-      <h1>Csoportok</h1>
-      <p>Osztályok, tanári kar és egyéb csoportok</p>
+      <h1>{{ t('nav./groups') }}</h1>
+      <p>{{ t('groups.subtitle') }}</p>
     </div>
-    <button v-if="canWrite" @click="openEdit(null)">+ Új csoport</button>
+    <button v-if="canWrite" @click="openEdit(null)">{{ t('groups.new') }}</button>
   </div>
   <div v-if="error" class="alert err">{{ error }}</div>
 
@@ -150,104 +151,101 @@ async function saveMembers() {
     <table>
       <thead>
         <tr>
-          <th>Név</th>
-          <th>Típus</th>
-          <th>Leírás</th>
-          <th>Tagok</th>
-          <th>Tanárok</th>
+          <th>{{ t('common.name') }}</th>
+          <th>{{ t('common.type') }}</th>
+          <th>{{ t('common.description') }}</th>
+          <th>{{ t('groups.members') }}</th>
+          <th>{{ t('groups.teachers') }}</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="g in groups" :key="g.id">
           <td><strong>{{ g.name }}</strong></td>
-          <td><span class="badge">{{ GROUP_KINDS[g.kind] ?? g.kind }}</span></td>
+          <td><span class="badge">{{ groupKindLabel(g.kind) }}</span></td>
           <td class="muted">{{ g.description }}</td>
           <td>{{ g.member_count }}</td>
           <td class="small">{{ (g.teachers ?? []).map((t) => t.display_name || t.username).join(', ') || '–' }}</td>
           <td>
             <div class="actions">
-              <button class="ghost small" @click="openMembers(g)">Tagok</button>
-              <button v-if="canWrite" class="ghost small" @click="openTeachers(g)">Tanárok</button>
+              <button class="ghost small" @click="openMembers(g)">{{ t('groups.members') }}</button>
+              <button v-if="canWrite" class="ghost small" @click="openTeachers(g)">{{ t('groups.teachers') }}</button>
               <template v-if="canWrite">
-                <button class="ghost small" @click="openEdit(g)">Szerkesztés</button>
-                <button class="danger small" @click="remove(g)">Törlés</button>
+                <button class="ghost small" @click="openEdit(g)">{{ t('common.edit') }}</button>
+                <button class="danger small" @click="remove(g)">{{ t('common.delete') }}</button>
               </template>
             </div>
           </td>
         </tr>
         <tr v-if="!groups.length">
-          <td colspan="6" class="empty">Még nincs csoport.</td>
+          <td colspan="6" class="empty">{{ t('groups.empty') }}</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <Modal v-if="editOpen" :title="edit ? 'Csoport szerkesztése' : 'Új csoport'" @close="editOpen = false">
+  <Modal v-if="editOpen" :title="edit ? t('groups.edit_title') : t('groups.new_title')" @close="editOpen = false">
     <form class="stack" @submit.prevent="saveGroup">
       <div v-if="formError" class="alert err">{{ formError }}</div>
       <div class="row">
         <div class="field">
-          <label>Név</label>
-          <input v-model="form.name" required placeholder="pl. 10.B" />
+          <label>{{ t('common.name') }}</label>
+          <input v-model="form.name" required :placeholder="t('groups.name_placeholder')" />
         </div>
         <div class="field">
-          <label>Típus</label>
+          <label>{{ t('common.type') }}</label>
           <select v-model="form.kind">
-            <option v-for="(label, key) in GROUP_KINDS" :key="key" :value="key">{{ label }}</option>
+            <option v-for="k in GROUP_KINDS" :key="k" :value="k">{{ groupKindLabel(k) }}</option>
           </select>
         </div>
       </div>
       <div class="field">
-        <label>Leírás</label>
+        <label>{{ t('common.description') }}</label>
         <input v-model="form.description" />
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="editOpen = false">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="editOpen = false">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>
 
-  <Modal v-if="teachersOf" :title="`Tanárok: ${teachersOf.name}`" @close="teachersOf = null">
+  <Modal v-if="teachersOf" :title="t('groups.teachers_title', { name: teachersOf.name })" @close="teachersOf = null">
     <div class="stack">
-      <p class="muted small" style="margin: 0">
-        A csoport tanárai (pl. osztályfőnök) a csoport diákjainak új egyszeri jelszót adhatnak, ha elfelejtették a
-        jelszavukat. A tanárok nem lesznek a csoport tagjai.
-      </p>
+      <p class="muted small" style="margin: 0">{{ t('groups.teachers_intro') }}</p>
       <div v-if="teacherError" class="alert err">{{ teacherError }}</div>
       <div class="check-list">
         <label v-for="t in allTeachers" :key="t.id" class="check" style="padding: 3px 0">
           <input type="checkbox" :checked="selectedTeachers.has(t.id)" @change="toggleTeacher(t.id)" />
           {{ t.display_name || t.username }} <span class="muted small mono">{{ t.username }}</span>
         </label>
-        <p v-if="!allTeachers.length" class="empty">Nincs tanár szerepkörű felhasználó.</p>
+        <p v-if="!allTeachers.length" class="empty">{{ t('groups.no_teachers') }}</p>
       </div>
       <div class="modal-foot">
-        <button class="ghost" @click="teachersOf = null">Mégse</button>
-        <button @click="saveTeachers">Mentés</button>
+        <button class="ghost" @click="teachersOf = null">{{ t('common.cancel') }}</button>
+        <button @click="saveTeachers">{{ t('common.save') }}</button>
       </div>
     </div>
   </Modal>
 
-  <Modal v-if="membersOf" :title="`Tagok: ${membersOf.name}`" @close="membersOf = null">
+  <Modal v-if="membersOf" :title="t('groups.members_title', { name: membersOf.name })" @close="membersOf = null">
     <div class="stack">
       <div v-if="memberError" class="alert err">{{ memberError }}</div>
       <div class="field">
-        <label>Szűrés</label>
-        <input v-model="memberFilter" placeholder="név vagy felhasználónév" />
+        <label>{{ t('groups.filter') }}</label>
+        <input v-model="memberFilter" :placeholder="t('groups.filter_placeholder')" />
       </div>
       <div class="check-list">
         <label v-for="u in filteredUsers" :key="u.id" class="check" style="padding: 3px 0">
           <input type="checkbox" :checked="selected.has(u.id)" :disabled="!canWrite" @change="toggle(u.id)" />
           {{ u.display_name || u.username }} <span class="muted small mono">{{ u.username }}</span>
         </label>
-        <p v-if="!filteredUsers.length" class="empty">Nincs találat.</p>
+        <p v-if="!filteredUsers.length" class="empty">{{ t('common.no_matches') }}</p>
       </div>
       <div class="modal-foot">
-        <span class="muted small" style="margin-right: auto">{{ selected.size }} tag kiválasztva</span>
-        <button class="ghost" @click="membersOf = null">Bezárás</button>
-        <button v-if="canWrite" @click="saveMembers">Mentés</button>
+        <span class="muted small" style="margin-right: auto">{{ t('groups.selected', { count: selected.size }) }}</span>
+        <button class="ghost" @click="membersOf = null">{{ t('common.close') }}</button>
+        <button v-if="canWrite" @click="saveMembers">{{ t('common.save') }}</button>
       </div>
     </div>
   </Modal>

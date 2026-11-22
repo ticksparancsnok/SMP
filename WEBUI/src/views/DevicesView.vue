@@ -5,7 +5,8 @@ import { api, errorText } from '../api/client'
 import type { Device, DeviceStatus, Page, Room } from '../api/types'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
-import { DEVICE_STATUS, fmtRelative, isOnline } from '../format'
+import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtRelative, isOnline } from '../format'
+import { t } from '../i18n'
 import { can } from '../session'
 
 const LIMIT = 100
@@ -99,7 +100,7 @@ async function save() {
 }
 
 async function remove(d: Device) {
-  if (!confirm(`Biztosan törlöd a gépet: ${d.hostname}?`)) return
+  if (!confirm(t('devices.confirm_delete', { hostname: d.hostname }))) return
   try {
     await api.del(`/devices/${d.id}`)
     load()
@@ -126,24 +127,24 @@ async function showPolicies(d: Device) {
 <template>
   <div class="page-head spread">
     <div>
-      <h1>Gépek</h1>
-      <p>A gépek az ügynök telepítésekor automatikusan megjelennek; itt előre is felvehetők.</p>
+      <h1>{{ t('nav./devices') }}</h1>
+      <p>{{ t('devices.subtitle') }}</p>
     </div>
-    <button v-if="canWrite" @click="openEdit(null)">+ Gép felvétele</button>
+    <button v-if="canWrite" @click="openEdit(null)">{{ t('devices.new') }}</button>
   </div>
 
   <div class="toolbar">
     <div class="field">
-      <label>Terem</label>
+      <label>{{ t('common.room') }}</label>
       <select v-model="roomFilter">
-        <option value="">Minden terem</option>
-        <option value="__none">Terem nélkül</option>
+        <option value="">{{ t('common.all_rooms') }}</option>
+        <option value="__none">{{ t('devices.no_room') }}</option>
         <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
       </select>
     </div>
     <div class="field">
-      <label>Keresés</label>
-      <input v-model="q" placeholder="gépnév vagy MAC" />
+      <label>{{ t('common.search') }}</label>
+      <input v-model="q" :placeholder="t('devices.search_placeholder')" />
     </div>
   </div>
 
@@ -153,11 +154,11 @@ async function showPolicies(d: Device) {
     <table>
       <thead>
         <tr>
-          <th>Gép</th>
-          <th>Terem</th>
+          <th>{{ t('devices.device') }}</th>
+          <th>{{ t('common.room') }}</th>
           <th>MAC / IP</th>
-          <th>Állapot</th>
-          <th>Utoljára látva</th>
+          <th>{{ t('common.status') }}</th>
+          <th>{{ t('devices.last_seen') }}</th>
           <th>OS</th>
           <th></th>
         </tr>
@@ -173,74 +174,74 @@ async function showPolicies(d: Device) {
             {{ d.mac ?? '–' }}<br /><span class="muted">{{ d.last_ip ?? '' }}</span>
           </td>
           <td>
-            <span class="badge" :class="DEVICE_STATUS[d.status]?.cls">{{ DEVICE_STATUS[d.status]?.label ?? d.status }}</span>
+            <span class="badge" :class="deviceStatusClass(d.status)">{{ deviceStatusLabel(d.status) }}</span>
           </td>
           <td><span class="dot" :class="{ on: isOnline(d.last_seen_at) }"></span>{{ fmtRelative(d.last_seen_at) }}</td>
           <td class="muted small">{{ [d.os_name, d.os_version].filter(Boolean).join(' ') || '–' }}</td>
           <td>
             <div class="actions">
-              <button class="ghost small" @click="showPolicies(d)">Szabályok</button>
+              <button class="ghost small" @click="showPolicies(d)">{{ t('devices.policies') }}</button>
               <template v-if="canWrite">
-                <button class="ghost small" @click="openEdit(d)">Szerkesztés</button>
-                <button class="danger small" @click="remove(d)">Törlés</button>
+                <button class="ghost small" @click="openEdit(d)">{{ t('common.edit') }}</button>
+                <button class="danger small" @click="remove(d)">{{ t('common.delete') }}</button>
               </template>
             </div>
           </td>
         </tr>
         <tr v-if="!devices.length">
-          <td colspan="7" class="empty">Nincs gép.</td>
+          <td colspan="7" class="empty">{{ t('devices.empty') }}</td>
         </tr>
       </tbody>
     </table>
     <Pager v-model:offset="offset" :total="total" :limit="LIMIT" />
   </div>
 
-  <Modal v-if="open" :title="edit ? `Gép: ${edit.hostname}` : 'Gép felvétele'" @close="open = false">
+  <Modal v-if="open" :title="edit ? t('devices.edit_title', { hostname: edit.hostname }) : t('devices.new_title')" @close="open = false">
     <form class="stack" @submit.prevent="save">
       <div v-if="formError" class="alert err">{{ formError }}</div>
       <div class="row">
         <div class="field">
-          <label>Gépnév (hostname)</label>
+          <label>{{ t('devices.hostname') }}</label>
           <input v-model="form.hostname" :disabled="!!edit" required class="mono" placeholder="LAB1-PC01" />
         </div>
         <div class="field">
-          <label>Megjelenített név</label>
-          <input v-model="form.display_name" placeholder="pl. Tanári gép" />
+          <label>{{ t('common.display_name') }}</label>
+          <input v-model="form.display_name" :placeholder="t('devices.display_name_placeholder')" />
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label>MAC cím</label>
+          <label>{{ t('devices.mac') }}</label>
           <input v-model="form.mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" />
         </div>
         <div class="field">
-          <label>Terem</label>
+          <label>{{ t('common.room') }}</label>
           <select v-model="form.room_id">
-            <option value="">– nincs –</option>
+            <option value="">{{ t('devices.none') }}</option>
             <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
           </select>
         </div>
       </div>
       <div v-if="edit" class="field">
-        <label>Állapot</label>
+        <label>{{ t('common.status') }}</label>
         <select v-model="form.status">
-          <option v-for="(s, key) in DEVICE_STATUS" :key="key" :value="key">{{ s.label }}</option>
+          <option v-for="s in DEVICE_STATUSES" :key="s" :value="s">{{ deviceStatusLabel(s) }}</option>
         </select>
       </div>
       <div class="field">
-        <label>Megjegyzés</label>
+        <label>{{ t('devices.notes') }}</label>
         <textarea v-model="form.notes" style="min-height: 60px"></textarea>
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="open = false">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="open = false">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>
 
-  <Modal v-if="policiesOf" :title="`Érvényes szabályok: ${policiesOf.hostname}`" wide @close="policiesOf = null">
-    <p class="muted small">Ami most érvényes erre a gépre, modulonként, és hogy melyik hozzárendelésből jön.</p>
-    <p v-if="effective && !Object.keys(effective).length" class="empty">Nincs érvényes szabály.</p>
-    <pre v-else class="json">{{ effective ? JSON.stringify(effective, null, 2) : 'Betöltés…' }}</pre>
+  <Modal v-if="policiesOf" :title="t('devices.effective_title', { hostname: policiesOf.hostname })" wide @close="policiesOf = null">
+    <p class="muted small">{{ t('devices.effective_intro') }}</p>
+    <p v-if="effective && !Object.keys(effective).length" class="empty">{{ t('devices.no_effective') }}</p>
+    <pre v-else class="json">{{ effective ? JSON.stringify(effective, null, 2) : t('common.loading') }}</pre>
   </Modal>
 </template>

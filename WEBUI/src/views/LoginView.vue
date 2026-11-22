@@ -2,6 +2,8 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
+import LangSwitch from '../components/LangSwitch.vue'
+import { t } from '../i18n'
 import { loadSession } from '../session'
 
 const route = useRoute()
@@ -29,20 +31,23 @@ async function submit() {
 <template>
   <div class="auth">
     <form class="card stack" @submit.prevent="submit">
-      <div>
-        <h1>SMP</h1>
-        <p class="muted" style="margin: 0">School Management Portal – bejelentkezés</p>
+      <div class="spread" style="align-items: flex-start">
+        <div>
+          <h1>SMP</h1>
+          <p class="muted" style="margin: 0">{{ t('login.subtitle') }}</p>
+        </div>
+        <LangSwitch />
       </div>
       <div v-if="error" class="alert err">{{ error }}</div>
       <div class="field">
-        <label for="u">Felhasználónév</label>
+        <label for="u">{{ t('common.username') }}</label>
         <input id="u" v-model="form.username" autocomplete="username" required autofocus />
       </div>
       <div class="field">
-        <label for="p">Jelszó</label>
+        <label for="p">{{ t('common.password') }}</label>
         <input id="p" v-model="form.password" type="password" autocomplete="current-password" required />
       </div>
-      <button :disabled="busy">{{ busy ? 'Belépés…' : 'Belépés' }}</button>
+      <button :disabled="busy">{{ busy ? t('login.submitting') : t('login.submit') }}</button>
     </form>
   </div>
 </template>

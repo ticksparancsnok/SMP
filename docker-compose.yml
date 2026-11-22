@@ -51,6 +51,9 @@ services:
       # a token the API is disabled rather than open.
       DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
     ports:
+      # TODO(evaluate): published on every interface, and the resolver answers anyone
+      # (open resolver). OK on a NATed school network; if it's ever internet-facing,
+      # bind it to the LAN address or add an acl to the Corefile (see the note there).
       - "1053:1053/udp"
       - "1053:1053/tcp"
       - "8080:8080/tcp"
