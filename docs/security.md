@@ -7,10 +7,8 @@ How SMP's core protects accounts, what operators must configure, and the decisio
 1. **`SMP_SECRET_KEY`**: required, at least 32 random characters. The server refuses to start without it.
    - **Generate:** `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
    - **Where to keep it:** in a file passed as `SMP_SECRET_KEY_FILE` (e.g. a Docker secret, `chmod 600`) rather than in the environment. Never store it next to database backups: key + DB dump = readable unused one-time passwords.
-2. **TLS reverse proxy** in front of the server (nginx/Caddy). Then:
-   - keep `SMP_COOKIE_SECURE=true` (the default);
-   - set `SMP_FORWARDED_ALLOW_IPS` to the proxy's address. Otherwise every client appears to come from the proxy and shares one login-throttle budget.
-3. **Request rate limiting at the proxy.** The app throttles logins itself (below), but general request floods belong at the proxy:
+2. **TLS and the reverse proxy** come with the Docker stack: the bundled nginx terminates TLS, sets `SMP_COOKIE_SECURE=true`, forwards real client IPs (trusted only from SMP's docker network) and applies the rate limits below (`nginx/templates/smp.conf.template`). Replace the self-signed certificate with a real one in `nginx/certs/`; once you have, consider adding HSTS there.
+3. **If you run your own proxy instead** (outside Docker): keep `SMP_COOKIE_SECURE=true`, set `SMP_FORWARDED_ALLOW_IPS` to the proxy's address (otherwise every client appears to come from the proxy and shares one login-throttle budget), and rate-limit requests there; the app throttles logins itself (below), but general request floods belong at the proxy:
 
    ```nginx
    limit_req_zone $binary_remote_addr zone=smp_login:10m rate=10r/m;

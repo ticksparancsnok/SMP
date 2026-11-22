@@ -51,7 +51,16 @@ Authorization: Bearer <DNS_SYNC_TOKEN>
 
 **Every `/api/blocklist/*` endpoint** (`sync`, `status`, `import`, `entries`)
 requires `Authorization: Bearer <DNS_SYNC_TOKEN>`. Port 8080 also serves the
-block page to every client on the school network, so the API must not be open.
+block page, so the API must not be open.
+
+**In the Docker stack** port 8080 isn't published: nginx forwards every request
+for a name that isn't SMP's own (`SMP_SERVER_NAMES`) to it, on ports 80 and 443, so
+students see the block page when they open a blocked site. For that, blocked names
+must resolve to the server's LAN address: compose passes `SMP_SINKHOLE_IP` as
+`SINKHOLE_IP`, which overrides the Corefile's `127.0.0.1` (only right for a local
+demo). Blocked HTTPS sites show the browser's certificate warning first; sites on
+browsers' HSTS preload lists (Google, YouTube, ...) can't show the page at all and
+just fail to load, which still blocks them.
 If `DNS_SYNC_TOKEN` is not set, the API answers `503` (disabled, not open);
 DNS filtering and the block page keep working.
 

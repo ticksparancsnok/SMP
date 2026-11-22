@@ -1,11 +1,42 @@
-# Development / single-host deployment.
+# Development / single-host deployment. Install or upgrade with:
+#   ./install.sh          (creates .env, starts everything, sets up the school once)
+# Manual equivalent: fill .env from .env.example, then
 #   docker compose up -d --build
-#   docker compose exec server smp bootstrap --org-name "My School"
+#   docker compose exec server smp bootstrap --otp --org-name "My School"
+#
+# Traffic: browsers -> nginx (80/443) -> server (portal) or dns-sinkhole (block page).
+# Only nginx and the DNS port are published; the server and the block page are
+# reachable inside the docker network only.
 #
 # Later services (dns, agent gateway) are added here. The DNS container needs
 # `network_mode: host` (or macvlan) to own port 53, and must keep working when
 # `server` is down, so it will cache policies locally.
 services:
+  nginx:
+    build: ./nginx
+    environment:
+      # SMP's own names/addresses (comma separated): requests for these get the portal,
+      # anything else is a blocked site and gets the block page. ./install.sh fills it.
+      SMP_SERVER_NAMES: ${SMP_SERVER_NAMES:-localhost,127.0.0.1}
+      SMP_HTTPS_PORT: ${SMP_HTTPS_PORT:-443}
+    ports:
+      - "${SMP_HTTP_PORT:-80}:80"
+      - "${SMP_HTTPS_PORT:-443}:443"
+    volumes:
+      # fullchain.pem + privkey.pem; a self-signed pair is created if empty
+      - ./nginx/certs:/etc/nginx/certs
+    depends_on:
+      server:
+        condition: service_started
+      dns-sinkhole:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--no-check-certificate", "--header", "Host: localhost", "https://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
   db:
     image: postgres:17-alpine
     environment:
@@ -28,14 +59,17 @@ services:
       dockerfile: server/Dockerfile
     environment:
       SMP_DATABASE_URL: postgresql+asyncpg://smp:${SMP_DB_PASSWORD:-smp}@db:5432/smp
-      # Plain-http dev setup. In production put a TLS reverse proxy in front and remove this.
-      SMP_COOKIE_SECURE: ${SMP_COOKIE_SECURE:-false}
+      # nginx terminates TLS, so cookies are always HTTPS-only.
+      SMP_COOKIE_SECURE: ${SMP_COOKIE_SECURE:-true}
+      # Client IPs (audit log, login throttle) come from nginx's X-Forwarded-For;
+      # trust it only from SMP's own docker network.
+      SMP_FORWARDED_ALLOW_IPS: ${SMP_DOCKER_SUBNET:-172.31.255.0/24}
       # Encrypts one-time passwords at rest. Required; see .env.example.
       SMP_SECRET_KEY: ${SMP_SECRET_KEY:?set SMP_SECRET_KEY in .env (see .env.example)}
       SMP_DNS_SINKHOLE_URL: ${SMP_DNS_SINKHOLE_URL:-http://dns-sinkhole:8080}
       SMP_DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"  # nginx only; not published on the host
     depends_on:
       db:
         condition: service_healthy
@@ -47,17 +81,28 @@ services:
       dockerfile: Dockerfile
     environment:
       # Shared secret for every /api/blocklist/* endpoint; the server sends it as a
-      # Bearer token. Port 8080 is reachable by all clients (block page), so without
-      # a token the API is disabled rather than open.
+      # Bearer token. Without a token the API is disabled rather than open.
       DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
+      # Blocked names resolve to this address: the server's LAN IP, where nginx serves
+      # the block page. ./install.sh fills it.
+      SINKHOLE_IP: ${SMP_SINKHOLE_IP:-127.0.0.1}
+    expose:
+      - "8080"  # block page + sync API, through nginx / for the server only
     ports:
       # TODO(evaluate, issue #5): published on every interface, and the resolver answers anyone
       # (open resolver). OK on a NATed school network; if it's ever internet-facing,
       # bind it to the LAN address or add an acl to the Corefile (see the note there).
       - "1053:1053/udp"
       - "1053:1053/tcp"
-      - "8080:8080/tcp"
     restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        # Fixed so the server can trust nginx's forwarded client IPs from it. Change
+        # SMP_DOCKER_SUBNET in .env if it clashes with the school's network.
+        - subnet: ${SMP_DOCKER_SUBNET:-172.31.255.0/24}
 
 volumes:
   pgdata:

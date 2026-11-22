@@ -1,7 +1,10 @@
 """Admin CLI.
 
+    smp preflight                     check config + database login, explain what's wrong
+    smp status                        is the database reachable, is the school set up?
     smp migrate                       apply DB migrations
     smp bootstrap --org-name "X" ...  create the first org + admin (idempotent per org slug)
+                  --otp               ...with a one-time password instead of a typed one
     smp create-token --name dns --perm core.policies.read --perm core.devices.read
     smp reencrypt-otps                re-encrypt stored OTPs after rotating SMP_SECRET_KEY
     smp openapi -o ../WEBUI/openapi.json   dump the API schema for the UI
@@ -13,6 +16,7 @@ import asyncio
 import getpass
 import os
 import sys
+import time
 
 from sqlalchemy import select
 
@@ -34,42 +38,187 @@ def cmd_migrate(_args) -> None:
     command.upgrade(alembic_config(), "head")
 
 
-async def _bootstrap(args) -> None:
-    from smp.core import db
-    from smp.core.models import AuditLog, Organization, Role, RoleAssignment, User
-    from smp.core.passwords import password_problem
-    from smp.core.security import hash_password
+EXIT_ALREADY_EXISTS = 3  # bootstrap: the admin user exists already (install.sh relies on it)
 
-    password = os.environ.get("SMP_BOOTSTRAP_PASSWORD") or getpass.getpass("Admin password: ")
-    if problem := password_problem(password, args.admin_username):
-        sys.exit(f"password rejected: {problem}")
+
+async def _bootstrap(args) -> None:
+    """Create the school (organization) and its first admin.
+
+    --otp: the admin gets a one-time password (printed once) and must choose their own
+    at first login, like every other account someone else sets up. Otherwise the
+    password is typed here (or SMP_BOOTSTRAP_PASSWORD) and kept.
+    --machine: print KEY=value lines (for install.sh) instead of sentences."""
+    from datetime import timedelta
+
+    from smp.core import db
+    from smp.core.core_module import CoreSettings
+    from smp.core.db import utcnow
+    from smp.core.models import AuditLog, ModuleSetting, Organization, Role, RoleAssignment, User
+    from smp.core.otp import set_otp
+    from smp.core.passwords import password_problem
+    from smp.core.security import SecretKeyMissing, generate_otp, hash_otps, hash_password, require_secret_key
+
+    name = args.org_name.strip()
+    if not name:
+        sys.exit("the school name can't be empty")
+    password = None
+    if args.otp:
+        try:
+            require_secret_key()  # the OTP is stored encrypted for the login slips
+        except SecretKeyMissing as e:
+            sys.exit(str(e))
+    else:
+        password = os.environ.get("SMP_BOOTSTRAP_PASSWORD") or getpass.getpass("Admin password: ")
+        if problem := password_problem(password, args.admin_username):
+            sys.exit(f"password rejected: {problem}")
     db.init_engine()
     async with db.sessionmaker()() as s:
         org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()
         if org is None:
-            org = Organization(slug=args.org_slug, name=args.org_name, timezone=args.timezone)
+            org = Organization(slug=args.org_slug, name=name, timezone=args.timezone)
             s.add(org)
             await s.flush()
-            print(f"created organization {org.slug} ({org.id})")
+            # Keep the "school name" setting (Settings page) in step with the organization.
+            s.add(ModuleSetting(org_id=org.id, module="core", data=CoreSettings(school_name=name).model_dump(mode="json")))
+            if not args.machine:
+                print(f"created organization {org.slug}: {org.name}")
         user = (
             await s.execute(select(User).where(User.org_id == org.id, User.username == args.admin_username))
         ).scalar_one_or_none()
         if user is not None:
-            sys.exit(f"user {args.admin_username!r} already exists in {org.slug}; refusing to overwrite")
+            print(f"user {args.admin_username!r} already exists in {org.slug}; refusing to overwrite", file=sys.stderr)
+            sys.exit(EXIT_ALREADY_EXISTS)
         user = User(
             org_id=org.id,
             username=args.admin_username,
             display_name="Administrator",
-            password_hash=hash_password(password),
             roles=[RoleAssignment(org_id=org.id, role=Role.ADMIN)],
         )
+        otp = None
+        if args.otp:
+            otp = generate_otp()
+            (digest,) = hash_otps([otp])
+            set_otp(user, otp, digest, utcnow() + timedelta(days=CoreSettings().otp_valid_days))
+        else:
+            user.password_hash = hash_password(password)  # chosen here, so no forced change
         s.add(user)
         await s.flush()
         s.add(AuditLog(org_id=org.id, actor_type="system", actor_name="cli", action="core.bootstrap",
-                       target_type="user", target_id=str(user.id), details={"username": user.username}))
+                       target_type="user", target_id=str(user.id),
+                       details={"username": user.username, "one_time_password": otp is not None}))
         await s.commit()
-        print(f"created admin user {user.username}")
+        until = user.otp_expires_at.strftime("%Y-%m-%d %H:%M UTC") if user.otp_expires_at else ""
     await db.dispose_engine()
+    if args.machine:
+        print(f"SMP_ADMIN_USERNAME={user.username}")
+        print(f"SMP_SCHOOL_NAME={org.name}")
+        if otp:
+            print(f"SMP_ADMIN_OTP={otp}")
+            print(f"SMP_ADMIN_OTP_VALID_UNTIL={until}")
+    else:
+        print(f"created admin user {user.username}")
+        if otp:
+            print(f"one-time password: {otp} (valid until {until}; must be changed at first login)")
+
+
+async def _status(args) -> None:
+    """KEY=value lines: database reachable? school set up? Exit 1 if the DB is unreachable."""
+    from sqlalchemy import func, text
+
+    from smp.core import db
+    from smp.core.models import Organization, Role, RoleAssignment
+
+    db.init_engine()
+    try:
+        async with db.sessionmaker()() as s:
+            await s.execute(text("SELECT 1"))
+            org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()
+            admins = 0
+            if org is not None:
+                admins = await s.scalar(
+                    select(func.count()).where(RoleAssignment.org_id == org.id, RoleAssignment.role == Role.ADMIN)
+                ) or 0
+    except Exception as e:  # noqa: BLE001 - reported, not raised
+        print("database=error")
+        print(f"error={type(e).__name__}")
+        sys.exit(1)
+    finally:
+        await db.dispose_engine()
+    print("database=ok")
+    print(f"bootstrapped={'yes' if org is not None and admins else 'no'}")
+    print(f"school_name={org.name if org else ''}")
+    print(f"admins={admins}")
+
+
+def _preflight_problems() -> list[tuple[str, str]]:
+    """(what, how to fix) for every configuration problem that stops the server."""
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from smp.core.config import get_settings
+
+    settings = get_settings()
+    problems: list[tuple[str, str]] = []
+    if p := settings.secret_key_problem():
+        problems.append((
+            p,
+            "Generate one with  python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"  and set\n"
+            "SMP_SECRET_KEY=<that value> in .env (./install.sh does this for you), then\n"
+            "docker compose up -d",
+        ))
+
+    url = make_url(settings.database_url)
+    dsn = url.set(drivername="postgresql").render_as_string(hide_password=False)
+
+    async def connect() -> None:
+        conn = await asyncpg.connect(dsn, timeout=5)
+        await conn.close()
+
+    for attempt in range(5):  # the database may still be starting
+        try:
+            asyncio.run(connect())
+            break
+        except (asyncpg.InvalidPasswordError, asyncpg.InvalidAuthorizationSpecificationError):
+            problems.append((
+                f"the database refused the login for user {url.username!r} (wrong password)",
+                "Postgres sets its password only when the database volume is first created, so\n"
+                "SMP_DB_PASSWORD in .env must still be the value it had back then (e.g. .env was\n"
+                "regenerated, or copied again from .env.example). Either:\n"
+                "  - put the original SMP_DB_PASSWORD back into .env, or\n"
+                "  - start over, DELETING ALL DATA:  docker compose down -v  then  ./install.sh",
+            ))
+            break
+        except asyncpg.InvalidCatalogNameError:
+            problems.append((f"the database {url.database!r} doesn't exist", "Check SMP_DATABASE_URL."))
+            break
+        except (OSError, TimeoutError, asyncpg.CannotConnectNowError) as e:
+            if attempt == 4:
+                problems.append((
+                    f"can't reach the database at {url.host}:{url.port or 5432} ({type(e).__name__})",
+                    "Is the db container running?  docker compose ps",
+                ))
+            else:
+                time.sleep(2)
+    return problems
+
+
+def cmd_preflight(args) -> None:
+    """Run before migrate/serve in the container. A wrong .env otherwise shows up as a
+    container that restarts every few seconds with a traceback in its log. Instead:
+    say what's wrong and how to fix it, then wait before exiting so the restart loop is
+    slow and the message stays readable (docker compose logs server)."""
+    problems = _preflight_problems()
+    if not problems:
+        print("preflight: configuration and database login OK", flush=True)
+        return
+    bar = "=" * 78
+    lines = [bar, "SMP can't start:", ""]
+    for i, (what, fix) in enumerate(problems, 1):
+        lines += [f"{i}. {what}", *("   " + line for line in fix.splitlines()), ""]
+    lines += [f"(waiting {args.fail_delay}s before exiting, so this message isn't lost in a restart loop)", bar]
+    print("\n".join(lines), file=sys.stderr, flush=True)
+    time.sleep(args.fail_delay)
+    sys.exit(1)
 
 
 async def _create_token(args) -> None:
@@ -169,7 +318,17 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("--org-slug", default=get_settings().default_org)
     b.add_argument("--timezone", default="Europe/Budapest")
     b.add_argument("--admin-username", default="admin")
+    b.add_argument("--otp", action="store_true", help="give the admin a one-time password (changed at first login)")
+    b.add_argument("--machine", action="store_true", help="print KEY=value lines instead of sentences")
     b.set_defaults(func=lambda a: asyncio.run(_bootstrap(a)))
+
+    st = sub.add_parser("status", help="database reachable? school set up? (KEY=value lines)")
+    st.add_argument("--org-slug", default=get_settings().default_org)
+    st.set_defaults(func=lambda a: asyncio.run(_status(a)))
+
+    pf = sub.add_parser("preflight", help="check configuration and database login; explain problems")
+    pf.add_argument("--fail-delay", type=int, default=30, help="seconds to wait before exiting on failure")
+    pf.set_defaults(func=cmd_preflight)
 
     t = sub.add_parser("create-token", help="create an API token for a service")
     t.add_argument("--name", required=True)

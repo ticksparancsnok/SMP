@@ -23,11 +23,17 @@ async def issue_otps(ctx: Ctx, users: list[User]) -> list[str]:
     otps = [generate_otp() for _ in users]
     hashes = await hash_otps_async(otps)
     for user, otp, digest in zip(users, otps, hashes, strict=True):
-        user.password_hash = digest
-        user.otp_secret = encrypt_secret(otp)
-        user.otp_expires_at = expires
-        user.must_change_password = True
+        set_otp(user, otp, digest, expires)
     return otps
+
+
+def set_otp(user: User, otp: str, digest: str, expires: datetime) -> None:
+    """Make `otp` (hashed as `digest`) the user's password until `expires`; they must
+    choose their own at first login. Shared by the API and `smp bootstrap --otp`."""
+    user.password_hash = digest
+    user.otp_secret = encrypt_secret(otp)
+    user.otp_expires_at = expires
+    user.must_change_password = True
 
 
 def clear_otp(user: User) -> None:
