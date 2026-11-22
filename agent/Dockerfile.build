@@ -1,0 +1,9 @@
+# Build environment for the agent: the pinned Rust toolchain plus the MinGW linker,
+# so the Windows .exe is cross-compiled on Linux (no Windows or Visual Studio needed).
+#   docker build -t smp-agent-build -f agent/Dockerfile.build agent
+FROM rust:1.100.0-slim-trixie
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add x86_64-pc-windows-gnu \
+ && rustup component add clippy

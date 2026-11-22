@@ -1,0 +1,103 @@
+"""Classroom monitoring: teachers see the screens of a room's PCs.
+
+How it uses the agent module: agent_config() tells each PC whether to send screen
+frames, how often, how large and at what JPEG quality. PCs send nothing unless
+someone watches their room, and full-size frames only for a PC someone enlarged
+(schools often have 100 Mbps networks). Frames live in memory only (watch.py).
+
+Settings (school defaults) and the "classroom" policy kind (per room / schedule,
+e.g. a slower interval for a room on weak Wi-Fi, or monitoring only during lessons)
+decide the numbers.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from smp.core.module import EventSubject, Module, Permission, UiRoute
+
+
+class ClassroomSettings(BaseModel):
+    interval_s: int = Field(5, ge=1, le=300, description="Seconds between thumbnails of a watched room")
+    thumb_width: int = Field(480, ge=160, le=1280, description="Thumbnail width in pixels")
+    detail_width: int = Field(1600, ge=640, le=3840, description="Width of an enlarged screen in pixels")
+    detail_interval_s: int = Field(2, ge=1, le=60, description="Seconds between frames of an enlarged screen")
+    jpeg_quality: int = Field(60, ge=20, le=95, description="JPEG quality (lower: less traffic)")
+
+
+class ClassroomPolicy(BaseModel):
+    """Per room / schedule. Empty fields use the school's settings."""
+
+    enabled: bool = Field(True, description="Monitoring allowed (e.g. false outside lessons)")
+    interval_s: int | None = Field(None, ge=1, le=300)
+    thumb_width: int | None = Field(None, ge=160, le=1280)
+    detail_width: int | None = Field(None, ge=640, le=3840)
+    detail_interval_s: int | None = Field(None, ge=1, le=60)
+    jpeg_quality: int | None = Field(None, ge=20, le=95)
+
+
+async def screen_params(db: AsyncSession, org_id, *, device=None, room_id=None) -> dict[str, Any]:
+    """The school's settings, overridden by the effective classroom policy."""
+    from smp.core.models import ModuleSetting
+    from smp.core.policy import effective_policies
+
+    row = await db.get(ModuleSetting, (org_id, "classroom"))
+    params = ClassroomSettings.model_validate(row.data if row else {}).model_dump()
+    effective = await effective_policies(db, org_id, device=device, room_id=room_id, kinds={"classroom"})
+    policy = ClassroomPolicy.model_validate(effective["classroom"].policy.data) if "classroom" in effective else ClassroomPolicy()
+    params.update({k: v for k, v in policy.model_dump().items() if v is not None and k != "enabled"})
+    params["enabled"] = policy.enabled
+    return params
+
+
+class ClassroomModule(Module):
+    name = "classroom"
+    title = "Monitoring"
+    description = "Screens of a room's computers for its teachers"
+    permissions = (
+        Permission("classroom.screens.view", "Watch the screens of a room's computers", ("teacher",), room_scoped=True),
+        Permission("classroom.layout.edit", "Arrange a room's computers on the monitoring page", ("teacher",), room_scoped=True),
+    )
+    ui_routes = (UiRoute("/classroom", "Monitoring", "🖥️", "classroom.screens.view", "services"),)
+    events = (
+        EventSubject("classroom.watch.started", "Someone started watching a room"),
+        EventSubject("classroom.watch.stopped", "Nobody watches a room any more"),
+    )
+    settings_model = ClassroomSettings
+    policy_model = ClassroomPolicy
+
+    def __init__(self) -> None:
+        from smp.modules.classroom.watch import FrameStore, WatchRegistry
+
+        self.watches = WatchRegistry()
+        self.frames = FrameStore()
+
+    def router(self) -> APIRouter:
+        from smp.modules.classroom.api import router
+
+        return router
+
+    async def agent_config(self, db: AsyncSession, device) -> dict[str, Any] | None:
+        off = {"active": False}
+        if not self.watches.is_watched(device.room_id):
+            return off
+        p = await screen_params(db, device.org_id, device=device)
+        if not p["enabled"]:
+            return off
+        return {
+            "active": True,
+            "interval_s": p["interval_s"],
+            "width": p["thumb_width"],
+            "quality": p["jpeg_quality"],
+            "detail": device.id in self.watches.detail_devices(device.room_id),
+            "detail_width": p["detail_width"],
+            "detail_interval_s": p["detail_interval_s"],
+            "upload_path": "/api/v1/classroom/frames",
+        }
+
+
+from smp.modules.classroom import models  # noqa: E402, F401  (so Alembic sees the tables)
