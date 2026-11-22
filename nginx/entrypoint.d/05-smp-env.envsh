@@ -1,0 +1,11 @@
+#!/bin/sh
+# Sourced by the nginx entrypoint before templating: derives the values that
+# templates/smp.conf.template uses from SMP_* settings (see .env).
+
+# SMP's own names, comma separated in .env -> space separated for server_name.
+SMP_NGINX_SERVER_NAMES=$(printf '%s' "${SMP_SERVER_NAMES:-localhost,127.0.0.1}" | tr ',' ' ' | tr -s ' ' | sed 's/^ //; s/ $//')
+export SMP_NGINX_SERVER_NAMES
+
+# The HTTP -> HTTPS redirect must name the published HTTPS port unless it's 443.
+if [ "${SMP_HTTPS_PORT:-443}" = 443 ]; then SMP_HTTPS_SUFFIX=""; else SMP_HTTPS_SUFFIX=":${SMP_HTTPS_PORT}"; fi
+export SMP_HTTPS_SUFFIX
