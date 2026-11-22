@@ -32,15 +32,15 @@ async function signOut() {
   <div v-else-if="session.me" class="shell" :class="{ 'nav-open': navOpen }">
     <header class="topbar">
       <button class="ghost" :aria-label="t('app.menu')" :aria-expanded="navOpen" @click="navOpen = !navOpen">☰</button>
-      <strong>SMP</strong>
+      <img class="topbar-logo" src="../Assets/SMP-logo-dark.png" alt="SMP" width="164" height="144" />
     </header>
     <div class="backdrop" @click="navOpen = false"></div>
     <aside class="sidebar">
       <div class="brand">
-        <span class="imagelogo"><img src="../Assets/SMP-favicon.png" alt="logo"></span>
-        <div>
-          SMP<small>{{ version }}</small>
-        </div>
+        <!-- width/height: the file's real size, so the browser reserves the space (no
+             jump while loading); CSS sets the displayed size (app.css, "brand") -->
+        <img class="brand-logo" src="../Assets/SMP-logo-dark.png" alt="SMP" width="164" height="144" />
+        <small>{{ version }}</small>
       </div>
       <nav class="nav">
         <template v-for="s in sections" :key="s.title">

@@ -251,3 +251,25 @@ details summary {
 .menu-items button:hover {
   background: var(--bg-soft);
 }
+
+/* ---------------------------------------------------------------- brand (logo)
+   Assets/SMP-logo-dark.png: the logo cropped to its edges, with the connector
+   lines lightened for the dark UI (SMP-logo.png keeps the original colours for
+   light backgrounds). The files are 3x the displayed size, so they stay sharp. */
+
+.brand {
+  align-items: flex-end; /* version sits on the logo's baseline */
+}
+.brand-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+}
+.brand small {
+  padding-bottom: 4px;
+}
+.topbar-logo {
+  display: block;
+  height: 30px;
+  width: auto;
+}

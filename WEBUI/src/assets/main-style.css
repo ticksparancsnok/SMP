@@ -494,11 +494,6 @@ pre.json {
     display: none
 }
 
-.imagelogo {
-    max-width: 40px;
-    max-height: 40px;
-}
-
 @media (width<=860px) {
     .topbar {
         background: var(--bg-soft);
