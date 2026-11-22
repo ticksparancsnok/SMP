@@ -1,4 +1,4 @@
-# Security notes (v1.0.0)
+# Security notes (v1.0.1)
 
 How SMP's core protects accounts, what operators must configure, and the decisions taken on the two security reviews. Read with [architecture.md](architecture.md).
 
@@ -35,7 +35,8 @@ How SMP's core protects accounts, what operators must configure, and the decisio
        }
    }
    ```
-4. **Local development over plain http:** set `SMP_COOKIE_SECURE=false`, otherwise the browser drops the session cookie and you can't stay logged in. Never use it in production.
+4. **`SMP_DNS_SYNC_TOKEN`**: required by Compose, ≥32 random characters, same value on the server and the DNS sinkhole (`DNS_SYNC_TOKEN`). The sinkhole's port 8080 serves the block page to every client, so its `/api/blocklist/*` endpoints only accept this Bearer token; with no token set they are disabled.
+5. **Local development over plain http:** set `SMP_COOKIE_SECURE=false`, otherwise the browser drops the session cookie and you can't stay logged in. Never use it in production.
 
 ### Rotating `SMP_SECRET_KEY`
 1. Set the new key as `SMP_SECRET_KEY` and the old one as `SMP_SECRET_KEY_PREVIOUS`, then restart. Both keys decrypt, and new data uses the new key.
@@ -53,13 +54,34 @@ If a key is lost or leaked, rotate it and issue new one-time passwords to accoun
   - **Storage:** argon2 hash (16 MiB) plus a Fernet-encrypted copy for login slips.
   - **Use:** the first login forces a password change, which clears the OTP and rotates the session.
 - **Login throttling (`smp/core/throttle.py`):**
-  - **Limits:** failures per (IP, username) within the window, plus all attempts per IP per minute.
-  - **No lockout DoS, no enumeration:** there's no per-account lockout to abuse, and unknown usernames are treated exactly like real ones.
+  - **Limits:** 5 failed logins for one account (from any IP, within 15 min) lock it for 60 s; plus all attempts per IP per minute.
+  - **No enumeration:** unknown usernames are locked exactly like real ones.
+  - **Known trade-off:** anyone can keep an account (e.g. the admin's) locked by failing 5 times a minute. The short lockout keeps that a nuisance; longer lockouts are marked `TODO(evaluate)` in `throttle.py`.
   - **Restarts:** the state is rebuilt from the audit log at startup.
 - **Sessions:** random 256-bit tokens; only their SHA-256 is stored. Cookies are HttpOnly and `SameSite=Strict`, with an Origin check on state-changing requests. A password change ends all sessions.
 - **Audit:** append-only (enforced by a database trigger). Logins, failures, resets and exports are all logged. Secrets (passwords, OTPs) never appear in it. If a failed-login audit row can't be written, it goes to the server log instead.
 
 ## Review decisions
+
+### Third review: attack run (v1.0.1)
+Each finding was first reproduced with a working exploit against a test database.
+
+| Finding | Decision |
+|---|---|
+| API tokens outlived the person who created them (a deleted admin's token kept working), and a token could mint child tokens that survived revoking the parent | **Fixed:** deleting a user or removing their admin role deletes their tokens and, transitively, tokens created by those tokens; audited as `core.token.delete_with_user` / `core.token.delete_with_admin_role` (id, name, permissions only). Disabling an admin without demoting them leaves their tokens working (a disabled admin can be re-enabled; demote to cut off their tokens). |
+| No per-account limit on password guessing: rotating source IPs (an IPv6 /64) reset the per-IP+username counter | **Fixed:** per-account lockout, 5 failures → 60 s, from any IP (see above). |
+| Students could create short links with any code on the school's own domain (phishing) | **Fixed:** students no longer have `shortlinks.links.create`; migration 0007 disables links students already made (disabled, not deleted). |
+| Any teacher could block a whole TLD (`com` with subdomains) and cut the school off; domain validation was minimal | **Fixed:** allowlist checked before the blocklist; public suffixes can be neither blocked nor allowed; strict domain validation. |
+| DNS hosts import has no size limit | **Accepted:** authenticated (teachers); parsing is now strict and the import does one query instead of one per domain. |
+| Login time reveals accounts that still have their one-time password (cheap OTP hash vs. expensive dummy hash) | **Deferred:** `TODO(evaluate)` in `security.py`; schools run SMP behind NAT. |
+| The DNS resolver answers anyone who can reach port 1053 (open resolver) | **Deferred:** `TODO(evaluate)` in the Corefile and `docker-compose.yml`; behind NAT it isn't reachable from outside. |
+| `/api/docs` and `/api/openapi.json` were public | **Fixed:** admins (signed-in users with the admin role) only; API tokens are refused. |
+
+### v1.0.1
+| Finding | Decision |
+|---|---|
+| The DNS sinkhole's `/api/blocklist/import` and `/entries` accepted writes from anyone who could reach port 8080 (every client, since it also serves the block page), trusting a client-sent `X-Username`; `/sync` was open when no token was set | **Fixed:** every `/api/blocklist/*` endpoint requires `Authorization: Bearer <DNS_SYNC_TOKEN>` (constant-time compare); with no token configured the API answers 503 instead of being open; Compose requires the token. The block page stays public. Covered by `schoolfilter_test.go`. |
+| Slow clients could hold block-page connections open | **Fixed:** `ReadHeaderTimeout` of 10 s. |
 
 ### Second review (v1.0.0)
 | Finding | Decision |

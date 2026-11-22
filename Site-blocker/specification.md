@@ -1,20 +1,20 @@
-# Hosts blokklista API-n keresztüli importálása a cél-JSON sémába
+# Importing a hosts blocklist through the API into the target JSON schema
 
-## Áttekintés
+## Overview
 
-A rendszerbe érkező `hosts` formátumú blokklista-fájlok a **frontend felől API-n keresztül** érkeznek be a backendre, és közvetlenül a rendszer saját JSON formátumába (`entries` tömb a megadott mezőkkel) kerülnek átalakításra és beimportálásra.
+Blocklist files in `hosts` format reach the backend **from the frontend through the API**, and are converted directly into the system's own JSON format (an `entries` array with the fields below) and imported.
 
-## Bemeneti folyamat (Frontend → API → Cél-JSON)
+## Input flow (Frontend → API → target JSON)
 
-1. **Feltöltés a frontendről:** A felhasználó a frontend felületen kiválasztja és feltölti a `hosts` fájlt az importáló API-végpontra.
+1. **Upload from the frontend:** The user selects a `hosts` file in the frontend and uploads it to the import API endpoint.
 
-2. **Felhasználó és időbélyeg meghatározása:** A backend azonosítja a feltöltő felhasználót (`[username]`), és rögzíti az importálás időpontját ISO-8601 UTC formátumban (`addedAt`, pl. `2026-11-21T20:00:00Z`).
+2. **Determine the user and timestamp:** The backend identifies the uploading user (`[username]`) and records the import time in ISO-8601 UTC format (`addedAt`, e.g. `2026-11-21T20:00:00Z`).
 
-3. **Feldolgozás és normalizálás:** A backend kiolvassa a blokkolandó domaineket a `hosts` fájlból, kiszűri a nem blokkolandó rendszer-/loopback bejegyzéseket, normalizálja a domainneveket, és deduplikálja a listát.
+3. **Processing and normalization:** The backend reads the domains to block from the `hosts` file, filters out system/loopback entries that should not be blocked, normalizes the domain names, and deduplicates the list.
 
-4. **Beimportálás a cél-JSON struktúrába:** Minden kinyert domainből egy-egy objektum jön létre az alábbi séma szerint az `entries` tömbben.
+4. **Import into the target JSON structure:** Each extracted domain becomes one object in the `entries` array, following the schema below.
 
-## Cél-JSON séma
+## Target JSON schema
 
 ```json
 {
@@ -30,40 +30,40 @@ A rendszerbe érkező `hosts` formátumú blokklista-fájlok a **frontend felől
 }
 ```
 
-### Mezők leírása
+### Fields
 
-* **`entries`** (`array<object>`): A beimportált domain bejegyzések listája.
+* **`entries`** (`array<object>`): The list of imported domain entries.
 
-* **`domain`** (`string`): A kisbetűsített, záró pont (`"."`) nélküli blokkolandó domainnév (pl. `"example-blocked.com"`).
+* **`domain`** (`string`): The domain name to block, lowercased and without a trailing dot (`"."`) (e.g. `"example-blocked.com"`).
 
-* **`includeSubdomains`** (`boolean`): Alapértelmezetten `true` (hacsak a rendszer/konfiguráció másként nem rendelkezik).
+* **`includeSubdomains`** (`boolean`): `true` by default (unless the system/configuration says otherwise).
 
-* **`reason`** (`string`): A bejegyzés okát jelölő érték, importálás esetén `"imported"`.
+* **`reason`** (`string`): The reason for the entry; `"imported"` for imports.
 
-* **`addedBy`** (`string`): A feltöltő felhasználó azonosítója a megadott formátumban: `"imported by: [username]"`.
+* **`addedBy`** (`string`): The uploading user's identifier in this format: `"imported by: [username]"`.
 
-* **`addedAt`** (`string`): Az importálás időpontja ISO-8601 UTC formátumban (pl. `"2026-11-21T20:00:00Z"`).
+* **`addedAt`** (`string`): The import time in ISO-8601 UTC format (e.g. `"2026-11-21T20:00:00Z"`).
 
-## Feldolgozási és normalizálási szabályok
+## Processing and normalization rules
 
-1. **Üres sorok és kommentek:**
-   * Az üres és kizárólag whitespace karaktereket tartalmazó sorokat a feldolgozó kihagyja.
-   * A `#` karakterrel kezdődő sorok kommentek vagy fejlécek, nem domain bejegyzések.
-   * A sorokon belüli `#` utáni megjegyzéseket a host rekord feldolgozása előtt levágjuk.
+1. **Blank lines and comments:**
+   * Lines that are empty or contain only whitespace are skipped.
+   * Lines starting with `#` are comments or headers, not domain entries.
+   * Inline comments after `#` are stripped before the host record is processed.
 
-2. **Domainek kinyerése és normalizálása:**
-   * A fennmaradó tokeneket whitespace mentén szétválasztjuk: az első token az IP-cím, a további tokenek a domainnevek.
-   * Ha egy sorban több domain szerepel, mindegyik domain külön bejegyzést kap az `entries` tömbben.
-   * A `domain` értékét kisbetűsre alakítjuk, és eltávolítjuk a végéről a záró pontot (ha van).
+2. **Extracting and normalizing domains:**
+   * The remaining tokens are split on whitespace: the first token is the IP address, the following tokens are domain names.
+   * If a line contains several domains, each domain gets its own entry in the `entries` array.
+   * The `domain` value is lowercased and its trailing dot (if any) is removed.
 
-3. **Szűrés és deduplikálás:**
-   * Kiszűrjük a nem blokkolandó rendszer-/loopback/multicast/broadcast bejegyzéseket (pl. `::1`, `fe80::...`, `ff00::...`, `ff02::...`, `255.255.255.255`, `localhost`, `broadcasthost`), valamint a `0.0.0.0` / `127.0.0.1` önmagában álló rendszerbejegyzéseket.
-   * A `0.0.0.0` vagy `127.0.0.1` után megadott valós domaineket blokkolandóként kezeljük.
-   * Az azonos `domain` értékeket deduplikáljuk, hogy ne kerüljenek ismétlődő elemek a cél-JSON-ba.
+3. **Filtering and deduplication:**
+   * System/loopback/multicast/broadcast entries that should not be blocked are filtered out (e.g. `::1`, `fe80::...`, `ff00::...`, `ff02::...`, `255.255.255.255`, `localhost`, `broadcasthost`), as are standalone `0.0.0.0` / `127.0.0.1` system entries.
+   * Real domains listed after `0.0.0.0` or `127.0.0.1` are treated as domains to block.
+   * Identical `domain` values are deduplicated so the target JSON contains no repeated items.
 
-## LLM-alapú átalakító prompt (teszteléshez / kiegészítő lépéshez)
+## LLM-based conversion prompt (for testing / as a supplementary step)
 
-```markdown
+````markdown
 Convert the provided hosts blocklist content into the target JSON format.
 
 ### Output Format
@@ -95,4 +95,4 @@ Convert the provided hosts blocklist content into the target JSON format.
 
 ### Input Data
 <PASTE_HOSTS_CONTENT_HERE>
-```
+````

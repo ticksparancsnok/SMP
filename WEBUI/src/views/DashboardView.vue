@@ -3,15 +3,22 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Widget } from '../api/types'
-import { fmtRelative } from '../format'
-import { hasModule, isStaff, session } from '../session'
+import { fmtRelative, fmtTime } from '../format'
+import { t, tOr } from '../i18n'
+import { hasModule, isStaff, routeTitle, session } from '../session'
 
 // Cards come from GET /dashboard: every backend module contributes its own via
 // Module.dashboard(). The placeholders below disappear once their module exists.
+// Texts: planned.card.<link> in i18n.
 const PLANNED_CARDS = [
-  { module: 'classroom', title: 'Monitorozott termek', icon: '🖥️', link: '/classroom', text: 'Aktív órák, zárolt képernyők termenként.' },
-  { module: 'software', title: 'Telepítések', icon: '⏬', link: '/software', text: 'Folyamatban lévő és sikertelen telepítések.' },
+  { module: 'classroom', icon: '🖥️', link: '/classroom' },
+  { module: 'software', icon: '⏬', link: '/software' },
 ]
+
+// The server sends English title/hint; translate by widget id, rebuilding the hint
+// from widget.data so numbers and plurals fit the language.
+const cardTitle = (w: Widget) => tOr(`widget.${w.id}`, w.title)
+const cardHint = (w: Widget) => (w.hint ? tOr(`widget.${w.id}.hint`, w.hint, w.data ?? {}) : '')
 
 // Every card refreshes on this interval while the tab is visible, and right away when
 // the user comes back to the tab. ~7 COUNT queries per refresh, cheap at school scale.
@@ -74,14 +81,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="page-head spread">
     <div>
-      <h1>Kezdőlap</h1>
-      <p>Szia, {{ session.me?.display_name || session.me?.username }}! Áttekintés – {{ session.me?.org_name }}</p>
+      <h1>{{ routeTitle({ path: '/', title: 'Home' }) }}</h1>
+      <p>{{ t('dashboard.greeting', { name: session.me?.display_name || session.me?.username || '', org: session.me?.org_name ?? '' }) }}</p>
     </div>
     <div class="row" style="align-items: center">
-      <span v-if="updatedAt" class="muted small" title="Automatikus frissítés 10 másodpercenként">
-        Frissítve: {{ updatedAt.toLocaleTimeString('hu-HU') }}
+      <span v-if="updatedAt" class="muted small" :title="t('dashboard.auto_refresh')">
+        {{ t('dashboard.updated', { time: fmtTime(updatedAt) }) }}
       </span>
-      <button class="ghost small" :disabled="busy" aria-label="Frissítés" @click="load">↻</button>
+      <button class="ghost small" :disabled="busy" :aria-label="t('dashboard.refresh')" @click="load">↻</button>
     </div>
   </div>
 
@@ -97,17 +104,17 @@ onBeforeUnmount(() => {
     >
       <span class="stat-icon">{{ w.icon }}</span>
       <span class="stat-value">{{ w.value ?? '–' }}</span>
-      <span class="stat-title">{{ w.title }}</span>
-      <span v-if="w.hint" class="muted small">{{ w.hint }}</span>
+      <span class="stat-title">{{ cardTitle(w) }}</span>
+      <span v-if="w.hint" class="muted small">{{ cardHint(w) }}</span>
     </component>
   </div>
-  <p v-if="loaded && !widgets.length && !error" class="empty">Nincs megjeleníthető statisztika.</p>
+  <p v-if="loaded && !widgets.length && !error" class="empty">{{ t('dashboard.no_stats') }}</p>
 
   <div class="grid" style="align-items: start">
     <div v-for="w in lists" :key="w.id" class="card">
       <div class="spread">
-        <h2>{{ w.icon }} {{ w.title }}</h2>
-        <RouterLink v-if="w.link" :to="w.link" class="small">Összes ›</RouterLink>
+        <h2>{{ w.icon }} {{ cardTitle(w) }}</h2>
+        <RouterLink v-if="w.link" :to="w.link" class="small">{{ t('dashboard.see_all') }}</RouterLink>
       </div>
       <ul v-if="w.items?.length" class="item-list">
         <li v-for="(it, i) in w.items" :key="i">
@@ -118,13 +125,13 @@ onBeforeUnmount(() => {
           </span>
         </li>
       </ul>
-      <p v-else class="empty">Nincs adat.</p>
+      <p v-else class="empty">{{ t('common.no_data') }}</p>
     </div>
 
     <RouterLink v-for="p in planned" :key="p.module" :to="p.link" class="card card-link planned">
-      <h2>{{ p.icon }} {{ p.title }}</h2>
-      <p class="muted" style="margin: 0">{{ p.text }}</p>
-      <span class="badge low" style="margin-top: 10px">Fejlesztés alatt</span>
+      <h2>{{ p.icon }} {{ tOr(`planned.card.${p.link}`, p.module) }}</h2>
+      <p class="muted" style="margin: 0">{{ tOr(`planned.card.${p.link}.text`, '') }}</p>
+      <span class="badge low" style="margin-top: 10px">{{ t('common.in_development') }}</span>
     </RouterLink>
   </div>
 </template>

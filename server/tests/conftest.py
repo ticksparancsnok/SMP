@@ -26,7 +26,6 @@ TEST_DB_URL = os.environ.get("SMP_TEST_DATABASE_URL", "postgresql+asyncpg://smp:
 os.environ.update(
     SMP_DATABASE_URL=TEST_DB_URL,
     SMP_COOKIE_SECURE="false",
-    SMP_LOGIN_MAX_FAILURES="3",
     SMP_SECRET_KEY="test-secret-key-0123456789-abcdefghijklmnop",
     SMP_DEFAULT_ORG="default",
 )

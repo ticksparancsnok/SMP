@@ -3,8 +3,8 @@ here. See docs/writing-a-module.md."""
 
 from smp.core.core_module import CoreModule
 from smp.core.module import Module, ModuleRegistry
-from smp.modules.shortlinks import ShortlinksModule
 from smp.modules.dns import DnsModule
+from smp.modules.shortlinks import ShortlinksModule
 
 
 def all_modules() -> list[Module]:

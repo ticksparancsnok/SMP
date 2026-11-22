@@ -7,7 +7,8 @@ import Modal from '../components/Modal.vue'
 import OtpDisplay from '../components/OtpDisplay.vue'
 import Pager from '../components/Pager.vue'
 import UserDialog from '../components/UserDialog.vue'
-import { fmtDate, fmtRelative, ROLE_LABELS } from '../format'
+import { fmtDate, fmtRelative, roleLabel, ROLES } from '../format'
+import { locale, t } from '../i18n'
 import { can, canAnywhere, session } from '../session'
 
 const LIMIT = 50
@@ -32,7 +33,7 @@ const importOpen = ref(false)
 const issued = ref<{ username: string; otp: string; until: string | null } | null>(null)
 
 async function teacherReset(u: User) {
-  if (!confirm(`Új egyszeri jelszót generálsz ${u.display_name || u.username} számára? A jelenlegi jelszava megszűnik.`)) return
+  if (!confirm(t('users.confirm_reset', { name: u.display_name || u.username }))) return
   try {
     const r = await api.post<{ one_time_password: string | null; otp_expires_at: string | null }>(
       `/users/${u.id}/password`,
@@ -56,7 +57,8 @@ async function exportXlsx(kind: 'list' | 'credentials') {
   exporting.value = true
   try {
     const path = kind === 'list' ? '/users/export.xlsx' : '/users/credentials.xlsx'
-    await api.download(path, { q: q.value, role: role.value, group_id: groupFilter.value })
+    // Column headers follow the UI language (import accepts either).
+    await api.download(path, { q: q.value, role: role.value, group_id: groupFilter.value, lang: locale.value })
   } catch (e) {
     error.value = errorText(e)
   } finally {
@@ -65,7 +67,7 @@ async function exportXlsx(kind: 'list' | 'credentials') {
 }
 
 function downloadSample() {
-  api.download('/users/import-sample.xlsx').catch((e) => (error.value = errorText(e)))
+  api.download('/users/import-sample.xlsx', { lang: locale.value }).catch((e) => (error.value = errorText(e)))
 }
 
 function imported() {
@@ -110,7 +112,7 @@ onMounted(async () => {
 })
 
 async function remove(u: User) {
-  if (!confirm(`Biztosan törlöd ezt a felhasználót: ${u.username}?`)) return
+  if (!confirm(t('users.confirm_delete', { username: u.username }))) return
   try {
     await api.del(`/users/${u.id}`)
     load()
@@ -128,53 +130,53 @@ function saved() {
 <template>
   <div class="page-head spread">
     <div>
-      <h1>Felhasználók</h1>
-      <p>Tanulók, tanárok és adminisztrátorok</p>
+      <h1>{{ t('nav./users') }}</h1>
+      <p>{{ t('users.subtitle') }}</p>
     </div>
     <div v-if="canWrite" class="row">
-      <button @click="dialog = { user: null }">+ Új felhasználó</button>
+      <button @click="dialog = { user: null }">{{ t('users.new') }}</button>
     </div>
   </div>
 
   <div class="toolbar">
     <div class="field">
-      <label>Keresés</label>
-      <input v-model="q" placeholder="név, felhasználónév, e-mail" />
+      <label>{{ t('common.search') }}</label>
+      <input v-model="q" :placeholder="t('users.search_placeholder')" />
     </div>
     <div class="field">
-      <label>Szerepkör</label>
+      <label>{{ t('users.role') }}</label>
       <select v-model="role">
-        <option value="">Mind</option>
-        <option v-for="(label, key) in ROLE_LABELS" :key="key" :value="key">{{ label }}</option>
+        <option value="">{{ t('common.all') }}</option>
+        <option v-for="r in ROLES" :key="r" :value="r">{{ roleLabel(r) }}</option>
       </select>
     </div>
     <div v-if="groups.length" class="field">
-      <label>Osztály / csoport</label>
+      <label>{{ t('common.class_or_group') }}</label>
       <select v-model="groupFilter">
-        <option value="">Mind</option>
+        <option value="">{{ t('common.all') }}</option>
         <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
       </select>
     </div>
     <span class="grow"></span>
     <details ref="exportMenu" class="menu">
-      <summary class="button ghost" :aria-disabled="exporting">⬇ Exportálás (.xlsx)</summary>
+      <summary class="button ghost" :aria-disabled="exporting">{{ t('users.export') }}</summary>
       <div class="menu-items card">
         <button type="button" class="ghost" @click="exportXlsx('list')">
-          Felhasználólista
-          <span class="muted small">Név, felhasználónév, osztály – a jelenlegi szűréssel</span>
+          {{ t('users.export_list') }}
+          <span class="muted small">{{ t('users.export_list_hint') }}</span>
         </button>
         <button v-if="canSlips" type="button" class="ghost" @click="exportXlsx('credentials')">
-          Belépési adatok (egyszeri jelszavak)
+          {{ t('users.export_credentials') }}
           <span class="muted small">
-            Belépőlapok nyomtatásához – csak a még nem aktivált fiókok{{ canWrite ? '' : ' (saját osztályaid diákjai)' }}
+            {{ t('users.export_credentials_hint') }}{{ canWrite ? '' : t('users.export_credentials_hint_own') }}
           </span>
         </button>
       </div>
     </details>
-    <button v-if="canImport" class="ghost" title="Diákok importálása .xlsx fájlból" @click="importOpen = true">
-      ⬆ Importálás
+    <button v-if="canImport" class="ghost" :title="t('users.import_title')" @click="importOpen = true">
+      {{ t('users.import') }}
     </button>
-    <button class="ghost" title="Minta fájl az importáláshoz" @click="downloadSample">Minta .xlsx</button>
+    <button class="ghost" :title="t('users.sample_title')" @click="downloadSample">{{ t('users.sample') }}</button>
   </div>
 
   <div v-if="error" class="alert err">{{ error }}</div>
@@ -183,12 +185,12 @@ function saved() {
     <table>
       <thead>
         <tr>
-          <th>Felhasználónév</th>
-          <th>Név</th>
-          <th>Szerepkörök</th>
-          <th>Osztály / csoport</th>
-          <th>Állapot</th>
-          <th>Utolsó belépés</th>
+          <th>{{ t('common.username') }}</th>
+          <th>{{ t('common.name') }}</th>
+          <th>{{ t('common.roles') }}</th>
+          <th>{{ t('common.class_or_group') }}</th>
+          <th>{{ t('common.status') }}</th>
+          <th>{{ t('users.last_login') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -200,7 +202,7 @@ function saved() {
           </td>
           <td><div class="chips">
             <span v-for="(r, i) in u.roles" :key="i" class="badge info">
-              {{ ROLE_LABELS[r.role] ?? r.role }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
+              {{ roleLabel(r.role) }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
             </span>
           </div></td>
           <td><div class="chips">
@@ -208,54 +210,54 @@ function saved() {
           </div></td>
           <td>
             <div class="chips">
-              <span v-if="u.disabled" class="badge danger">Letiltva</span>
-              <span v-else class="badge ok">Aktív</span>
+              <span v-if="u.disabled" class="badge danger">{{ t('users.disabled') }}</span>
+              <span v-else class="badge ok">{{ t('common.active') }}</span>
               <span
                 v-if="u.otp_status === 'active'"
                 class="badge info"
-                :title="`Egyszeri jelszóval még nem lépett be. Érvényes: ${fmtDate(u.otp_expires_at)}`"
+                :title="t('users.awaiting_activation_title', { until: fmtDate(u.otp_expires_at) })"
               >
-                Aktiválásra vár
+                {{ t('users.awaiting_activation') }}
               </span>
               <span
                 v-else-if="u.otp_status === 'expired'"
                 class="badge danger"
-                title="Az egyszeri jelszó lejárt – a Szerkesztésben generálj újat"
+                :title="t('users.otp_expired_title')"
               >
-                Egyszeri jelszó lejárt
+                {{ t('users.otp_expired') }}
               </span>
               <span
                 v-else-if="u.must_change_password"
                 class="badge warning"
-                title="Admin által beállított jelszó – következő belépéskor cserélni kell"
+                :title="t('users.must_change_title')"
               >
-                Jelszócsere
+                {{ t('users.must_change') }}
               </span>
             </div>
           </td>
           <td class="muted">{{ fmtRelative(u.last_login_at) }}</td>
           <td>
             <div v-if="!canWrite && u.can_reset_password" class="actions">
-              <button class="ghost small" @click="teacherReset(u)">Új egyszeri jelszó</button>
+              <button class="ghost small" @click="teacherReset(u)">{{ t('users.new_otp') }}</button>
             </div>
             <div v-if="canWrite" class="actions">
-              <button class="ghost small" @click="dialog = { user: u }">Szerkesztés</button>
-              <button v-if="u.id !== session.me?.id" class="danger small" @click="remove(u)">Törlés</button>
+              <button class="ghost small" @click="dialog = { user: u }">{{ t('common.edit') }}</button>
+              <button v-if="u.id !== session.me?.id" class="danger small" @click="remove(u)">{{ t('common.delete') }}</button>
             </div>
           </td>
         </tr>
         <tr v-if="!users.length">
-          <td colspan="7" class="empty">Nincs találat.</td>
+          <td colspan="7" class="empty">{{ t('common.no_matches') }}</td>
         </tr>
       </tbody>
     </table>
     <Pager v-model:offset="offset" :total="total" :limit="LIMIT" />
   </div>
 
-  <Modal v-if="issued" title="Új egyszeri jelszó" @close="issued = null">
+  <Modal v-if="issued" :title="t('users.new_otp')" @close="issued = null">
     <OtpDisplay :username="issued.username" :otp="issued.otp" :until="issued.until" />
     <div class="modal-foot">
-      <button @click="issued = null">Kész</button>
+      <button @click="issued = null">{{ t('common.done') }}</button>
     </div>
   </Modal>
   <ImportDialog v-if="importOpen" @close="importOpen = false" @imported="imported" />

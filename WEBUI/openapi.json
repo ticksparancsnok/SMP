@@ -2,7 +2,7 @@
  "openapi": "3.1.0",
  "info": {
   "title": "SMP",
-  "version": "1.0.0"
+  "version": "1.0.1"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -265,7 +265,7 @@
      "users"
     ],
     "summary": "Export Users",
-    "description": "The users matching the same filters as GET /users, as Név | Felhasználónév |\nOsztály (the user's class-type groups, comma separated).",
+    "description": "The users matching the same filters as GET /users, as Name | Username | Class\n(the user's class-type groups, comma separated). `lang` picks the column headers\n(en: Name | Username | Class, hu: Név | Felhasználónév | Osztály).",
     "operationId": "export_users_api_v1_users_export_xlsx_get",
     "parameters": [
      {
@@ -315,6 +315,20 @@
         }
        ],
        "title": "Group Id"
+      }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
       }
      }
     ],
@@ -395,6 +409,20 @@
        ],
        "title": "Group Id"
       }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
+      }
      }
     ],
     "responses": {
@@ -423,13 +451,39 @@
      "users"
     ],
     "summary": "Import Sample",
-    "description": "Example file in the import/export format (same content as docs/samples/).",
+    "description": "Example file in the import/export format, with `lang` headers (same content as\ndocs/samples/users-sample.xlsx and felhasznalok-minta.xlsx).",
     "operationId": "import_sample_api_v1_users_import_sample_xlsx_get",
+    "parameters": [
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "en",
+        "hu"
+       ],
+       "type": "string",
+       "default": "en",
+       "title": "Lang"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
       }
      }
     }
@@ -2963,10 +3017,404 @@
      }
     }
    }
+  },
+  "/api/v1/dns/blocklist": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "List Blocklist",
+    "operationId": "list_blocklist_api_v1_dns_blocklist_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/EntryOut"
+         },
+         "type": "array",
+         "title": "Response List Blocklist Api V1 Dns Blocklist Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Create Entry",
+    "operationId": "create_entry_api_v1_dns_blocklist_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EntryIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EntryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/{entry_id}": {
+   "delete": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Delete Entry",
+    "operationId": "delete_entry_api_v1_dns_blocklist__entry_id__delete",
+    "parameters": [
+     {
+      "name": "entry_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Entry Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/import-preview": {
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Preview Import",
+    "operationId": "preview_import_api_v1_dns_blocklist_import_preview_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HostsPreviewOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/import": {
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Import Hosts",
+    "operationId": "import_hosts_api_v1_dns_blocklist_import_post",
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HostsPreviewOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/allowlist": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "List Allowlist",
+    "operationId": "list_allowlist_api_v1_dns_allowlist_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AllowlistOut"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Create Allow Entry",
+    "operationId": "create_allow_entry_api_v1_dns_allowlist_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AllowIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AllowEntryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/allowlist/{entry_id}": {
+   "delete": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Delete Allow Entry",
+    "operationId": "delete_allow_entry_api_v1_dns_allowlist__entry_id__delete",
+    "parameters": [
+     {
+      "name": "entry_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Entry Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/check": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Check Domain",
+    "description": "Would this domain be blocked right now? (Same decision as the sinkhole.)",
+    "operationId": "check_domain_api_v1_dns_check_get",
+    "parameters": [
+     {
+      "name": "domain",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Check Domain Api V1 Dns Check Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/status": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Sync Status",
+    "operationId": "sync_status_api_v1_dns_status_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SyncStatusOut"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
   "schemas": {
+   "AllowEntryOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "domain": {
+      "type": "string",
+      "title": "Domain"
+     },
+     "includeSubdomains": {
+      "type": "boolean",
+      "title": "Includesubdomains"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "addedBy": {
+      "type": "string",
+      "title": "Addedby"
+     },
+     "addedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Addedat"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "domain",
+     "includeSubdomains",
+     "reason",
+     "addedBy",
+     "addedAt"
+    ],
+    "title": "AllowEntryOut"
+   },
+   "AllowIn": {
+    "properties": {
+     "domain": {
+      "type": "string",
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Domain"
+     },
+     "include_subdomains": {
+      "type": "boolean",
+      "title": "Include Subdomains",
+      "default": true
+     },
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "title": "Reason",
+      "default": ""
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "domain"
+    ],
+    "title": "AllowIn"
+   },
+   "AllowlistOut": {
+    "properties": {
+     "entries": {
+      "items": {
+       "$ref": "#/components/schemas/AllowEntryOut"
+      },
+      "type": "array",
+      "title": "Entries"
+     },
+     "public_suffixes": {
+      "type": "integer",
+      "title": "Public Suffixes"
+     },
+     "public_suffix_source": {
+      "type": "string",
+      "title": "Public Suffix Source"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entries",
+     "public_suffixes",
+     "public_suffix_source"
+    ],
+    "title": "AllowlistOut"
+   },
    "AssignmentIn": {
     "properties": {
      "policy_id": {
@@ -3493,6 +3941,113 @@
     "type": "object",
     "title": "DeviceUpdate"
    },
+   "EntryIn": {
+    "properties": {
+     "domain": {
+      "type": "string",
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Domain"
+     },
+     "include_subdomains": {
+      "type": "boolean",
+      "title": "Include Subdomains",
+      "default": true
+     },
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "title": "Reason",
+      "default": ""
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "type": "number",
+        "maximum": 1.0,
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confidence"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "domain"
+    ],
+    "title": "EntryIn"
+   },
+   "EntryOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "domain": {
+      "type": "string",
+      "title": "Domain"
+     },
+     "includeSubdomains": {
+      "type": "boolean",
+      "title": "Includesubdomains"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "addedBy": {
+      "type": "string",
+      "title": "Addedby"
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confidence"
+     },
+     "addedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Addedat"
+     },
+     "active": {
+      "type": "boolean",
+      "title": "Active",
+      "default": true
+     },
+     "inactiveReason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Inactivereason"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "domain",
+     "includeSubdomains",
+     "reason",
+     "addedBy",
+     "confidence",
+     "addedAt"
+    ],
+    "title": "EntryOut"
+   },
    "GroupIn": {
     "properties": {
      "name": {
@@ -3652,6 +4207,35 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "HostsPreviewOut": {
+    "properties": {
+     "domains": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Domains"
+     },
+     "unique_count": {
+      "type": "integer",
+      "title": "Unique Count"
+     },
+     "skipped": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Skipped",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "domains",
+     "unique_count"
+    ],
+    "title": "HostsPreviewOut"
+   },
    "ImportIssue": {
     "properties": {
      "row": {
@@ -3661,12 +4245,32 @@
      "error": {
       "type": "string",
       "title": "Error"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "params": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Params",
+      "default": {}
      }
     },
     "type": "object",
     "required": [
      "row",
-     "error"
+     "error",
+     "code"
     ],
     "title": "ImportIssue"
    },
@@ -4498,6 +5102,34 @@
     ],
     "title": "ScheduleOut"
    },
+   "SyncStatusOut": {
+    "properties": {
+     "entries": {
+      "type": "integer",
+      "title": "Entries"
+     },
+     "allowlist_entries": {
+      "type": "integer",
+      "title": "Allowlist Entries",
+      "default": 0
+     },
+     "sinkhole_url": {
+      "type": "string",
+      "title": "Sinkhole Url"
+     },
+     "sync_configured": {
+      "type": "boolean",
+      "title": "Sync Configured"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entries",
+     "sinkhole_url",
+     "sync_configured"
+    ],
+    "title": "SyncStatusOut"
+   },
    "TargetType": {
     "type": "string",
     "enum": [
@@ -5160,6 +5792,24 @@
       "type": "string",
       "title": "Hint",
       "default": ""
+     },
+     "data": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "type": "object",
+      "title": "Data",
+      "default": {}
      },
      "icon": {
       "type": "string",

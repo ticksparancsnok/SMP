@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from '../i18n'
+
 const props = defineProps<{ total: number; offset: number; limit: number }>()
 const emit = defineEmits<{ 'update:offset': [value: number] }>()
 </script>
@@ -13,14 +15,14 @@ const emit = defineEmits<{ 'update:offset': [value: number] }>()
       :disabled="props.offset === 0"
       @click="emit('update:offset', Math.max(0, props.offset - props.limit))"
     >
-      ‹ Előző
+      {{ t('pager.prev') }}
     </button>
     <button
       class="ghost small"
       :disabled="props.offset + props.limit >= props.total"
       @click="emit('update:offset', props.offset + props.limit)"
     >
-      Következő ›
+      {{ t('pager.next') }}
     </button>
   </div>
 </template>

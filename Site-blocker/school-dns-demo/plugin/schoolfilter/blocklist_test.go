@@ -1,6 +1,8 @@
 package schoolfilter
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -69,5 +71,55 @@ fe80::1 ignored.example
 	want := []string{"example.com", "example.net", "one.test", "two.test"}
 	if !reflect.DeepEqual(domains, want) {
 		t.Fatalf("ParseHosts() = %#v, want %#v", domains, want)
+	}
+}
+
+func TestAllowlistIsCheckedBeforeBlocklist(t *testing.T) {
+	list := &Blocklist{}
+	if err := list.Replace(
+		[]Entry{{Domain: "example.com", IncludeSubdomains: true}, {Domain: "exact.test"}},
+		[]Entry{{Domain: "edu.example.com", IncludeSubdomains: true}, {Domain: "exact.test"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		domain string
+		want   bool
+	}{
+		{"www.example.com", true},     // blocklist (parent with includeSubdomains)
+		{"edu.example.com", false},    // allowlist wins over the blocklist
+		{"x.edu.example.com.", false}, // ...for its subdomains too
+		{"exact.test", false},         // on both lists: allowed
+		{"other.org", false},          // on neither: allowed
+	} {
+		if _, ok := list.Match(test.domain); ok != test.want {
+			t.Errorf("Match(%q) = %v, want %v", test.domain, ok, test.want)
+		}
+	}
+}
+
+func TestSyncedAllowlistIsPersisted(t *testing.T) {
+	s, h := newTestFilter(t, testToken)
+	body := `{"entries":[{"domain":"example.com","includeSubdomains":true,"addedBy":"admin","addedAt":"2026-11-22T00:00:00Z"}],
+	          "allowlist":[{"domain":"ok.example.com","includeSubdomains":false,"addedBy":"teacher","addedAt":"2026-11-22T00:00:00Z"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/blocklist/sync", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync: %d %s", rec.Code, rec.Body.String())
+	}
+	reloaded, err := LoadBlocklist(s.blocklistPath) // what a restart would read
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, blocked := reloaded.Match("ok.example.com"); blocked {
+		t.Error("allowlisted domain blocked after reload")
+	}
+	if _, blocked := reloaded.Match("www.example.com"); !blocked {
+		t.Error("blocked domain allowed after reload")
+	}
+	if reloaded.AllowCount() != 1 || reloaded.Count() != 1 {
+		t.Errorf("reloaded counts: %d blocked, %d allowed", reloaded.Count(), reloaded.AllowCount())
 	}
 }

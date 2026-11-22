@@ -3,15 +3,17 @@
 import io
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
-from smp.core.xlsx_users import HEADER, SAMPLE_ROWS, XLSX_MIME, read_users
+from smp.core.xlsx_users import HEADERS, SAMPLE_ROWS, XLSX_MIME, read_users
 from tests.conftest import login_as, make_client
 
-SAMPLE_FILE = Path(__file__).resolve().parents[2] / "docs" / "samples" / "felhasznalok-minta.xlsx"
+SAMPLES = Path(__file__).resolve().parents[2] / "docs" / "samples"
+SAMPLE_FILES = {"en": SAMPLES / "users-sample.xlsx", "hu": SAMPLES / "felhasznalok-minta.xlsx"}
 
 
-def xlsx(rows, header=HEADER) -> bytes:
+def xlsx(rows, header=HEADERS["hu"]) -> bytes:
     wb = Workbook()
     ws = wb.active
     if header:
@@ -52,7 +54,12 @@ async def test_export_uses_current_filters(admin):
     assert r.status_code == 200 and r.headers["content-type"] == XLSX_MIME
     assert "attachment" in r.headers["content-disposition"]
     rows = read(r.content)
-    assert rows[0] == HEADER
+    assert rows[0] == HEADERS["en"]  # API default
+    assert 'filename="users-' in r.headers["content-disposition"]
+    hu = await admin.get("/api/v1/users/export.xlsx", params={"lang": "hu"})
+    assert read(hu.content) == [HEADERS["hu"], *rows[1:]]  # same rows, Hungarian headers
+    assert 'filename="felhasznalok-' in hu.headers["content-disposition"]
+    assert (await admin.get("/api/v1/users/export.xlsx", params={"lang": "de"})).status_code == 422
     by_user = {row[1]: row for row in rows[1:]}
     assert set(by_user) == {"admin", "kiss.p", "nagy.a", "tanar.t"}
     # only class-type groups, comma separated
@@ -91,11 +98,13 @@ async def test_export_and_sample_permissions(app, admin):
         assert (await student.get("/api/v1/users/import-sample.xlsx")).status_code == 403
 
 
-async def test_sample_file_matches_format(admin):
-    served = read((await admin.get("/api/v1/users/import-sample.xlsx")).content)
-    committed = read(SAMPLE_FILE.read_bytes())
-    assert served == committed == [HEADER, *SAMPLE_ROWS]
-    parsed = read_users(SAMPLE_FILE.read_bytes())
+@pytest.mark.parametrize("lang", ["en", "hu"])
+async def test_sample_file_matches_format(admin, lang):
+    r = await admin.get("/api/v1/users/import-sample.xlsx", params={"lang": lang})
+    assert f'filename="{SAMPLE_FILES[lang].name}"' in r.headers["content-disposition"]
+    committed = read(SAMPLE_FILES[lang].read_bytes())
+    assert read(r.content) == committed == [HEADERS[lang], *SAMPLE_ROWS]
+    parsed = read_users(SAMPLE_FILES[lang].read_bytes())
     assert not parsed.errors and len(parsed.rows) == len(SAMPLE_ROWS)
 
 
@@ -170,16 +179,25 @@ async def test_import_rejects_whole_file_on_errors(admin):
     assert r.status_code == 422
     errors = r.json()["detail"]["errors"]
     assert [e["row"] for e in errors] == [3, 4, 5]
-    assert "érvénytelen" in errors[0]["error"] and "hiányzik" in errors[1]["error"] and "2. sorban" in errors[2]["error"]
+    assert [e["code"] for e in errors] == ["import.invalid_username", "import.missing_username", "import.duplicate_username"]
+    assert errors[0]["params"] == {"username": "kiss.péter"} and "invalid username" in errors[0]["error"]
+    assert errors[2]["params"] == {"username": "jo.sor", "row": 2} and "row 2" in errors[2]["error"]
     assert (await admin.get("/api/v1/users", params={"q": "jo.sor"})).json()["total"] == 0  # atomic
 
-    r = await post_import(admin, xlsx([("a", "b", "c")], header=("Name", "Username", "Class")))
+    r = await post_import(admin, xlsx([("a", "b", "c")], header=("Name", "Login", "Group")))
     assert r.status_code == 422 and r.json()["detail"]["errors"][0]["row"] == 1
+    bad = r.json()["detail"]["errors"][0]
+    assert bad["code"] == "import.bad_header" and bad["params"]["found"] == "Name | Login | Group"
+    assert bad["params"]["expected"] == "Name | Username | Class" and bad["params"]["expected_hu"].startswith("Név")
     r = await post_import(admin, b"this is not a spreadsheet")
     assert r.status_code == 422 and r.json()["detail"]["errors"][0]["row"] == 0
+    assert r.json()["detail"]["errors"][0]["code"] == "import.unreadable"
     # header matching ignores case/whitespace
     r = await post_import(admin, xlsx([("X Y", "x.y", "")], header=(" név", "FELHASZNÁLÓNÉV", "osztály ")), dry_run=True)
     assert r.status_code == 200 and r.json()["created"] == ["x.y"]
+    # English headers work the same (whatever language the file was exported in)
+    r = await post_import(admin, xlsx([("X Y", "x.y", "9.A")], header=("name", "USERNAME", " Class")), dry_run=True)
+    assert r.status_code == 200 and r.json()["created"] == ["x.y"] and r.json()["groups_created"] == ["9.A"]
 
 
 async def test_import_permissions(app, admin):

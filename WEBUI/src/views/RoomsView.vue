@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Room } from '../api/types'
 import Modal from '../components/Modal.vue'
+import { t } from '../i18n'
 import { can } from '../session'
 
 const rooms = ref<Room[]>([])
@@ -55,8 +56,7 @@ async function save() {
 }
 
 async function remove(r: Room) {
-  const extra = r.device_count ? ` A ${r.device_count} gép terem nélkül marad.` : ''
-  if (!confirm(`Biztosan törlöd a termet: ${r.name}?${extra}`)) return
+  if (!confirm(t('rooms.confirm_delete', { name: r.name, devices: r.device_count }))) return
   try {
     await api.del(`/rooms/${r.id}`)
     load()
@@ -69,10 +69,10 @@ async function remove(r: Room) {
 <template>
   <div class="page-head spread">
     <div>
-      <h1>Termek</h1>
-      <p>Tantermek és gépes laborok. Az alhálózat alapján a DNS szűrő gép-ügynök nélkül is felismeri a termet.</p>
+      <h1>{{ t('nav./rooms') }}</h1>
+      <p>{{ t('rooms.subtitle') }}</p>
     </div>
-    <button v-if="canWrite" @click="openEdit(null)">+ Új terem</button>
+    <button v-if="canWrite" @click="openEdit(null)">{{ t('rooms.new') }}</button>
   </div>
   <div v-if="error" class="alert err">{{ error }}</div>
 
@@ -80,11 +80,11 @@ async function remove(r: Room) {
     <table>
       <thead>
         <tr>
-          <th>Név</th>
-          <th>Épület</th>
-          <th>Alhálózatok</th>
-          <th>Gépek</th>
-          <th>Leírás</th>
+          <th>{{ t('common.name') }}</th>
+          <th>{{ t('rooms.building') }}</th>
+          <th>{{ t('rooms.subnets') }}</th>
+          <th>{{ t('rooms.devices') }}</th>
+          <th>{{ t('common.description') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -96,47 +96,47 @@ async function remove(r: Room) {
             <span v-for="s in r.subnets" :key="s" class="badge mono">{{ s }}</span>
           </div></td>
           <td>
-            <RouterLink :to="{ path: '/devices', query: { room_id: r.id } }">{{ r.device_count }} gép</RouterLink>
+            <RouterLink :to="{ path: '/devices', query: { room_id: r.id } }">{{ t('rooms.device_count', { count: r.device_count }) }}</RouterLink>
           </td>
           <td class="muted">{{ r.description }}</td>
           <td>
             <div v-if="canWrite" class="actions">
-              <button class="ghost small" @click="openEdit(r)">Szerkesztés</button>
-              <button class="danger small" @click="remove(r)">Törlés</button>
+              <button class="ghost small" @click="openEdit(r)">{{ t('common.edit') }}</button>
+              <button class="danger small" @click="remove(r)">{{ t('common.delete') }}</button>
             </div>
           </td>
         </tr>
         <tr v-if="!rooms.length">
-          <td colspan="6" class="empty">Még nincs terem.</td>
+          <td colspan="6" class="empty">{{ t('rooms.empty') }}</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <Modal v-if="open" :title="edit ? 'Terem szerkesztése' : 'Új terem'" @close="open = false">
+  <Modal v-if="open" :title="edit ? t('rooms.edit_title') : t('rooms.new_title')" @close="open = false">
     <form class="stack" @submit.prevent="save">
       <div v-if="formError" class="alert err">{{ formError }}</div>
       <div class="row">
         <div class="field">
-          <label>Név</label>
-          <input v-model="form.name" required placeholder="pl. Informatika 1" />
+          <label>{{ t('common.name') }}</label>
+          <input v-model="form.name" required :placeholder="t('rooms.name_placeholder')" />
         </div>
         <div class="field">
-          <label>Épület</label>
+          <label>{{ t('rooms.building') }}</label>
           <input v-model="form.building" />
         </div>
       </div>
       <div class="field">
-        <label>Alhálózatok (CIDR, soronként egy)</label>
+        <label>{{ t('rooms.subnets_label') }}</label>
         <textarea v-model="form.subnets" class="mono" placeholder="10.0.12.0/24" style="min-height: 70px"></textarea>
       </div>
       <div class="field">
-        <label>Leírás</label>
+        <label>{{ t('common.description') }}</label>
         <input v-model="form.description" />
       </div>
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="open = false">Mégse</button>
-        <button>Mentés</button>
+        <button type="button" class="ghost" @click="open = false">{{ t('common.cancel') }}</button>
+        <button>{{ t('common.save') }}</button>
       </div>
     </form>
   </Modal>

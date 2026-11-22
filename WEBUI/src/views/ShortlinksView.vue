@@ -4,6 +4,7 @@ import { api, errorText } from '../api/client'
 import { copyText } from '../clipboard'
 import type { ShortLink } from '../api/types'
 import { fmtDate, fromLocalInput } from '../format'
+import { t } from '../i18n'
 import { can } from '../session'
 
 const links = ref<ShortLink[]>([])
@@ -53,7 +54,7 @@ async function toggle(l: ShortLink) {
 }
 
 async function remove(l: ShortLink) {
-  if (!confirm(`Biztosan törlöd: /s/${l.code}?`)) return
+  if (!confirm(t('common.confirm_delete', { what: `/s/${l.code}` }))) return
   try {
     await api.del(`/shortlinks/links/${l.id}`)
     load()
@@ -63,7 +64,7 @@ async function remove(l: ShortLink) {
 }
 
 async function copy(code: string) {
-  if (!(await copyText(shortUrl(code), 'Másold ki a linket:'))) return
+  if (!(await copyText(shortUrl(code), t('shortlinks.copy_prompt')))) return
   copied.value = code
   window.setTimeout(() => (copied.value = ''), 1500)
 }
@@ -71,34 +72,34 @@ async function copy(code: string) {
 
 <template>
   <div class="page-head">
-    <h1>Rövid linkek</h1>
-    <p>Rövid, könnyen bediktálható linkek az órákhoz.</p>
+    <h1>{{ t('nav./shortlinks') }}</h1>
+    <p>{{ t('shortlinks.subtitle') }}</p>
   </div>
 
   <form class="card row" @submit.prevent="create">
     <div v-if="formError" class="alert err" style="flex-basis: 100%">{{ formError }}</div>
     <div class="field" style="flex: 3 1 280px">
-      <label>Cél URL</label>
+      <label>{{ t('shortlinks.target_url') }}</label>
       <input v-model="form.target_url" type="url" required placeholder="https://…" />
     </div>
     <div class="field">
-      <label>Saját kód (opcionális)</label>
-      <input v-model="form.code" class="mono" pattern="[A-Za-z0-9_\-]{3,64}" placeholder="pl. info9b" />
+      <label>{{ t('shortlinks.code') }}</label>
+      <input v-model="form.code" class="mono" pattern="[A-Za-z0-9_\-]{3,64}" :placeholder="t('shortlinks.code_placeholder')" />
     </div>
     <div class="field">
-      <label>Cím</label>
+      <label>{{ t('shortlinks.title_field') }}</label>
       <input v-model="form.title" />
     </div>
     <div class="field">
-      <label>Lejárat</label>
+      <label>{{ t('common.expires') }}</label>
       <input v-model="form.expires_at" type="datetime-local" />
     </div>
-    <button>Létrehozás</button>
+    <button>{{ t('shortlinks.create') }}</button>
   </form>
 
   <div class="toolbar">
     <label v-if="can('shortlinks.links.manage_all')" class="check">
-      <input v-model="showAll" type="checkbox" /> Mindenki linkjei
+      <input v-model="showAll" type="checkbox" /> {{ t('shortlinks.show_all') }}
     </label>
   </div>
   <div v-if="error" class="alert err">{{ error }}</div>
@@ -107,11 +108,11 @@ async function copy(code: string) {
     <table>
       <thead>
         <tr>
-          <th>Rövid link</th>
-          <th>Cél</th>
-          <th>Kattintás</th>
-          <th>Lejárat</th>
-          <th>Állapot</th>
+          <th>{{ t('shortlinks.short_link') }}</th>
+          <th>{{ t('shortlinks.target') }}</th>
+          <th>{{ t('shortlinks.clicks') }}</th>
+          <th>{{ t('common.expires') }}</th>
+          <th>{{ t('common.status') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -125,20 +126,20 @@ async function copy(code: string) {
           <td>{{ l.clicks }}</td>
           <td class="small">{{ fmtDate(l.expires_at) }}</td>
           <td>
-            <span v-if="l.disabled" class="badge closed">Kikapcsolva</span>
-            <span v-else-if="expired(l)" class="badge warning">Lejárt</span>
-            <span v-else class="badge ok">Aktív</span>
+            <span v-if="l.disabled" class="badge closed">{{ t('shortlinks.disabled') }}</span>
+            <span v-else-if="expired(l)" class="badge warning">{{ t('shortlinks.expired') }}</span>
+            <span v-else class="badge ok">{{ t('common.active') }}</span>
           </td>
           <td>
             <div class="actions">
-              <button class="ghost small" @click="copy(l.code)">{{ copied === l.code ? 'Másolva ✓' : 'Másolás' }}</button>
-              <button class="ghost small" @click="toggle(l)">{{ l.disabled ? 'Bekapcsolás' : 'Kikapcsolás' }}</button>
-              <button class="danger small" @click="remove(l)">Törlés</button>
+              <button class="ghost small" @click="copy(l.code)">{{ copied === l.code ? t('common.copied') : t('common.copy') }}</button>
+              <button class="ghost small" @click="toggle(l)">{{ l.disabled ? t('shortlinks.enable') : t('shortlinks.disable') }}</button>
+              <button class="danger small" @click="remove(l)">{{ t('common.delete') }}</button>
             </div>
           </td>
         </tr>
         <tr v-if="!links.length">
-          <td colspan="6" class="empty">Még nincs rövid link.</td>
+          <td colspan="6" class="empty">{{ t('shortlinks.empty') }}</td>
         </tr>
       </tbody>
     </table>

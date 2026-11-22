@@ -2,8 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from smp import __version__
 from smp.core import db
 from smp.core.config import get_settings
+from smp.core.context import Ctx, get_ctx
+from smp.core.errors import AppError
 from smp.core.events import EventBus, InProcessEventBus
 from smp.core.identity import LocalIdentityProvider
 from smp.core.module import ModuleRegistry
@@ -46,12 +49,13 @@ def create_app(registry: ModuleRegistry | None = None, bus: EventBus | None = No
             await bus.drain()
         await db.dispose_engine()
 
-    app = FastAPI(title="SMP", version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+    # The interactive docs and the schema are served below, for admins only.
+    app = FastAPI(title="SMP", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.registry = registry
     app.state.bus = bus
     app.state.login_throttle = LoginThrottle(
         max_failures=settings.login_max_failures,
-        window_seconds=settings.login_lockout_minutes * 60,
+        lockout_seconds=settings.login_lockout_seconds,
         ip_per_minute=settings.login_ip_attempts_per_minute,
     )
 
@@ -71,18 +75,41 @@ def create_app(registry: ModuleRegistry | None = None, bus: EventBus | None = No
     if origins := [o.strip() for o in settings.cors_origins.split(",") if o.strip()]:
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+    @app.exception_handler(AppError)
+    async def app_error(request: Request, exc: AppError):
+        # English `detail` plus a `code` the UI translates (see smp/core/errors.py).
+        return JSONResponse(exc.body(), status_code=exc.status_code, headers=exc.headers)
+
     @app.exception_handler(IntegrityError)
     async def integrity_error(request: Request, exc: IntegrityError):
         # Unique violations (duplicate username, room name, ...) -> 409 instead of 500.
-        return JSONResponse({"detail": "conflict with existing data"}, status_code=409)
+        return JSONResponse(AppError(409, "conflict", "conflict with existing data").body(), status_code=409)
 
     @app.exception_handler(SecretKeyMissing)
     async def secret_key_missing(request: Request, exc: SecretKeyMissing):
-        return JSONResponse({"detail": "server is not configured for one-time passwords: set SMP_SECRET_KEY"}, status_code=503)
+        err = AppError(503, "otp.secret_key_missing", "server is not configured for one-time passwords: set SMP_SECRET_KEY")
+        return JSONResponse(err.body(), status_code=503)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():
         return {"status": "ok", "version": __version__}
+
+    # API documentation: a map of every endpoint and parameter, so admins only
+    # (a signed-in user with the admin role; API tokens don't qualify). The web UI's
+    # types come from `smp openapi`, which doesn't need these routes.
+    async def admin_user(ctx: Ctx = Depends(get_ctx)) -> Ctx:
+        p = ctx.principal
+        if p is None or p.kind != "user" or not any(role == "admin" for role, _ in p.roles):
+            raise AppError(status.HTTP_403_FORBIDDEN, "docs.admin_only", "the API documentation is for administrators only")
+        return ctx
+
+    @app.get("/api/openapi.json", include_in_schema=False)
+    async def openapi_schema(ctx: Ctx = Depends(admin_user)):
+        return JSONResponse(app.openapi())
+
+    @app.get("/api/docs", include_in_schema=False)
+    async def api_docs(ctx: Ctx = Depends(admin_user)):
+        return get_swagger_ui_html(openapi_url="/api/openapi.json", title="SMP API")
 
     if settings.ui_dir:
         _mount_ui(app, Path(settings.ui_dir))

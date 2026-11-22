@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     # Set to false only for local development over plain http.
     cookie_secure: bool = True
 
-    # Login throttling (in memory, per server process). Failures are counted per
-    # (client IP, username): an attacker elsewhere can't lock a real user out, and
-    # unknown usernames are throttled exactly like real ones (no enumeration oracle).
-    login_max_failures: int = 5  # per IP+username within the window
-    login_lockout_minutes: int = 15  # window and block duration
+    # Login throttling (in memory, per server process; see smp/core/throttle.py).
+    # Failed logins are counted per account, from any IP; unknown usernames are
+    # throttled exactly like real ones (no enumeration oracle).
+    login_max_failures: int = 5  # failed logins for one username ...
+    login_lockout_seconds: int = 60  # ... lock it for this long
     login_ip_attempts_per_minute: int = 20  # all login attempts from one IP
 
     # Reverse proxies whose X-Forwarded-For is trusted (comma separated IPs/CIDRs, "*" = any).

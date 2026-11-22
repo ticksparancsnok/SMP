@@ -5,7 +5,9 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
-import { PASSWORD_RULES } from '../format'
+import LangSwitch from '../components/LangSwitch.vue'
+import { passwordRules } from '../format'
+import { t } from '../i18n'
 import { loadSession, logout, session } from '../session'
 
 const route = useRoute()
@@ -17,11 +19,11 @@ const busy = ref(false)
 async function submit() {
   error.value = ''
   if (pw.next !== pw.again) {
-    error.value = 'A két új jelszó nem egyezik.'
+    error.value = t('password.mismatch')
     return
   }
   if (pw.next === pw.current) {
-    error.value = 'Az új jelszó nem lehet ugyanaz, mint a jelenlegi.'
+    error.value = t('code.auth.password_unchanged')
     return
   }
   busy.value = true
@@ -46,29 +48,29 @@ async function signOut() {
 <template>
   <div class="auth">
     <form class="card stack" @submit.prevent="submit">
-      <div>
-        <h1>Új jelszó szükséges</h1>
-        <p class="muted" style="margin: 0">
-          Szia {{ session.me?.display_name || session.me?.username }}! A jelszavadat egy adminisztrátor állította be,
-          ezért a folytatás előtt meg kell változtatnod.
-        </p>
+      <div class="spread" style="align-items: flex-start">
+        <h1>{{ t('pwchange.title') }}</h1>
+        <LangSwitch />
       </div>
+      <p class="muted" style="margin: 0">
+        {{ t('pwchange.intro', { name: session.me?.display_name || session.me?.username || '' }) }}
+      </p>
       <div v-if="error" class="alert err">{{ error }}</div>
       <div class="field">
-        <label for="cur">Kapott (egyszeri) jelszó</label>
+        <label for="cur">{{ t('pwchange.current') }}</label>
         <input id="cur" v-model="pw.current" type="password" autocomplete="current-password" required autofocus />
       </div>
       <div class="field">
-        <label for="new">Új jelszó</label>
+        <label for="new">{{ t('pwchange.new') }}</label>
         <input id="new" v-model="pw.next" type="password" autocomplete="new-password" minlength="8" required />
-        <span class="muted small">{{ PASSWORD_RULES }}</span>
+        <span class="muted small">{{ passwordRules() }}</span>
       </div>
       <div class="field">
-        <label for="again">Új jelszó még egyszer</label>
+        <label for="again">{{ t('pwchange.again') }}</label>
         <input id="again" v-model="pw.again" type="password" autocomplete="new-password" minlength="8" required />
       </div>
-      <button :disabled="busy">Jelszó mentése</button>
-      <button type="button" class="ghost" @click="signOut">Kijelentkezés</button>
+      <button :disabled="busy">{{ t('pwchange.submit') }}</button>
+      <button type="button" class="ghost" @click="signOut">{{ t('common.sign_out') }}</button>
     </form>
   </div>
 </template>

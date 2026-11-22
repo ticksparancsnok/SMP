@@ -28,13 +28,13 @@ var blockPage embed.FS
 var blockPageTemplate = template.Must(template.ParseFS(blockPage, "blockpage.html"))
 
 type SchoolFilter struct {
-	Next     plugin.Handler
-	blocklist *Blocklist
-	sinkhole net.IP
-	httpAddr string
+	Next          plugin.Handler
+	blocklist     *Blocklist
+	sinkhole      net.IP
+	httpAddr      string
 	blocklistPath string
-	syncToken string
-	server   *http.Server
+	syncToken     string
+	server        *http.Server
 }
 
 func init() {
@@ -94,11 +94,15 @@ func setup(c *caddy.Controller) error {
 		syncToken = args[3]
 	}
 	filter := &SchoolFilter{
-		blocklist: blocklist,
-		sinkhole:  sinkhole,
-		httpAddr:  httpAddr,
+		blocklist:     blocklist,
+		sinkhole:      sinkhole,
+		httpAddr:      httpAddr,
 		blocklistPath: args[0],
-		syncToken: syncToken,
+		syncToken:     syncToken,
+	}
+
+	if syncToken == "" {
+		log.Printf("[WARNING] schoolfilter: DNS_SYNC_TOKEN is not set; the /api/blocklist/* endpoints are disabled (DNS filtering and the block page still work)")
 	}
 
 	c.OnStartup(func() error {
@@ -115,23 +119,50 @@ func setup(c *caddy.Controller) error {
 }
 
 func (s *SchoolFilter) startHTTP() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/blocklist/import", s.handleImport)
-	mux.HandleFunc("/api/blocklist/entries", s.handleEntryCreate)
-	mux.HandleFunc("/api/blocklist/sync", s.handleSync)
-	mux.HandleFunc("/api/blocklist/status", s.handleStatus)
-	mux.HandleFunc("/", s.handleBlockPage)
 	listener, err := net.Listen("tcp", s.httpAddr)
 	if err != nil {
 		return fmt.Errorf("listen for block page on %s: %w", s.httpAddr, err)
 	}
-	s.server = &http.Server{Handler: mux}
+	// The block page port is reachable by every client on the school network,
+	// so slow clients must not be able to hold connections open forever.
+	s.server = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("schoolfilter block page stopped: %v", err)
 		}
 	}()
 	return nil
+}
+
+// routes serves the public block page at "/" and the blocklist API under
+// /api/blocklist/. The block page port is open to every client on the school
+// network, so every API endpoint requires the shared sync token.
+func (s *SchoolFilter) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/blocklist/import", s.requireToken(s.handleImport))
+	mux.HandleFunc("/api/blocklist/entries", s.requireToken(s.handleEntryCreate))
+	mux.HandleFunc("/api/blocklist/sync", s.requireToken(s.handleSync))
+	mux.HandleFunc("/api/blocklist/status", s.requireToken(s.handleStatus))
+	mux.HandleFunc("/", s.handleBlockPage)
+	return mux
+}
+
+// requireToken accepts only "Authorization: Bearer <DNS_SYNC_TOKEN>". With no
+// token configured the API is disabled rather than open.
+func (s *SchoolFilter) requireToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.syncToken == "" {
+			http.Error(w, "blocklist API disabled: DNS_SYNC_TOKEN is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(s.syncToken)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "invalid or missing sync token", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *SchoolFilter) stopHTTP() error {
@@ -211,11 +242,11 @@ func (s *SchoolFilter) handleEntryCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var request struct {
-		Username         string   `json:"username"`
-		Domain           string   `json:"domain"`
+		Username          string   `json:"username"`
+		Domain            string   `json:"domain"`
 		IncludeSubdomains *bool    `json:"includeSubdomains"`
-		Reason           string   `json:"reason"`
-		Confidence       *float64 `json:"confidence,omitempty"`
+		Reason            string   `json:"reason"`
+		Confidence        *float64 `json:"confidence,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -241,7 +272,7 @@ func (s *SchoolFilter) handleEntryCreate(w http.ResponseWriter, r *http.Request)
 		Confidence:        request.Confidence,
 		AddedAt:           time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := s.blocklist.Add(entry); err != {
+	if err := s.blocklist.Add(entry); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -260,19 +291,12 @@ func (s *SchoolFilter) handleSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.syncToken != "" {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if len(token) != len(s.syncToken) || subtle.ConstantTimeCompare([]byte(token), []byte(s.syncToken)) != 1 {
-			http.Error(w, "invalid sync token", http.StatusUnauthorized)
-			return
-		}
-	}
 	var payload blocklistFile
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid blocklist JSON", http.StatusBadRequest)
 		return
 	}
-	if err := s.blocklist.Replace(payload.Entries); err != nil {
+	if err := s.blocklist.Replace(payload.Entries, payload.Allowlist); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -281,7 +305,7 @@ func (s *SchoolFilter) handleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]int{"entries": len(payload.Entries)})
+	_ = json.NewEncoder(w).Encode(map[string]int{"entries": len(payload.Entries), "allowlist": len(payload.Allowlist)})
 }
 
 func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -292,8 +316,9 @@ func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status": "ok",
-		"entries": s.blocklist.Count(),
+		"status":    "ok",
+		"entries":   s.blocklist.Count(),
+		"allowlist": s.blocklist.AllowCount(),
 	})
 }
 

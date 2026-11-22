@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { PLANNED, session } from '../session'
+import { t } from '../i18n'
+import { PLANNED, plannedBlurb, routeTitle, session } from '../session'
 
 const route = useRoute()
 const planned = computed(() => PLANNED.find((p) => p.path === route.path))
@@ -13,18 +14,16 @@ const moduleRoute = computed(() =>
 
 <template>
   <div v-if="planned" class="card stack" style="max-width: 640px">
-    <h1>{{ planned.icon }} {{ planned.title }}</h1>
-    <p>{{ planned.blurb }}</p>
-    <span class="badge warning" style="align-self: flex-start">Fejlesztés alatt</span>
+    <h1>{{ planned.icon }} {{ routeTitle(planned) }}</h1>
+    <p>{{ plannedBlurb(planned.path) }}</p>
+    <span class="badge warning" style="align-self: flex-start">{{ t('common.in_development') }}</span>
   </div>
   <div v-else-if="moduleRoute" class="card stack" style="max-width: 640px">
-    <h1>{{ moduleRoute.icon }} {{ moduleRoute.title }}</h1>
-    <p class="muted">
-      A(z) <span class="mono">{{ moduleRoute.module.name }}</span> modul be van kapcsolva, de a felülete még nem készült el.
-    </p>
+    <h1>{{ moduleRoute.icon }} {{ routeTitle(moduleRoute) }}</h1>
+    <p class="muted">{{ t('placeholder.module_without_ui', { module: moduleRoute.module.name }) }}</p>
   </div>
   <div v-else class="card stack" style="max-width: 640px">
-    <h1>Az oldal nem található</h1>
-    <RouterLink to="/">Vissza a kezdőlapra</RouterLink>
+    <h1>{{ t('placeholder.not_found') }}</h1>
+    <RouterLink to="/">{{ t('placeholder.back_home') }}</RouterLink>
   </div>
 </template>

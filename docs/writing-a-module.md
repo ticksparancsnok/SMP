@@ -31,7 +31,7 @@ class DnsPolicy(BaseModel):              # validates Policy.data where kind == "
 
 class DnsModule(Module):
     name = "dns"
-    title = "Oldal blokkoló"
+    title = "Site blocker"        # all server text is English; the UI translates (section 6)
     permissions = (
         Permission("dns.review.manage", "Approve/reject classifier verdicts", ("teacher",)),
         Permission("dns.lists.write", "Edit block/allow lists"),          # admin only
@@ -39,7 +39,7 @@ class DnsModule(Module):
         # Lab 1 gets this permission only for Lab 1.
         # Permission("classroom.screen.lock", "Lock screens", ("teacher",), room_scoped=True),
     )
-    ui_routes = (UiRoute("/dns", "Oldal blokkoló", "🌐", "dns.review.manage"),)
+    ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.review.manage"),)
     events = (EventSubject("dns.domain.blocked", "A domain was auto-blocked"),)
     settings_model = DnsSettings
     policy_model = DnsPolicy
@@ -57,9 +57,13 @@ class DnsModule(Module):
         if not ctx.principal.can("dns.review.manage"):
             return []
         top = ...  # query your tables
-        return [Widget(id="dns.top_blocked", kind="list", title="Top blokkolt domainek", icon="🌐",
+        return [Widget(id="dns.top_blocked", kind="list", title="Top blocked domains", icon="🌐",
                        link="/dns", order=100,
-                       items=[WidgetItem(label=d, value=f"{n} lekérés") for d, n in top])]
+                       items=[WidgetItem(label=d, value=f"{n} requests") for d, n in top])]
+        # A "stat" card with a hint also sends the numbers behind it, so the UI can
+        # rebuild the hint in the user's language:
+        #   Widget(id="dns.blocked_today", title="Blocked today", value=n,
+        #          hint=f"{clients} clients", data={"clients": clients}, ...)
 
 
 from smp.modules.dns import models  # noqa: E402,F401  (so Alembic sees the tables)
@@ -111,6 +115,14 @@ Rules:
 - **Room-scoped actions** (lock screens, exam mode): use `require(perm, any_room=True)` and then `ctx.check(perm, device.room_id)`.
 - Read settings with `await ctx.settings("dns")`. It returns your pydantic model with defaults filled in.
 - Effective policy for a device: `await effective_policies(ctx.db, ctx.org_id, device=d, kinds={"dns"})` (from `smp.core.policy`).
+- **Errors a user can see: raise `AppError`** (`smp.core.errors`) instead of `HTTPException`, with an English message, a stable code, and the values in the message as params:
+
+  ```python
+  raise AppError(409, "dns.domain_exists", "domain already exists")
+  raise AppError(409, "policies.schedule_in_use", f"schedule is used by {n} assignment(s)", count=n)
+  ```
+
+  The response is `{"detail": "<English>", "code": "...", "params": {...}}`. The UI shows the translation of the code, or `detail` if it has none. Validators that collect several problems (like the .xlsx import) return `Problem(code, message, params)` objects the same way.
 
 ## 5. Services outside the Python process (DNS server, agent)
 
@@ -125,6 +137,17 @@ The menu is built from your manifest's `ui_routes`, so the entry appears automat
 3. Register the route in `WEBUI/src/router.ts` with `meta: { perm: '...' }`.
 
 Use `api.get/post/...` from `src/api/client.ts`, and `can()`/`canAnywhere()` from `src/session.ts` to hide buttons the user can't use. The server still enforces everything.
+
+**Languages (HU/EN).** The server speaks English only; the web UI translates. Write every UI string as `t('dns.some_key')` and add the key to **both** `WEBUI/src/i18n/en.ts` and `hu.ts` (`npm run typecheck` fails if `hu.ts` is missing one). Server-sent text is translated by stable keys, falling back to the server's English when a key is missing:
+
+| From the server | i18n key |
+|---|---|
+| `UiRoute` title | `nav./dns` (the route path) |
+| `Module.title` | `module.dns` |
+| `Permission` description | `perm.dns.review.manage` |
+| widget title / hint | `widget.dns.top_blocked`, `widget.dns.top_blocked.hint` (gets `widget.data` as params) |
+| `AppError` / `Problem` code | `code.dns.domain_exists` (gets `params`) |
+| settings field label / description | `settings.dns.upstreams`, `settings.dns.upstreams.help` |
 
 ## 7. Tests
 

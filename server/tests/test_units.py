@@ -78,19 +78,75 @@ def test_registry_role_permissions():
 
 
 def test_dns_hosts_parser_normalizes_and_deduplicates():
-    from smp.modules.dns.api import parse_hosts
+    from smp.modules.dns.domains import parse_hosts
 
-    content = b"""# comment
-0.0.0.0 Example.COM. ads.example
+    content = """# comment
+0.0.0.0 Example.COM. ads.example   # inline comment
 127.0.0.1 localhost
-::1 localhost
+127.0.0.1 localhost.localdomain local
+::1 localhost ip6-localhost ip6-loopback
+fe80::1%lo0 localhost link-local.example
+ff02::1 ip6-allnodes
 255.255.255.255 broadcasthost
+0.0.0.0 0.0.0.0
 10.0.0.1 one.test two.test
 10.0.0.2 one.test
-"""
-    assert parse_hosts(content) == [
+0.0.0.0 a..b -bad.example bad-.example *.wild.example under_score.example
+0.0.0.0 ünnep.hu
+0.0.0.0 LONGLABEL.example
+not-an-ip both.example
+""".replace("LONGLABEL", "x" * 64)
+    assert parse_hosts(content.encode()) == [
         "example.com",
         "ads.example",
+        "localhost.localdomain",  # two labels, so syntactically a domain (harmless to block)
         "one.test",
         "two.test",
+        "under_score.example",
+        "xn--nnep-zra.hu",  # IDN as punycode, which is what DNS queries carry
     ]
+
+
+def test_dns_domain_rules():
+    from smp.modules.dns.domains import is_public_suffix
+    from smp.modules.dns.domains import normalize_domain as nd
+
+    assert nd(" WWW.Example.COM. ") == "www.example.com"
+    for bad in ("", ".", "com", "localhost", "a..b", "-x.com", "x-.com", "*.ads.com", "1.2.3.4", "::1",
+                "x" * 64 + ".com", ("a" * 60 + ".") * 5 + "com", "with space.com", "slash/x.com"):
+        assert nd(bad) is None, bad
+    for suffix in ("com", "hu", "co.uk", "co.hu", "org.hu"):
+        assert is_public_suffix(suffix), suffix
+    for name in ("google.com", "bbc.co.uk", "iskola.hu", "github.io", "blogspot.com"):
+        assert not is_public_suffix(name), name
+
+
+def test_dns_hosts_parser_on_real_list():
+    """The StevenBlack hosts file in the repo: every result is well-formed and none
+    of its own system entries (localhost, broadcasthost, ip6-*) gets through."""
+    from pathlib import Path
+
+    from smp.modules.dns.domains import normalize_domain, parse_hosts
+
+    path = Path(__file__).resolve().parents[2] / "Site-blocker" / "hosts.txt"
+    domains = parse_hosts(path.read_bytes())
+    assert len(domains) > 70_000 and len(domains) == len(set(domains))
+    assert all(normalize_domain(d) == d for d in domains)
+    assert not {"localhost", "local", "broadcasthost", "ip6-localhost", "ip6-allnodes", "0.0.0.0"} & set(domains)
+
+
+def test_dns_decision_order():
+    from types import SimpleNamespace as E
+
+    from smp.modules.dns.domains import blocked_by, by_domain
+
+    block = by_domain([E(domain="example.com", include_subdomains=True), E(domain="exact.test", include_subdomains=False),
+                       E(domain="co.uk", include_subdomains=True)])  # legacy TLD entry: ignored
+    allow = by_domain([E(domain="edu.example.com", include_subdomains=True)])
+    assert blocked_by("www.example.com", allow, block).domain == "example.com"
+    assert blocked_by("edu.example.com", allow, block) is None  # 1. allowlist wins
+    assert blocked_by("x.edu.example.com", allow, block) is None
+    assert blocked_by("exact.test", allow, block).domain == "exact.test"  # 2. blocklist
+    assert blocked_by("sub.exact.test", allow, block) is None  # not include_subdomains
+    assert blocked_by("bbc.co.uk", allow, block) is None  # public-suffix entries never apply
+    assert blocked_by("other.org", allow, block) is None  # 3. everything else is allowed

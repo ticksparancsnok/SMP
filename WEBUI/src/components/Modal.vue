@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
+import { t } from '../i18n'
 
 defineProps<{ title: string; wide?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -17,7 +18,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <div class="modal card" :class="{ wide }" role="dialog" aria-modal="true">
         <div class="spread modal-head">
           <h2>{{ title }}</h2>
-          <button class="ghost small" aria-label="Bezárás" @click="emit('close')">✕</button>
+          <button class="ghost small" :aria-label="t('common.close')" @click="emit('close')">✕</button>
         </div>
         <slot />
       </div>

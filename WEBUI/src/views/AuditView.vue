@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { AuditEntry } from '../api/types'
 import { fmtDate, fromLocalInput } from '../format'
+import { t } from '../i18n'
 
 const LIMIT = 100
 const route = useRoute()
@@ -39,28 +40,28 @@ onMounted(() => load())
 
 <template>
   <div class="page-head">
-    <h1>Audit napló</h1>
-    <p>Minden változtatás és belépés naplózva van. A napló nem módosítható.</p>
+    <h1>{{ t('nav./audit') }}</h1>
+    <p>{{ t('audit.subtitle') }}</p>
   </div>
 
   <form class="toolbar" @submit.prevent="load()">
     <div class="field">
-      <label>Művelet (pontos, vagy ponttal végződő előtag)</label>
+      <label>{{ t('audit.action_filter') }}</label>
       <input v-model="filters.action" class="mono" placeholder="core.user." />
     </div>
     <div class="field">
-      <label>Cél típusa</label>
+      <label>{{ t('audit.target_type') }}</label>
       <input v-model="filters.target_type" class="mono" placeholder="device" />
     </div>
     <div class="field">
-      <label>Ettől</label>
+      <label>{{ t('audit.since') }}</label>
       <input v-model="filters.since" type="datetime-local" />
     </div>
     <div class="field">
-      <label>Eddig</label>
+      <label>{{ t('audit.until') }}</label>
       <input v-model="filters.until" type="datetime-local" />
     </div>
-    <button>Szűrés</button>
+    <button>{{ t('audit.filter') }}</button>
   </form>
 
   <div v-if="error" class="alert err">{{ error }}</div>
@@ -69,11 +70,11 @@ onMounted(() => load())
     <table>
       <thead>
         <tr>
-          <th>Időpont</th>
-          <th>Ki</th>
-          <th>Művelet</th>
-          <th>Cél</th>
-          <th>Részletek</th>
+          <th>{{ t('audit.time') }}</th>
+          <th>{{ t('audit.who') }}</th>
+          <th>{{ t('audit.action') }}</th>
+          <th>{{ t('audit.target') }}</th>
+          <th>{{ t('audit.details') }}</th>
           <th>IP</th>
         </tr>
       </thead>
@@ -87,19 +88,19 @@ onMounted(() => load())
           <td class="mono small">{{ e.target_type }}<br />{{ e.target_id }}</td>
           <td style="max-width: 360px">
             <details v-if="Object.keys(e.details).length">
-              <summary>megnyitás</summary>
+              <summary>{{ t('audit.open') }}</summary>
               <pre class="json">{{ JSON.stringify(e.details, null, 2) }}</pre>
             </details>
           </td>
           <td class="mono small">{{ e.ip }}</td>
         </tr>
         <tr v-if="!entries.length">
-          <td colspan="6" class="empty">Nincs bejegyzés.</td>
+          <td colspan="6" class="empty">{{ t('audit.empty') }}</td>
         </tr>
       </tbody>
     </table>
     <div v-if="more" class="pager">
-      <button class="ghost small" @click="load(true)">Továbbiak betöltése</button>
+      <button class="ghost small" @click="load(true)">{{ t('audit.more') }}</button>
     </div>
   </div>
 </template>

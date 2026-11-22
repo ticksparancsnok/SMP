@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from smp.core.config import get_settings
 from smp.core.db import get_session, utcnow
+from smp.core.errors import AppError
 from smp.core.events import Event, EventBus
 from smp.core.models import ApiToken, AuditLog, AuthSession, ModuleSetting, Organization, User
 from smp.core.module import ModuleRegistry
@@ -97,7 +98,7 @@ class Ctx:
     # ---- authorization
     def check(self, perm: str, room_id: uuid.UUID | None = None) -> None:
         if self.principal is None or not self.principal.can(perm, room_id):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing permission {perm}")
+            raise AppError(status.HTTP_403_FORBIDDEN, "permission.missing", f"missing permission {perm}", permission=perm)
 
     # ---- org-scoped data access
     def select(self, model: type[T], *extra: Any) -> Select[tuple[T]]:
@@ -108,7 +109,7 @@ class Ctx:
         """Fetch by primary key within this org, or 404."""
         obj = await self.db.get(model, id)
         if obj is None or obj.org_id != self.org_id:  # type: ignore[attr-defined]
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"{model.__name__} not found")
+            raise AppError(status.HTTP_404_NOT_FOUND, "not_found", f"{model.__name__} not found", entity=model.__name__)
         return obj
 
     async def get_org(self) -> Organization:
@@ -249,9 +250,9 @@ async def get_principal(request: Request, db: AsyncSession = Depends(get_session
         check_origin(request)
         principal = await _principal_from_cookie(db, cookie, registry)
     if principal is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not authenticated")
+        raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.not_authenticated", "not authenticated")
     if principal.must_change_password and request.url.path not in _ALLOWED_DURING_PASSWORD_CHANGE:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
+        raise AppError(status.HTTP_403_FORBIDDEN, "auth.password_change_required", "password change required")
     return principal
 
 
@@ -276,7 +277,7 @@ def require(*perms: str, any_room: bool = False) -> Callable[..., Awaitable[Ctx]
         for perm in perms:
             ok = ctx.principal.can_anywhere(perm) if any_room else ctx.principal.can(perm)
             if not ok:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing permission {perm}")
+                raise AppError(status.HTTP_403_FORBIDDEN, "permission.missing", f"missing permission {perm}", permission=perm)
         return ctx
 
     return dep

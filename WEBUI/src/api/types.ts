@@ -25,6 +25,13 @@ export type TokenCreated = S['TokenCreated']
 export type Widget = S['Widget']
 export type ShortLink = S['LinkOut']
 export type ImportResult = S['ImportResult']
+export type DnsEntry = S['EntryOut']
+export type DnsEntryIn = S['EntryIn']
+export type DnsHostsPreview = S['HostsPreviewOut']
+export type DnsStatus = S['SyncStatusOut']
+export type DnsAllowEntry = S['AllowEntryOut']
+export type DnsAllowIn = S['AllowIn']
+export type DnsAllowlist = S['AllowlistOut']
 
 export interface Page<T> {
   items: T[]

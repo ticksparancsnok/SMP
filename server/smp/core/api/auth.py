@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from smp.core.config import get_settings
 from smp.core.context import Ctx, check_origin, client_ip, get_ctx, principal_for_user
 from smp.core.db import get_session, utcnow
+from smp.core.errors import AppError
 from smp.core.models import AuditLog, AuthSession, AuthSource, Organization, User
 from smp.core.otp import clear_otp
 from smp.core.passwords import password_problem
@@ -97,13 +98,14 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
     settings = get_settings()
     registry = request.app.state.registry
     throttle: LoginThrottle = request.app.state.login_throttle
-    bad = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid username or password")
+    bad = AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_credentials", "invalid username or password")
     ip = client_ip(request) or "unknown"
 
     # Checked before any DB work or hashing, and identical for existing and unknown
-    # usernames, so it's neither an enumeration oracle nor a way to lock others out.
+    # usernames, so it's no enumeration oracle. A locked account refuses even the
+    # right password (see smp/core/throttle.py for the lockout trade-off).
     if not throttle.allowed(ip, body.username):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many login attempts, try again later")
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts", "too many login attempts, try again later")
     throttle.record_attempt(ip)
 
     org = (
@@ -111,7 +113,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
     ).scalar_one_or_none()
     if org is None:
         await verify_password_async(None, body.password)  # same cost as a real check
-        throttle.record_failure(ip, body.username)
+        throttle.record_failure(body.username)
         raise bad
     user = (
         await db.execute(select(User).where(User.org_id == org.id, User.username == body.username))
@@ -123,12 +125,14 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
         await verify_password_async(None, body.password)
     else:
         provider = request.app.state.identity_providers.get(user.auth_source)
+        # TODO(evaluate, issue #4): OTP hashes verify faster than _DUMMY_HASH (timing oracle for
+        # not-yet-activated accounts); see the note at _otp_hasher in core/security.py.
         ok = provider is not None and await provider.verify_password(user, body.password)
         reason = "bad password"
         if ok and user.otp_expires_at is not None and user.otp_expires_at <= now:
             ok, reason = False, "one-time password expired"
     if not ok:
-        throttle.record_failure(ip, body.username)
+        throttle.record_failure(body.username)
         _audit_login(db, request, org.id, user, body.username, False, reason)
         try:
             await db.commit()
@@ -139,7 +143,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
             await db.rollback()
         raise bad
     assert user is not None
-    throttle.record_success(ip, body.username)
+    throttle.record_success(body.username)
 
     user.last_login_at = now
     if (
@@ -199,13 +203,15 @@ async def change_password(body: PasswordChangeIn, response: Response, ctx: Ctx =
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "only users have passwords")
     user = await ctx.get(User, p.id)
     if user.auth_source != AuthSource.LOCAL:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "password is managed by an external directory")
+        raise AppError(status.HTTP_400_BAD_REQUEST, "auth.external_password", "password is managed by an external directory")
     if not await verify_password_async(user.password_hash, body.current_password):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A jelenlegi jelszó hibás.")
+        raise AppError(status.HTTP_400_BAD_REQUEST, "auth.wrong_current_password", "The current password is incorrect.")
     if body.new_password == body.current_password:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Az új jelszó nem lehet ugyanaz, mint a jelenlegi.")
+        raise AppError(
+            status.HTTP_400_BAD_REQUEST, "auth.password_unchanged", "The new password must be different from the current one."
+        )
     if problem := password_problem(body.new_password, user.username):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+        raise AppError.from_problem(status.HTTP_400_BAD_REQUEST, problem)
     user.password_hash = await hash_password_async(body.new_password)
     was_forced = user.must_change_password
     user.must_change_password = False

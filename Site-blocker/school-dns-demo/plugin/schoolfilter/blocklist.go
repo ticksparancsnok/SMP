@@ -11,26 +11,32 @@ import (
 )
 
 type Entry struct {
-	Domain           string   `json:"domain"`
+	Domain            string   `json:"domain"`
 	IncludeSubdomains bool     `json:"includeSubdomains"`
-	Reason           string   `json:"reason,omitempty"`
-	AddedBy          string   `json:"addedBy"`
-	Confidence       *float64 `json:"confidence,omitempty"`
-	AddedAt          string   `json:"addedAt"`
+	Reason            string   `json:"reason,omitempty"`
+	AddedBy           string   `json:"addedBy"`
+	Confidence        *float64 `json:"confidence,omitempty"`
+	AddedAt           string   `json:"addedAt"`
 }
 
+// blocklistFile is both the persisted blocklist.json and the sync payload.
 type blocklistFile struct {
-	Entries []Entry `json:"entries"`
+	Entries   []Entry `json:"entries"`
+	Allowlist []Entry `json:"allowlist,omitempty"`
 }
 
+// Blocklist holds the blocked domains and the allowlist, which is checked first
+// (see Match). Public suffixes (com, co.uk, ...) are kept off both lists by the
+// control plane (server/smp/modules/dns/domains.py).
 type Blocklist struct {
 	mu      sync.RWMutex
 	entries map[string]Entry
+	allow   map[string]Entry
 }
 
 func (b *Blocklist) Add(entry Entry) error {
 	normalized, err := normalizeDomain(entry.Domain)
-	if err != {
+	if err != nil {
 		return err
 	}
 	entry.Domain = normalized
@@ -40,39 +46,60 @@ func (b *Blocklist) Add(entry Entry) error {
 	return nil
 }
 
-func (b *Blocklist) Replace(entries []Entry) error {
-	replaced := make(map[string]Entry, len(entries))
+func toMap(entries []Entry, list string) (map[string]Entry, error) {
+	out := make(map[string]Entry, len(entries))
 	for i, entry := range entries {
 		normalized, err := normalizeDomain(entry.Domain)
 		if err != nil {
-			return fmt.Errorf("entry %d: %w", i, err)
+			return nil, fmt.Errorf("%s entry %d: %w", list, i, err)
 		}
 		entry.Domain = normalized
-		replaced[normalized] = entry
+		out[normalized] = entry
+	}
+	return out, nil
+}
+
+// Replace swaps in both lists at once (a sync from the control plane).
+func (b *Blocklist) Replace(entries, allowlist []Entry) error {
+	blocked, err := toMap(entries, "blocklist")
+	if err != nil {
+		return err
+	}
+	allowed, err := toMap(allowlist, "allowlist")
+	if err != nil {
+		return err
 	}
 	b.mu.Lock()
-	b.entries = replaced
+	b.entries, b.allow = blocked, allowed
 	b.mu.Unlock()
 	return nil
+}
+
+func sortedEntries(m map[string]Entry) []Entry {
+	out := make([]Entry, 0, len(m))
+	for _, entry := range m {
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Domain < out[j].Domain })
+	return out
 }
 
 func (b *Blocklist) Snapshot() blocklistFile {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	file := blocklistFile{Entries: make([]Entry, 0, len(b.entries))}
-	for _, entry := range b.entries {
-		file.Entries = append(file.Entries, entry)
-	}
+	return blocklistFile{Entries: sortedEntries(b.entries), Allowlist: sortedEntries(b.allow)}
+}
 
-	func (b *Blocklist) Count() int {
-		b.mu.RLock()
-		defer b.mu.RUnlock()
-		return len(b.entries)
-	}
-	sort.Slice(file.Entries, func(i, j int) bool {
-		return file.Entries[i].Domain < file.Entries[j].Domain
-	})
-	return file
+func (b *Blocklist) Count() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.entries)
+}
+
+func (b *Blocklist) AllowCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.allow)
 }
 
 func (b *Blocklist) Save(path string) error {
@@ -99,24 +126,32 @@ func LoadBlocklist(path string) (*Blocklist, error) {
 		return nil, fmt.Errorf("parse blocklist: %w", err)
 	}
 
-	blocklist := &Blocklist{entries: make(map[string]Entry, len(file.Entries))}
-	for i, entry := range file.Entries {
-		normalized, err := normalizeDomain(entry.Domain)
-		if err != nil {
-			return nil, fmt.Errorf("entry %d: %w", i, err)
+	for list, entries := range map[string][]Entry{"blocklist": file.Entries, "allowlist": file.Allowlist} {
+		for i, entry := range entries {
+			if entry.AddedBy == "" {
+				return nil, fmt.Errorf("%s entry %d: addedBy is required", list, i)
+			}
+			if _, err := time.Parse(time.RFC3339, entry.AddedAt); err != nil {
+				return nil, fmt.Errorf("%s entry %d: addedAt must be RFC3339: %w", list, i, err)
+			}
 		}
-		if entry.AddedBy == "" {
-			return nil, fmt.Errorf("entry %d: addedBy is required", i)
-		}
-		if _, err := time.Parse(time.RFC3339, entry.AddedAt); err != nil {
-			return nil, fmt.Errorf("entry %d: addedAt must be RFC3339: %w", i, err)
-		}
-		entry.Domain = normalized
-		blocklist.entries[normalized] = entry
+	}
+	blocklist := &Blocklist{}
+	if err := blocklist.Replace(file.Entries, file.Allowlist); err != nil {
+		return nil, err
 	}
 	return blocklist, nil
 }
 
+// Match reports the blocklist entry that blocks domain. Decision order:
+//
+//  1. allowlist  -> allowed (exact, or a parent with includeSubdomains)
+//  2. blocklist  -> blocked (same matching)
+//  3. otherwise  -> allowed
+//
+// TODO(evaluate, issue #3): total allowlist ("whitelist") control, i.e. step 3 becomes
+// "blocked" for some clients (exam mode, primary-school labs). Needs per-client
+// policies first (readme.md, section 4: ClientMap -> Policy.Mode).
 func (b *Blocklist) Match(domain string) (Entry, bool) {
 	normalized, err := normalizeDomain(domain)
 	if err != nil {
@@ -126,15 +161,24 @@ func (b *Blocklist) Match(domain string) (Entry, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if entry, ok := b.entries[normalized]; ok {
+	if _, allowed := lookup(b.allow, normalized); allowed {
+		return Entry{}, false
+	}
+	return lookup(b.entries, normalized)
+}
+
+// lookup finds the entry for domain itself, or for its nearest parent that has
+// includeSubdomains set.
+func lookup(entries map[string]Entry, domain string) (Entry, bool) {
+	if entry, ok := entries[domain]; ok {
 		return entry, true
 	}
-	for start := strings.IndexByte(normalized, '.'); start >= 0; {
-		parent := normalized[start+1:]
-		if entry, ok := b.entries[parent]; ok && entry.IncludeSubdomains {
+	for start := strings.IndexByte(domain, '.'); start >= 0; {
+		parent := domain[start+1:]
+		if entry, ok := entries[parent]; ok && entry.IncludeSubdomains {
 			return entry, true
 		}
-		next := strings.IndexByte(normalized[start+1:], '.')
+		next := strings.IndexByte(domain[start+1:], '.')
 		if next < 0 {
 			break
 		}

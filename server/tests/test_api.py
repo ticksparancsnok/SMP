@@ -213,9 +213,37 @@ async def test_shortlinks(app, admin, anon):
         assert (await teacher.get("/api/v1/shortlinks/links")).json() == []
         assert (await teacher.delete(f"/api/v1/shortlinks/links/{link['id']}")).status_code == 404
     async with login_as(app, admin, "student1", [{"role": "student"}]) as student:
-        # Students may make their own short links, and see only those.
-        assert (await student.get("/api/v1/shortlinks/links")).json() == []
-        assert (await student.post("/api/v1/shortlinks/links", json={"target_url": "https://x.example/s"})).status_code == 201
+        # Students can't make short links: /s/<code> on the school's own domain pointing
+        # anywhere they like would be a phishing tool.
+        assert (await student.get("/api/v1/shortlinks/links")).status_code == 403
+        r = await student.post("/api/v1/shortlinks/links", json={"target_url": "https://x.example/s", "code": "login"})
+        assert r.status_code == 403
+        assert "shortlinks.links.create" not in (await student.get("/api/v1/auth/me")).json()["permissions"]
+        assert not [w for w in (await student.get("/api/v1/dashboard")).json() if w["id"] == "shortlinks.mine"]
+
+
+async def test_migration_disables_links_of_students(app, admin, anon):
+    """0007: links made while students still had the permission stop redirecting."""
+    import importlib
+
+    from sqlalchemy import text
+
+    from smp.core import db
+
+    mig = importlib.import_module("smp.migrations.versions.20261122_0007_student_links")
+    teacher_link = (await admin.post("/api/v1/shortlinks/links", json={"target_url": "https://ok.example", "code": "tlink"})).json()
+    student = (await admin.post("/api/v1/users", json={"username": "old.student", "roles": [{"role": "student"}]})).json()
+    async with db.sessionmaker()() as s:  # a link from before the permission was removed
+        org_id = (await s.execute(text("SELECT org_id FROM users WHERE id = :u"), {"u": student["id"]})).scalar_one()
+        await s.execute(
+            text("INSERT INTO shortlinks_links (id, org_id, code, target_url, title, owner_id, disabled, clicks, created_at, updated_at)"
+                 " VALUES (gen_random_uuid(), :o, 'slink', 'https://evil.example', '', :u, false, 0, now(), now())"),
+            {"o": org_id, "u": student["id"]},
+        )
+        await s.execute(mig.DISABLE_STUDENT_LINKS)
+        await s.commit()
+    assert (await anon.get("/s/slink", follow_redirects=False)).status_code == 404
+    assert (await anon.get(f"/s/{teacher_link['code']}", follow_redirects=False)).status_code == 302
 
 
 async def test_dashboard(app, admin):
@@ -227,7 +255,9 @@ async def test_dashboard(app, admin):
     widgets = {w["id"]: w for w in (await admin.get("/api/v1/dashboard")).json()}
     assert widgets["core.rooms"]["value"] == 2
     assert widgets["core.devices"]["value"] == 2
-    assert "1 terem nélkül" in widgets["core.devices"]["hint"]
+    assert "1 without a room" in widgets["core.devices"]["hint"]
+    assert widgets["core.devices"]["data"] == {"online": 0, "unassigned": 1}  # the UI builds its hint from this
+    assert widgets["core.users"]["data"] == {"admin": 1, "teacher": 0, "student": 0}
     assert widgets["core.users"]["value"] == 1
     assert widgets["core.recent_activity"]["kind"] == "list"
     assert widgets["shortlinks.mine"]["value"] == 0
@@ -240,7 +270,7 @@ async def test_dashboard(app, admin):
         assert tw["core.rooms"]["value"] == 1
         assert tw["core.devices"]["value"] == 1
         assert "core.recent_activity" not in tw and "core.failed_logins" not in tw
-        assert "1 terem nélkül" not in tw["core.devices"]["hint"]
+        assert "without a room" not in tw["core.devices"]["hint"] and "unassigned" not in tw["core.devices"]["data"]
 
     rooms = (await admin.get("/api/v1/rooms")).json()
     assert {r["name"]: r["device_count"] for r in rooms} == {"Lab D": 1, "Lab E": 0}
@@ -348,6 +378,7 @@ async def test_schedule_in_use_cannot_be_deleted(admin):
         "policy_id": p["id"], "target_type": "room", "target_id": room["id"], "schedule_id": s["id"]})).json()
     r = await admin.delete(f"/api/v1/schedules/{s['id']}")
     assert r.status_code == 409 and "1 policy assignment" in r.json()["detail"]
+    assert r.json()["code"] == "policies.schedule_in_use" and r.json()["params"] == {"count": 1}
     await admin.delete(f"/api/v1/policy-assignments/{a['id']}")
     assert (await admin.delete(f"/api/v1/schedules/{s['id']}")).status_code == 204
 
@@ -416,12 +447,11 @@ async def test_effective_policies_joins_policies_once(admin, org):
 async def test_student_permissions_are_minimal(app, admin):
     async with login_as(app, admin, "student_p", [{"role": "student"}]) as student:
         me = (await student.get("/api/v1/auth/me")).json()
-        assert me["permissions"] == ["shortlinks.links.create"]
+        assert me["permissions"] == []  # students: home page and own account only
         assert me["room_permissions"] == {}
-        for path in ("/rooms", "/devices", "/users", "/groups", "/policies", "/audit", "/tokens"):
+        for path in ("/rooms", "/devices", "/users", "/groups", "/policies", "/audit", "/tokens", "/shortlinks/links"):
             assert (await student.get("/api/v1" + path)).status_code == 403, path
-        widgets = {w["id"] for w in (await student.get("/api/v1/dashboard")).json()}
-        assert widgets == {"shortlinks.mine"}
+        assert (await student.get("/api/v1/dashboard")).json() == []
 
 
 async def test_user_class_membership(app, admin, testpol):

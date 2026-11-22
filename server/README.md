@@ -20,7 +20,7 @@ smp bootstrap --org-name "Teszt Iskola"            # asks for the admin password
 smp serve --port 8000
 ```
 
-Interactive API docs: http://127.0.0.1:8000/api/docs
+Interactive API docs: http://127.0.0.1:8000/api/docs (sign in as an admin first; everyone else gets 401/403)
 
 ## Tests
 
@@ -62,6 +62,10 @@ POST   /api/v1/dns/blocklist
 DELETE /api/v1/dns/blocklist/{entry_id}
 POST   /api/v1/dns/blocklist/import-preview
 POST   /api/v1/dns/blocklist/import
+GET    /api/v1/dns/allowlist
+POST   /api/v1/dns/allowlist
+DELETE /api/v1/dns/allowlist/{entry_id}
+GET    /api/v1/dns/check?domain=…        would this be blocked now, and by what
 GET    /api/v1/dns/status
 ```
 
@@ -90,7 +94,11 @@ SMP_DNS_SYNC_TOKEN=<shared secret>
 
 In Docker Compose the sinkhole is available as `http://dns-sinkhole:8080`.
 Set the same `SMP_DNS_SYNC_TOKEN` value in the server and
-`DNS_SYNC_TOKEN` environment of the Go service.
+`DNS_SYNC_TOKEN` environment of the Go service (Compose does this from `.env`
+and refuses to start without it). Every `/api/blocklist/*` endpoint of the Go
+service requires this token; without one configured its API is disabled.
+`GET /api/v1/dns/status` reports `sync_configured: true` only when the sinkhole
+is reachable **and** accepts the token.
 
 Apply the database migration with:
 
@@ -108,10 +116,12 @@ smp migrate
 | `SMP_SESSION_TTL_HOURS` | `12` | |
 | `SMP_SECRET_KEY` / `SMP_SECRET_KEY_FILE` | none | **required** (the server won't start without it): ≥32 random chars; prefer the file variant. See `docs/security.md` |
 | `SMP_SECRET_KEY_PREVIOUS` | none | old key(s) during a rotation; then run `smp reencrypt-otps` |
-| `SMP_LOGIN_MAX_FAILURES` / `SMP_LOGIN_LOCKOUT_MINUTES` | `5` / `15` | failed logins per IP+username, and the block window |
+| `SMP_LOGIN_MAX_FAILURES` / `SMP_LOGIN_LOCKOUT_SECONDS` | `5` / `60` | failed logins for one account (any IP) before it's locked, and for how long |
 | `SMP_LOGIN_IP_ATTEMPTS_PER_MINUTE` | `20` | all login attempts from one IP |
 | `SMP_FORWARDED_ALLOW_IPS` | `127.0.0.1` | reverse proxies trusted for the client IP (must include yours) |
 | `SMP_HASH_CONCURRENCY` | half the CPUs | argon2 hashes running at once (64 MiB each) |
 | `SMP_ENABLED_MODULES` | all | comma separated; core is always on |
 | `SMP_CORS_ORIGINS` | none | only if the UI is served from another origin |
 | `SMP_UI_DIR` | none | serve the built web UI (`WEBUI/dist`) at `/`; set in the Docker image |
+| `SMP_DNS_SINKHOLE_URL` | `http://127.0.0.1:8080` | Go DNS sinkhole; `http://dns-sinkhole:8080` inside Compose |
+| `SMP_DNS_SYNC_TOKEN` | none | **required for DNS sync**: shared secret, same value as the sinkhole's `DNS_SYNC_TOKEN` |

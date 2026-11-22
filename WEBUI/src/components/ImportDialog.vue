@@ -4,6 +4,7 @@
 import { computed, ref } from 'vue'
 import { api, ApiError, errorText } from '../api/client'
 import type { ImportResult } from '../api/types'
+import { locale, t, tOr } from '../i18n'
 import Modal from './Modal.vue'
 
 const emit = defineEmits<{ close: []; imported: [] }>()
@@ -17,6 +18,8 @@ const busy = ref(false)
 
 const rowErrors = computed(() => preview.value?.errors ?? [])
 const canImport = computed(() => !!preview.value && !rowErrors.value.length && preview.value.created.length > 0)
+// Row problems come with a code; the English `error` is the fallback.
+const issueText = (e: ImportResult['errors'][number]) => tOr(`code.${e.code}`, e.error, e.params ?? {})
 
 async function run(dryRun: boolean): Promise<ImportResult | null> {
   if (!file.value) return null
@@ -52,56 +55,60 @@ async function doImport() {
 }
 
 function downloadCredentials() {
-  api.download('/users/credentials.xlsx').catch((e) => (error.value = errorText(e)))
+  api.download('/users/credentials.xlsx', { lang: locale.value }).catch((e) => (error.value = errorText(e)))
 }
 
 function sample() {
-  api.download('/users/import-sample.xlsx').catch((e) => (error.value = errorText(e)))
+  api.download('/users/import-sample.xlsx', { lang: locale.value }).catch((e) => (error.value = errorText(e)))
 }
 </script>
 
 <template>
-  <Modal title="Diákok importálása (.xlsx)" wide @close="emit('close')">
+  <Modal :title="t('import.title')" wide @close="emit('close')">
     <div class="stack">
+      <!-- Files use the UI language's column names; the server accepts both languages. -->
       <p class="muted small" style="margin: 0">
-        Oszlopok: <span class="mono">Név | Felhasználónév | Osztály</span> (több osztály vesszővel elválasztva). Minden
-        importált felhasználó <strong>diák</strong> lesz, és <strong>saját egyszeri jelszót</strong> kap, amivel első
-        belépéskor saját jelszót választ. A már létező felhasználónevek kimaradnak, a hiányzó osztályok létrejönnek.
-        <a href="#" @click.prevent="sample">Minta letöltése</a>
+        {{ t('import.intro_columns') }} <span class="mono">{{ t('import.columns') }}</span> {{ t('import.intro') }}
+        {{ t('import.columns_other_before') }} <span class="mono">{{ t('import.columns_other') }}</span>{{ t('import.columns_other_after') }}
+        <a href="#" @click.prevent="sample">{{ t('import.sample') }}</a>
       </p>
 
       <div v-if="error" class="alert err">{{ error }}</div>
 
       <template v-if="!done">
         <div class="field">
-          <label>Fájl</label>
+          <label>{{ t('import.file') }}</label>
           <input type="file" :accept="`.xlsx,${XLSX}`" :disabled="busy" @change="onFile" />
         </div>
-        <p v-if="busy" class="muted">Feldolgozás…</p>
+        <p v-if="busy" class="muted">{{ t('import.processing') }}</p>
 
         <template v-if="preview && !busy">
           <div v-if="rowErrors.length" class="alert err">
-            <strong>A fájl nem importálható – javítsd ezeket, majd válaszd ki újra:</strong>
+            <strong>{{ t('import.cannot_import') }}</strong>
             <ul style="margin: 6px 0 0; padding-left: 20px">
               <li v-for="(e, i) in rowErrors" :key="i">
-                <template v-if="e.row > 0">{{ e.row }}. sor: </template>{{ e.error }}
+                <template v-if="e.row > 0">{{ t('import.row', { row: e.row }) }}</template>{{ issueText(e) }}
               </li>
             </ul>
           </div>
           <template v-else>
             <div class="alert ok">
-              <strong>{{ preview.created.length }}</strong> új diák lesz létrehozva<template v-if="preview.skipped.length">,
-                <strong>{{ preview.skipped.length }}</strong> kimarad (már létezik)</template
-              ><template v-if="preview.groups_created.length">, új osztályok: {{ preview.groups_created.join(', ') }}</template>.
+              {{
+                t('import.summary', {
+                  created: preview.created.length,
+                  skipped: preview.skipped.length,
+                  groups: preview.groups_created.join(', '),
+                })
+              }}
             </div>
             <details v-if="preview.created.length">
-              <summary>Új felhasználók</summary>
+              <summary>{{ t('import.new_users') }}</summary>
               <div class="chips" style="margin-top: 6px">
                 <span v-for="u in preview.created" :key="u" class="badge mono">{{ u }}</span>
               </div>
             </details>
             <details v-if="preview.skipped.length">
-              <summary>Kimaradnak (már léteznek)</summary>
+              <summary>{{ t('import.skipped_users') }}</summary>
               <div class="chips" style="margin-top: 6px">
                 <span v-for="u in preview.skipped" :key="u" class="badge mono">{{ u }}</span>
               </div>
@@ -110,23 +117,20 @@ function sample() {
         </template>
 
         <div class="modal-foot">
-          <button type="button" class="ghost" @click="emit('close')">Mégse</button>
+          <button type="button" class="ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
           <button :disabled="!canImport || busy" @click="doImport">
-            Importálás{{ canImport ? ` (${preview!.created.length})` : '' }}
+            {{ t('import.submit', { count: canImport ? preview!.created.length : 0 }) }}
           </button>
         </div>
       </template>
 
       <template v-else>
         <div class="alert ok">
-          {{ done.created.length }} diák létrehozva<template v-if="done.groups_created.length">,
-            új osztályok: {{ done.groups_created.join(', ') }}</template
-          >. Mindenki saját egyszeri jelszót kapott; ezeket a belépési adatokban találod (belépőlapok nyomtatásához).
-          Később is letölthetők: Exportálás → Belépési adatok.
+          {{ t('import.done', { created: done.created.length, groups: done.groups_created.join(', ') }) }}
         </div>
         <div class="modal-foot">
-          <button type="button" class="ghost" @click="downloadCredentials">⬇ Belépési adatok (.xlsx)</button>
-          <button @click="emit('close')">Bezárás</button>
+          <button type="button" class="ghost" @click="downloadCredentials">{{ t('import.download_credentials') }}</button>
+          <button @click="emit('close')">{{ t('common.close') }}</button>
         </div>
       </template>
     </div>
