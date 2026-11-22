@@ -125,7 +125,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
         await verify_password_async(None, body.password)
     else:
         provider = request.app.state.identity_providers.get(user.auth_source)
-        # TODO(evaluate): OTP hashes verify faster than _DUMMY_HASH (timing oracle for
+        # TODO(evaluate, issue #4): OTP hashes verify faster than _DUMMY_HASH (timing oracle for
         # not-yet-activated accounts); see the note at _otp_hasher in core/security.py.
         ok = provider is not None and await provider.verify_password(user, body.password)
         reason = "bad password"

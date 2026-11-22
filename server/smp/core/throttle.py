@@ -15,7 +15,7 @@ enumeration oracle. The price of the per-account limit: anyone can keep an accou
 (e.g. the admin's) locked by failing 5 times a minute. The lockout is short (60 s by
 default) to keep that a nuisance rather than a denial of service.
 
-TODO(evaluate): full user lockouts (account stays locked until an admin unlocks it)
+TODO(evaluate, issue #2): full user lockouts (account stays locked until an admin unlocks it)
 and, after repeated lockouts, resetting the password to a new one-time password that
 the class teacher/admin hands out. Both stop slow guessing completely but make
 lockout-DoS against staff accounts much worse; decide with the throttle's audit data

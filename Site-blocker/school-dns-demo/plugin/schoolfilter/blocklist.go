@@ -149,7 +149,7 @@ func LoadBlocklist(path string) (*Blocklist, error) {
 //  2. blocklist  -> blocked (same matching)
 //  3. otherwise  -> allowed
 //
-// TODO(evaluate): total allowlist ("whitelist") control, i.e. step 3 becomes
+// TODO(evaluate, issue #3): total allowlist ("whitelist") control, i.e. step 3 becomes
 // "blocked" for some clients (exam mode, primary-school labs). Needs per-client
 // policies first (readme.md, section 4: ClientMap -> Policy.Mode).
 func (b *Blocklist) Match(domain string) (Entry, bool) {

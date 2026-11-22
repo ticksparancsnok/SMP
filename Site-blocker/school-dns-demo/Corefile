@@ -1,4 +1,4 @@
-# TODO(evaluate): this resolver answers anyone who can reach the port (an "open
+# TODO(evaluate, issue #5): this resolver answers anyone who can reach the port (an "open
 # resolver"). Fine behind the school's NAT; if the port is ever reachable from the
 # internet it can be abused for DNS amplification. Then restrict clients with the
 # acl plugin, e.g.:

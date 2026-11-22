@@ -68,7 +68,7 @@ This gives you:
 - `require("perm")` checks for an org-wide grant. `require("perm", any_room=True)` accepts a grant for some room, and the handler must then filter or check per room (`ctx.principal.rooms_with(perm)`, `ctx.check(perm, room_id)`). Safe by default: forgetting the room check means room-scoped teachers are denied, not over-granted.
 
 - Default role grants: teachers get read access plus room-scoped control. Students get no permissions at all, so the UI shows them only the home page and their own account (the "in development" placeholders are hidden from them too). Short links used to be open to students; they were removed because `/s/<code>` on the school's own domain made a convenient phishing tool. A new module decides per permission whether students get it.
-- API tokens die with their creator: deleting a user deletes the tokens they created, including tokens those tokens created, and audits which ones (`core.token.delete_with_user`: id, name, permissions; never the token itself).
+- API tokens die with their creator's admin rights: deleting a user, or removing their admin role, deletes the tokens they created, including tokens those tokens created, and audits which ones (`core.token.delete_with_user` / `core.token.delete_with_admin_role`: id, name, permissions; never the token itself). Only admins can create tokens, so "no longer an admin" covers every way of losing that right.
 
 ### Audit
 - `ctx.audit(action, target, details)` writes into the same transaction as the change, so there's no change without its audit row and no audit row for a rolled-back change.

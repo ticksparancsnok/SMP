@@ -75,6 +75,9 @@ async function save() {
       }
     } else {
       const id = props.user!.id
+      // Removing the admin role also deletes the API tokens this user created (server-side).
+      const demoted = props.user!.roles.some((r) => r.role === 'admin') && !roleBody.some((r) => r.role === 'admin')
+      if (demoted && !confirm(t('userdlg.confirm_demote', { username: props.user!.username }))) return
       await api.patch(`/users/${id}`, { display_name: form.display_name, email: form.email || null, disabled: form.disabled })
       await api.put(`/users/${id}/roles`, roleBody)
       const changed =

@@ -174,6 +174,15 @@ async def _validate_roles(ctx: Ctx, roles: list[RoleIn]) -> None:
                 raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "users.admin_not_room_scoped", "admin role cannot be room-scoped")
 
 
+async def _drop_tokens(ctx: Ctx, user: User, action: str) -> None:
+    """Delete the API tokens `user` created (and their child tokens) and audit which
+    ones, without anything that could authenticate. Only admins can create tokens, so
+    this runs whenever someone stops being an admin: deleted, or admin role removed.
+    Otherwise their tokens would keep working after they lost the right to them."""
+    if tokens := await delete_tokens_of(ctx, user.id):
+        ctx.audit(action, user, {"username": user.username, "count": len(tokens), "tokens": tokens})
+
+
 def _event(u: User) -> dict:
     return {"id": str(u.id), "username": u.username}
 
@@ -509,9 +518,12 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, ctx: Ctx = Depends(r
 async def set_roles(user_id: uuid.UUID, body: list[RoleIn], ctx: Ctx = Depends(require("core.users.write"))):
     user = await ctx.get(User, user_id)
     await _validate_roles(ctx, body)
-    if user.id == ctx.principal.id and not any(r.role == Role.ADMIN for r in body):
-        if any(ra.role == Role.ADMIN for ra in user.roles):
-            raise AppError(status.HTTP_400_BAD_REQUEST, "users.cannot_remove_own_admin", "you cannot remove your own admin role")
+    was_admin = any(ra.role == Role.ADMIN for ra in user.roles)
+    stays_admin = any(r.role == Role.ADMIN for r in body)
+    if user.id == ctx.principal.id and was_admin and not stays_admin:
+        raise AppError(status.HTTP_400_BAD_REQUEST, "users.cannot_remove_own_admin", "you cannot remove your own admin role")
+    if was_admin and not stays_admin:
+        await _drop_tokens(ctx, user, "core.token.delete_with_admin_role")
     unique = {(r.role, r.room_id) for r in body}
     # Delete first: the unit of work would otherwise insert before deleting and trip
     # the (user, role, room) unique constraint.
@@ -591,13 +603,7 @@ async def delete_user(user_id: uuid.UUID, ctx: Ctx = Depends(require("core.users
     if user.id == ctx.principal.id:
         raise AppError(status.HTTP_400_BAD_REQUEST, "users.cannot_delete_self", "you cannot delete yourself")
     removed = await remove_assignments_for(ctx, TargetType.USER, user.id)
-    # Their API tokens go with them (otherwise a deleted admin's token keeps working).
-    if tokens := await delete_tokens_of(ctx, user.id):
-        ctx.audit(
-            "core.token.delete_with_user",
-            user,
-            {"username": user.username, "count": len(tokens), "tokens": tokens},
-        )
+    await _drop_tokens(ctx, user, "core.token.delete_with_user")
     ctx.audit("core.user.delete", user, {"username": user.username, "removed_assignments": removed})
     ctx.emit("core.user.deleted", _event(user))
     if removed:
