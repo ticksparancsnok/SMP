@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """One-time passwords (OTPs): the initial password of an account someone else set up.
 
 Each user gets their own random OTP (never a shared one), valid for

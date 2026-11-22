@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """Errors the UI can translate.
 
 The API speaks English. Messages a user may see also carry a stable `code` (and the

@@ -1,3 +1,8 @@
+<!--
+  SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Attribution required in modified versions: see NOTICE
+-->
 <script setup lang="ts">
 // Student import from .xlsx: choose a file -> server-side dry run (preview, nothing
 // written) -> confirm -> real import. Any invalid row blocks the whole file.

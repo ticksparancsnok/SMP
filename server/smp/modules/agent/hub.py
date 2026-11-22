@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """In-memory coordination for agents (SMP runs one server process).
 
 AgentHub: heartbeats long-poll. An agent whose config hasn't changed waits here

@@ -61,3 +61,23 @@ if the fingerprint matches what the PC printed, and put it in a room (fixed, or
 "by network" for laptops that move between rooms/VLANs). Teachers then see the room's
 screens on the **Monitoring** page, while the page is open; the PCs show an SMP tray
 icon all the time, in colour while their screen is being viewed.
+
+## License
+
+SMP - School Management Portal, https://github.com/ticksparancsnok/SMP
+Copyright (C) 2026 GG4Ever
+
+SMP is free software under the **GNU Affero General Public License v3 or later**
+([LICENSE](LICENSE)). Anyone may use, study, change and share it, also commercially.
+Modified versions must stay under the same license and publish their source code,
+also when they're only offered as a service over the network (e.g. hosting SMP for
+schools).
+
+One additional term ([NOTICE](NOTICE), AGPL section 7(b)): modified versions keep the
+attribution "Based on SMP - School Management Portal" with the address above, in their
+documentation and in the web interface (the small notice on the sign-in page and in
+the side bar). Everything else, including the name of your system, is yours to change.
+
+Third-party components and their licenses are listed in [NOTICE](NOTICE). Every source
+file carries an `SPDX-License-Identifier` line. Contributions are accepted under the
+same license.

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Which server certificates the agent accepts.
 //!
 //! SMP's nginx starts with a self-signed certificate, so the usual "is it signed by

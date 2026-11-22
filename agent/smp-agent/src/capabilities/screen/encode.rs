@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Raw screen pixels -> a small JPEG. Pure Rust, the same on every platform.
 //!
 //! Pixels are BGRA (blue, green, red, alpha: 4 bytes each, rows top to bottom),

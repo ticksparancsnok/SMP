@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Everything the agent can do, each in its own module (see core/capability.rs).
 
 pub mod screen;

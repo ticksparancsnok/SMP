@@ -1,7 +1,13 @@
+<!--
+  SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Attribution required in modified versions: see NOTICE
+-->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import LangSwitch from './components/LangSwitch.vue'
+import LegalNotice from './components/LegalNotice.vue'
 import { roleLabel } from './format'
 import { t } from './i18n'
 import { logout, navSections, session } from './session'
@@ -65,6 +71,7 @@ async function signOut() {
           <button class="ghost small" @click="signOut">{{ t('common.sign_out') }}</button>
           <LangSwitch />
         </div>
+        <LegalNotice class="sidebar-legal" />
       </div>
     </aside>
     <main class="main">

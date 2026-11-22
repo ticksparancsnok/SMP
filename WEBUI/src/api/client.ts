@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 // Thin fetch wrapper for /api/v1. Auth is the HttpOnly session cookie set by
 // /auth/login, so there is no token handling here.
 import { t, tOr, type Params } from '../i18n'

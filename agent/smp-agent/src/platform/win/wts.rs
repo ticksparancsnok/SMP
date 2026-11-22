@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Windows sessions ("WTS" = Windows Terminal Services, the API's old name).
 //!
 //! Session 0 belongs to services. Each logged-in user (or the login screen) has its

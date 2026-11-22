@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """disable short links created by students
 
 Students no longer have shortlinks.links.create (links on the school's own domain

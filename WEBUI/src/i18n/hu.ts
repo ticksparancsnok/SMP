@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 // Magyar felületi szövegek. Ugyanazok a kulcsok, mint az en.ts-ben (a vue-tsc ellenőrzi).
 import type { Dictionary, Params } from './index'
 
@@ -187,6 +191,9 @@ const hu: Dictionary = {
   // ------------------------------------------------------------ login & password change
   'login.subtitle': 'School Management Portal – bejelentkezés',
   'login.submit': 'Belépés',
+  // jogi közlemény (components/LegalNotice.vue; NOTICE a tárolóban)
+  'legal.source': 'forráskód',
+  'legal.license_title': 'Szabad szoftver: GNU Affero General Public License 3. vagy későbbi verzió',
   'login.submitting': 'Belépés…',
   'pwchange.title': 'Új jelszó szükséges',
   'pwchange.intro':

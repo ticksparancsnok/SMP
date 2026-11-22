@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! The service's side of the session helper (see mod.rs for why there is one).
 //!
 //! A manager thread checks every 2 seconds which session is in front of the screen

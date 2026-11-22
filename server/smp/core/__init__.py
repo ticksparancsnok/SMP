@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """SMP core: shared domain model, auth, RBAC, audit, events and the module registry.
 
 Modules should import from here, e.g.::

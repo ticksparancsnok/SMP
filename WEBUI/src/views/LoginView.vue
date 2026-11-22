@@ -1,8 +1,14 @@
+<!--
+  SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Attribution required in modified versions: see NOTICE
+-->
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
 import LangSwitch from '../components/LangSwitch.vue'
+import LegalNotice from '../components/LegalNotice.vue'
 import { t } from '../i18n'
 import { loadSession } from '../session'
 
@@ -48,6 +54,7 @@ async function submit() {
         <input id="p" v-model="form.password" type="password" autocomplete="current-password" required />
       </div>
       <button :disabled="busy">{{ busy ? t('login.submitting') : t('login.submit') }}</button>
+      <LegalNotice />
     </form>
   </div>
 </template>

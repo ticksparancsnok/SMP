@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Attribution required in modified versions: see NOTICE
+ */
 /* Additions on top of main-style.css (the original layout). Same tokens. */
 
 .toolbar {
@@ -272,4 +277,9 @@ details summary {
   display: block;
   height: 30px;
   width: auto;
+}
+
+/* ---------------------------------------------------------------- legal notice (LegalNotice.vue) */
+.sidebar-foot .sidebar-legal {
+  padding: 10px 8px 0;
 }

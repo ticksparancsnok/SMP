@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Changes the server should hear about at once, not at the next regular heartbeat:
 //! who is logged in, and this computer's network address (a laptop moved to another
 //! Wi-Fi/VLAN, the DHCP lease changed). The main loop checks every second.

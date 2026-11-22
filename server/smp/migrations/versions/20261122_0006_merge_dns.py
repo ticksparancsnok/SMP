@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """merge the dns branch with the group_teachers/email branch
 
 0004_dns and 0004_group_teachers were both written on top of 0003_otp, which

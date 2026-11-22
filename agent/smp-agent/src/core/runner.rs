@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! The agent's main loop: join (wait for an admin's approval), then heartbeats.
 //!
 //! Heartbeats long-poll: the agent sends the config version it has, and the server

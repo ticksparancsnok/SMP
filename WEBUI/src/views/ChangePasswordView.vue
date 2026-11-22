@@ -1,3 +1,8 @@
+<!--
+  SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Attribution required in modified versions: see NOTICE
+-->
 <script setup lang="ts">
 // Shown instead of the app while me.must_change_password is set (first login with a
 // one-time or admin-set password, or after an admin reset). The server blocks every

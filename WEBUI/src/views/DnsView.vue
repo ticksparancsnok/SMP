@@ -1,3 +1,8 @@
+<!--
+  SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Attribution required in modified versions: see NOTICE
+-->
 <script setup lang="ts">
 // Decision order (same in the server and the Go sinkhole): allowlist -> blocklist ->
 // everything else allowed. Public suffixes (com, co.uk, ...) can't go on either list.

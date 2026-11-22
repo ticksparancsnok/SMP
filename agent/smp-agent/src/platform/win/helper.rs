@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! `smp-agent session-helper`: runs in the user's session (started by the service,
 //! see session.rs). Shows the tray icon from the first moment, and captures the
 //! screen when the service asks. It exits when the service closes the pipe, so the

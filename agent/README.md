@@ -179,3 +179,10 @@ target/debug/smp-agent status
 `~/.local/state/smp-agent`), `SMP_AGENT_USER` the reported user, `RUST_LOG=debug`
 shows every picture sent ("thumb: 8049 bytes" / "thumb: unchanged"). Several fake PCs
 can run as containers with `--hostname LAB-PC02` and their own state directory.
+
+## License
+
+AGPL-3.0-or-later, like the rest of SMP: see [LICENSE](../LICENSE) and
+[NOTICE](../NOTICE) in the repository root (`smp-agent --help` shows the notice too).
+The exe includes the jpeg-encoder crate: this software is based in part on the work
+of the Independent JPEG Group.

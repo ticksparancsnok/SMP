@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! What the agent remembers between restarts (one small JSON file).
 //!
 //! Windows: C:\ProgramData\SMP\agent.json, readable only by SYSTEM and administrators,

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! smp-agent: the SMP device agent.
 //!
 //!   smp-agent join --server https://192.168.1.10   ask to be managed, wait for approval
@@ -23,8 +27,14 @@ use clap::{Parser, Subcommand};
 use crate::core::capability::Registry;
 use crate::core::runner::Agent;
 
+/// Shown under `--help`: the attribution and notices the license asks for (NOTICE).
+const LEGAL: &str = "\
+SMP - School Management Portal: https://github.com/ticksparancsnok/SMP
+Free software under the GNU Affero General Public License v3 or later; source code at
+the address above. This software is based in part on the work of the Independent JPEG Group.";
+
 #[derive(Parser)]
-#[command(name = "smp-agent", version, about = "SMP device agent")]
+#[command(name = "smp-agent", version, about = "SMP device agent", after_help = LEGAL)]
 struct Cli {
     /// Where the agent keeps its identity (default: the system location)
     #[arg(long, global = true)]

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Capabilities: what the agent can do (monitor the screen, later: lock it, install
 //! software, ...). Each one owns a section of the config the server sends, named
 //! after it ("screen": {...}), and runs its own worker thread if it needs one.

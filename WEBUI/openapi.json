@@ -2,6 +2,11 @@
  "openapi": "3.1.0",
  "info": {
   "title": "SMP",
+  "description": "SMP - School Management Portal: https://github.com/ticksparancsnok/SMP",
+  "license": {
+   "name": "AGPL-3.0-or-later",
+   "identifier": "AGPL-3.0-or-later"
+  },
   "version": "1.0.1"
  },
  "paths": {

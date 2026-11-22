@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
 # SMP's front door: TLS, routing (portal vs. block page), rate limits, security headers.
 FROM nginx:1.30.7-alpine
 # openssl: the container creates a self-signed certificate on first start

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Keeping the SMP tray icon on the taskbar, not hidden in the "^" overflow.
 //!
 //! The icon is the GDPR notice, so it must be visible without clicking anything.

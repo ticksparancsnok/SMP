@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 // Labels and formatting. Everything here follows the selected UI language, so these
 // are functions (called during render) rather than constant tables.
 import { intlLocale, locale, t, tOr, type Locale } from './i18n'

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """Second security review (v1.0.0): key handling and rotation, throttle persistence,
 fail-fast config, audit fallback, password whitespace, unique e-mail, OTP lifecycle."""
 

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 # SMP reverse proxy. Rendered at container start (envsubst) from
 # nginx/templates/smp.conf.template; values come from .env:
 #   SMP_SERVER_NAMES  SMP's own names/addresses (comma separated) -> the portal

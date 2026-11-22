@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -50,7 +54,11 @@ def create_app(registry: ModuleRegistry | None = None, bus: EventBus | None = No
         await db.dispose_engine()
 
     # The interactive docs and the schema are served below, for admins only.
-    app = FastAPI(title="SMP", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(
+        title="SMP", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None,
+        description="SMP - School Management Portal: https://github.com/ticksparancsnok/SMP",
+        license_info={"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"},
+    )
     app.state.registry = registry
     app.state.bus = bus
     app.state.login_throttle = LoginThrottle(

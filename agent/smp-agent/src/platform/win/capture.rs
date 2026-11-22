@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Grabbing the primary screen with GDI (works on every Windows 10/11, also in VMs
 //! and over remote desktop). The primary screen is the one whose top-left corner is
 //! (0, 0) in screen coordinates; other monitors are left out.

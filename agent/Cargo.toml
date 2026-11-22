@@ -6,7 +6,8 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "proprietary"
+license = "AGPL-3.0-or-later"   # see LICENSE and NOTICE in the repository root
+repository = "https://github.com/ticksparancsnok/SMP"
 
 [profile.release]
 opt-level = 3

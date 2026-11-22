@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
 FROM golang:1.27.4 AS build
 WORKDIR /src
 COPY go.mod go.sum ./

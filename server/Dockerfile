@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
 # Build context is the repository root (see docker-compose.yml):
 #   docker build -f server/Dockerfile .
 

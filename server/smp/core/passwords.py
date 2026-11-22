@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """Password policy for passwords people choose (not for generated one-time passwords).
 
 Deliberately modest: these are school accounts, many used by children. The rules

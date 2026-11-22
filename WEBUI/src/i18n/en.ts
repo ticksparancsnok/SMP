@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 // English UI text: the reference dictionary. hu.ts must define the same keys.
 import type { Message, Params } from './index'
 
@@ -193,6 +197,9 @@ const en = {
   // ------------------------------------------------------------ login & password change
   'login.subtitle': 'School Management Portal – sign in',
   'login.submit': 'Sign in',
+  // legal notice (components/LegalNotice.vue; NOTICE in the repository)
+  'legal.source': 'source code',
+  'legal.license_title': 'Free software: GNU Affero General Public License v3 or later',
   'login.submitting': 'Signing in…',
   'pwchange.title': 'New password required',
   'pwchange.intro':

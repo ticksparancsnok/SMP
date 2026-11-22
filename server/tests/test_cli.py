@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """The admin CLI as install.sh uses it: preflight, status, bootstrap --otp.
 
 Run as real subprocesses (the commands manage their own DB engine) against the

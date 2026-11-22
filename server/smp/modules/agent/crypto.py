@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Attribution required in modified versions: see NOTICE
+
 """Device identity and request signing for agents.
 
 Each agent creates an ECDSA P-256 key pair when it's installed (P-256 because TPMs

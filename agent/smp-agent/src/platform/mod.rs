@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Attribution required in modified versions: see NOTICE
+
 //! Operating-system specific pieces behind one small interface. The core only calls
 //! these functions; the Windows implementations live in win/, everything else
 //! (Linux, used for development and tests) in generic.rs.
