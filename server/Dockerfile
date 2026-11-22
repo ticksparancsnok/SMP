@@ -9,6 +9,31 @@ RUN npm ci --no-audit --no-fund
 COPY WEBUI/ ./
 RUN npm run build
 
+# ---- Windows agent (Rust, cross-compiled here; SMP offers it at /downloads/smp-agent.exe)
+# Same toolchain as agent/Dockerfile.build: keep the two versions in step.
+FROM rust:1.100.0-slim-trixie AS agent
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add x86_64-pc-windows-gnu
+WORKDIR /agent
+# 1) The dependencies, with an empty main.rs: Docker keeps this layer until
+#    Cargo.toml / Cargo.lock change, so later builds compile only SMP's own code.
+#    (Cargo warns "unused dependency" here: expected, main.rs is empty.)
+COPY agent/Cargo.toml agent/Cargo.lock ./
+COPY agent/.cargo ./.cargo
+COPY agent/smp-agent/Cargo.toml ./smp-agent/
+RUN mkdir smp-agent/src && echo 'fn main() {}' > smp-agent/src/main.rs \
+ && cargo build --release --locked --target x86_64-pc-windows-gnu \
+ && rm -r smp-agent/src
+# 2) The agent itself
+COPY agent/smp-agent ./smp-agent
+RUN touch smp-agent/src/main.rs \
+ && cargo build --release --locked --target x86_64-pc-windows-gnu \
+ && mkdir /out \
+ && cp target/x86_64-pc-windows-gnu/release/smp-agent.exe /out/ \
+ && sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1 > /out/smp-agent.version
+
 # ---- server
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
@@ -19,7 +44,8 @@ COPY server/pyproject.toml ./
 COPY server/smp ./smp
 RUN pip install --quiet . && useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 smp
 COPY --from=ui /ui/dist /app/ui
-ENV SMP_UI_DIR=/app/ui
+COPY --from=agent /out /app/downloads
+ENV SMP_UI_DIR=/app/ui SMP_AGENT_DOWNLOAD_DIR=/app/downloads
 USER smp
 
 EXPOSE 8000

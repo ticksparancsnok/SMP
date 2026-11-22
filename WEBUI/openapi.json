@@ -3503,6 +3503,28 @@
     }
    }
   },
+  "/api/v1/agent/download": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Download Info",
+    "description": "What the Devices page shows next to the download link.",
+    "operationId": "download_info_api_v1_agent_download_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DownloadInfo"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/agent/devices/{device_id}/reset-identity": {
    "post": {
     "tags": [
@@ -4504,6 +4526,57 @@
     },
     "type": "object",
     "title": "DeviceUpdate"
+   },
+   "DownloadInfo": {
+    "properties": {
+     "available": {
+      "type": "boolean",
+      "title": "Available"
+     },
+     "url": {
+      "type": "string",
+      "title": "Url"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Size"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sha256"
+     }
+    },
+    "type": "object",
+    "required": [
+     "available",
+     "url"
+    ],
+    "title": "DownloadInfo"
    },
    "EntryIn": {
     "properties": {

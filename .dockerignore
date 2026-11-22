@@ -21,8 +21,14 @@
 **/.env.*
 server/tests
 docs
-# The Rust agent isn't part of any image; its target/ folder alone is gigabytes.
-agent
+# The agent's source goes in (the server image compiles smp-agent.exe), but not its
+# build output (gigabytes), built programs, or a developer's agent state (private key).
+agent/target
+agent/**/target
+agent/**/*.exe
+**/agent.json
+agent/tools
+agent/README.md
 # The server image never needs nginx's files, and nginx/certs holds a root-only
 # private key once nginx has made its certificate: unreadable for the build.
 nginx

@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
-import type { ApproveIn, Device, DeviceStatus, JoinRequest, Page, Room } from '../api/types'
+import type { AgentDownload, ApproveIn, Device, DeviceStatus, JoinRequest, Page, Room } from '../api/types'
+import { copyText } from '../clipboard'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
 import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtFingerprint, fmtRelative, isOnline } from '../format'
@@ -137,6 +138,26 @@ async function resetIdentity(d: Device) {
   }
 }
 
+// ---------------------------------------------------------------- the agent download (built into SMP)
+const download = ref<AgentDownload | null>(null)
+const downloadOpen = ref(false)
+const copied = ref('')
+// what an admin types on the PC: this very server's address (with its port, if any)
+const installCommand = computed(() => `smp-agent.exe install --server ${window.location.host}`)
+const verifyCommand = 'Get-FileHash .\\smp-agent.exe'
+
+async function openDownload() {
+  downloadOpen.value = true
+  copied.value = ''
+  download.value = await api.get<AgentDownload>('/agent/download').catch(() => null)
+}
+
+async function copy(what: string, text: string) {
+  if (await copyText(text)) copied.value = what
+}
+
+const fmtSize = (bytes: number | null | undefined) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '')
+
 // ---------------------------------------------------------------- join requests (agents asking to be managed)
 const joinRequests = ref<JoinRequest[]>([])
 const approving = ref<JoinRequest | null>(null)
@@ -224,7 +245,10 @@ async function showPolicies(d: Device) {
       <h1>{{ t('nav./devices') }}</h1>
       <p>{{ t('devices.subtitle') }}</p>
     </div>
-    <button v-if="canWrite" @click="openEdit(null)">{{ t('devices.new') }}</button>
+    <div v-if="canWrite" class="actions">
+      <button class="ghost" @click="openDownload">{{ t('devices.download_agent') }}</button>
+      <button @click="openEdit(null)">{{ t('devices.new') }}</button>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -432,4 +456,76 @@ async function showPolicies(d: Device) {
       </div>
     </form>
   </Modal>
+
+  <Modal v-if="downloadOpen" :title="t('devices.download_title')" wide @close="downloadOpen = false">
+    <p v-if="!download" class="muted">{{ t('common.loading') }}</p>
+    <div v-else-if="!download.available" class="alert err">{{ t('devices.download_missing') }}</div>
+    <div v-else class="stack">
+      <div class="spread">
+        <a class="button" :href="download.url" download>⬇ smp-agent.exe</a>
+        <span class="muted small">
+          {{ t('devices.download_version', { version: download.version ?? '?' }) }} · {{ fmtSize(download.size) }}
+        </span>
+      </div>
+      <ol class="steps">
+        <li>{{ t('devices.download_step_copy') }}</li>
+        <li>
+          {{ t('devices.download_step_install') }}
+          <div class="cmd">
+            <code class="mono">{{ installCommand }}</code>
+            <button class="ghost small" @click="copy('install', installCommand)">
+              {{ copied === 'install' ? t('common.copied') : t('common.copy') }}
+            </button>
+          </div>
+        </li>
+        <li>{{ t('devices.download_step_approve') }}</li>
+      </ol>
+      <div class="field">
+        <label>SHA-256</label>
+        <code class="mono small sha">{{ download.sha256 }}</code>
+        <span class="muted small">
+          {{ t('devices.download_verify') }}
+          <code class="mono">{{ verifyCommand }}</code>
+        </span>
+      </div>
+    </div>
+  </Modal>
 </template>
+
+<style scoped>
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+}
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.cmd code {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.sha {
+  word-break: break-all;
+}
+a.button {
+  /* a link that looks like the primary button (main-style.css, button) */
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 14px;
+  text-decoration: none;
+}
+a.button:hover {
+  filter: brightness(1.1);
+}
+</style>

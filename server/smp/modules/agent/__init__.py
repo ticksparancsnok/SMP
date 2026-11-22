@@ -35,6 +35,11 @@ class AgentModule(Module):
 
         return router
 
+    def public_router(self) -> APIRouter:
+        from smp.modules.agent.api import public
+
+        return public  # /downloads/smp-agent.exe (download.py)
+
     def subscribe(self, bus) -> None:
         async def wake(_event) -> None:
             self.hub.notify()

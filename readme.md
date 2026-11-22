@@ -52,8 +52,10 @@ sinkhole, which keeps the last synced lists on a volume and keeps filtering whil
 server is down; `./install.sh` re-syncs on every run (`smp dns-sync`). Only nginx and
 the DNS port are published.
 
-**Computers (agent).** Build `smp-agent.exe` ([agent/README.md](agent/README.md)) and on
-each PC run, as administrator, `smp-agent.exe install` (it asks for SMP's address). The
+**Computers (agent).** `./install.sh` also builds the Windows agent, and SMP offers it at
+`https://<smp address>/downloads/smp-agent.exe` (and under **Devices → Agent for
+Windows**, with its checksum): everything stays on your own server. On each PC run, as
+administrator, `smp-agent.exe install` (it asks for SMP's address). The
 PC then shows up in **Devices → Waiting for approval** with a fingerprint; approve it
 if the fingerprint matches what the PC printed, and put it in a room (fixed, or
 "by network" for laptops that move between rooms/VLANs). Teachers then see the room's
