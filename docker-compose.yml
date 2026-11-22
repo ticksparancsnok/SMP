@@ -1,0 +1,58 @@
+# Development / single-host deployment.
+#   docker compose up -d --build
+#   docker compose exec server smp bootstrap --org-name "My School"
+#
+# Later services (dns, agent gateway) are added here. The DNS container needs
+# `network_mode: host` (or macvlan) to own port 53, and must keep working when
+# `server` is down, so it will cache policies locally.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: smp
+      POSTGRES_PASSWORD: ${SMP_DB_PASSWORD:-smp}
+      POSTGRES_DB: smp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"  # for local development and tests only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smp"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      SMP_DATABASE_URL: postgresql+asyncpg://smp:${SMP_DB_PASSWORD:-smp}@db:5432/smp
+      # Plain-http dev setup. In production put a TLS reverse proxy in front and remove this.
+      SMP_COOKIE_SECURE: ${SMP_COOKIE_SECURE:-false}
+      # Encrypts one-time passwords at rest. Required; see .env.example.
+      SMP_SECRET_KEY: ${SMP_SECRET_KEY:?set SMP_SECRET_KEY in .env (see .env.example)}
+      SMP_DNS_SINKHOLE_URL: ${SMP_DNS_SINKHOLE_URL:-http://dns-sinkhole:8080}
+      SMP_DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dns-sinkhole:
+    build:
+      context: ./Site-blocker/school-dns-demo
+      dockerfile: Dockerfile
+    environment:
+      # The Corefile passes this token to the Go sync endpoint.
+      DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:-}
+    ports:
+      - "1053:1053/udp"
+      - "1053:1053/tcp"
+      - "8080:8080/tcp"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

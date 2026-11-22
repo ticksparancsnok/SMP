@@ -1,0 +1,51 @@
+[project]
+name = "smp-server"
+version = "1.0.0"
+description = "SMP (School Management Portal) control plane: core + modules"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.30",
+    "alembic>=1.13",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "argon2-cffi>=23.1",
+    "email-validator>=2.1",
+    "openpyxl>=3.1",
+    "defusedxml>=0.7",  # openpyxl uses it automatically to parse untrusted .xlsx safely
+    "cryptography>=43",  # encrypts one-time passwords at rest (Fernet)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+smp = "smp.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["smp*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "I", "UP", "ASYNC"]
+ignore = ["B008"]  # FastAPI's Depends() in argument defaults is the intended idiom

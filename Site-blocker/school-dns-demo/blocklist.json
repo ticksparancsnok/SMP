@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "domain": "example-blocked.com",
+      "includeSubdomains": true,
+      "reason": "Tanórai zavaró tartalom",
+      "addedBy": "admin",
+      "addedAt": "2026-11-21T20:00:00Z"
+    },
+    {
+      "domain": "ai-flagged-example.org",
+      "includeSubdomains": true,
+      "reason": "Automatikus tartalomminősítés alapján blokkolva",
+      "addedBy": "ai",
+      "confidence": 0.94,
+      "addedAt": "2026-11-21T20:05:00Z"
+    }
+  ]
+}

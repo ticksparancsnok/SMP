@@ -1,0 +1,42 @@
+# ---- secrets / local config
+.env
+.env.*
+*.env
+!.env.example
+.claude/settings.local.json
+
+# ---- editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Python
+.venv/
+venv/
+*.venv
+*.vscode
+
+# Go build artifacts
+/Site-blocker/school-dns-demo/school-dns-demo
+/Site-blocker/school-dns-demo/*.exe
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Node / web UI (WEBUI/.gitignore has the same, this catches other folders)
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# ---- logs
+*.log
+npm-debug.log*

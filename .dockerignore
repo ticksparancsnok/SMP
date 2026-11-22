@@ -1,0 +1,23 @@
+# Build context is the repo root; keep it small and free of secrets.
+.git
+.github
+.claude
+**/.vscode
+**/.idea
+**/node_modules
+**/dist
+**/.vite
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/build
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/*.log
+**/.env
+**/.env.*
+server/tests
+docs

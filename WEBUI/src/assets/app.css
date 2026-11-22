@@ -1,0 +1,253 @@
+/* Additions on top of main-style.css (the original layout). Same tokens. */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+.toolbar > .field {
+  flex: 1 1 180px;
+  max-width: 320px;
+}
+.toolbar > .grow {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- dashboard */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  color: var(--text);
+  transition: border-color 0.15s, transform 0.15s;
+}
+a.stat-card:hover,
+a.card-link:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.stat-card .stat-icon {
+  font-size: 20px;
+}
+.stat-card .stat-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stat-card .stat-title {
+  font-weight: 600;
+}
+.card-link {
+  display: block;
+  color: var(--text);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.card.planned {
+  border-style: dashed;
+  opacity: 0.75;
+}
+.item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.item-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.item-list li:last-child {
+  border-bottom: 0;
+}
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #0000008c;
+  display: grid;
+  place-items: start center;
+  padding: 6vh 16px 16px;
+  overflow-y: auto;
+}
+.modal {
+  width: 100%;
+  max-width: 520px;
+  margin: 0;
+  box-shadow: 0 20px 60px #00000080;
+}
+.modal.wide {
+  max-width: 820px;
+}
+.modal-head {
+  margin-bottom: 12px;
+}
+.modal-head h2 {
+  margin: 0;
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.tabs a {
+  padding: 8px 14px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tabs a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.tabs a.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.check input {
+  width: auto;
+}
+
+.check-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  margin-right: 6px;
+}
+.dot.on {
+  background: var(--ok);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+/* Keep the menu entry highlighted on /policies?tab=… etc. (exact-active also compares the query). */
+.nav a.router-link-active:not([href='/']) {
+  background: var(--accent-soft);
+  color: #fff;
+}
+
+.item-list .item-label {
+  word-break: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.item-list .item-value {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- dropdown menu (<details class="menu">) */
+.menu {
+  position: relative;
+}
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu > summary:hover {
+  filter: brightness(1.1);
+  background: var(--bg-card);
+}
+.menu-items {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  min-width: 320px;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 10px 30px #00000080;
+}
+.menu-items button {
+  border: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: normal;
+}
+.menu-items button:hover {
+  background: var(--bg-soft);
+}

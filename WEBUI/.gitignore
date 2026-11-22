@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+*.log
+# NOT ignored on purpose: openapi.json and src/api/schema.d.ts (generated, but
+# committed so the UI builds without running the Python server).

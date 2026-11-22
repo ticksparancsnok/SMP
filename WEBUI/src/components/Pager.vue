@@ -1,0 +1,26 @@
+<script setup lang="ts">
+const props = defineProps<{ total: number; offset: number; limit: number }>()
+const emit = defineEmits<{ 'update:offset': [value: number] }>()
+</script>
+
+<template>
+  <div v-if="props.total > props.limit" class="pager">
+    <span class="muted">
+      {{ props.offset + 1 }}–{{ Math.min(props.offset + props.limit, props.total) }} / {{ props.total }}
+    </span>
+    <button
+      class="ghost small"
+      :disabled="props.offset === 0"
+      @click="emit('update:offset', Math.max(0, props.offset - props.limit))"
+    >
+      ‹ Előző
+    </button>
+    <button
+      class="ghost small"
+      :disabled="props.offset + props.limit >= props.total"
+      @click="emit('update:offset', props.offset + props.limit)"
+    >
+      Következő ›
+    </button>
+  </div>
+</template>
