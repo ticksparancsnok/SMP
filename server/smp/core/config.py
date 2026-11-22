@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Device agents: how long a heartbeat may wait for a config change (long-poll).
     # Below nginx's proxy_read_timeout; agents call again right away.
     agent_longpoll_seconds: float = 25.0
+    # Folder with the Windows agent (smp-agent.exe + smp-agent.version) offered at
+    # /downloads/smp-agent.exe. The Docker image builds it and sets this.
+    agent_download_dir: str | None = None
 
     # Reverse proxies whose X-Forwarded-For is trusted (comma separated IPs/CIDRs, "*" = any).
     # Must include the proxy, or every client looks like the proxy's IP to the throttle.

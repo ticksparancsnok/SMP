@@ -124,7 +124,7 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 
 ## Deployment
 
-`./install.sh` sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
+`./install.sh` sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). It also cross-compiles the Windows agent (stage `agent`) and serves it at `/downloads/smp-agent.exe` (public: the exe holds no secrets) with its SHA-256 on the Devices page, so every install hands out the agent matching its own version and nothing comes from outside the school's server. On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
 
 **nginx** (`nginx/`, an image built on `nginx:1.30.7-alpine`) is the only web entry point:
 

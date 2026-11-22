@@ -367,6 +367,17 @@ const hu: Dictionary = {
   // ------------------------------------------------------------ devices
   'devices.subtitle': 'A gépek az ügynök telepítésekor automatikusan megjelennek; itt előre is felvehetők.',
   'devices.new': '+ Gép felvétele',
+  'devices.download_agent': '⬇ Ügynök Windowsra',
+  'devices.download_title': 'SMP ügynök Windows 10/11-re',
+  'devices.download_missing':
+    'Ez az SMP szerver nem kínál ügynököt. A ./install.sh a szerverrel együtt építi meg; fejlesztői szerveren lásd az agent/README.md-t.',
+  'devices.download_version': '{version}. verzió',
+  'devices.download_step_copy': 'Töltsd le a gépen (vagy másold át, pl. pendrive-on).',
+  'devices.download_step_install':
+    'Nyiss rendszergazdaként egy parancssort a fájl mappájában, és futtasd (a cím ez az SMP szerver):',
+  'devices.download_step_approve':
+    'A gép kiír egy ujjlenyomatot, és itt megjelenik a „Jóváhagyásra vár” részben. Hagyd jóvá, ha az ujjlenyomatok egyeznek.',
+  'devices.download_verify': 'Átmásolt fájl ellenőrzéséhez vesd össze ezt a következő parancs eredményével (PowerShell):',
   'devices.no_room': 'Terem nélkül',
   'devices.search_placeholder': 'gépnév vagy MAC',
   'devices.device': 'Gép',

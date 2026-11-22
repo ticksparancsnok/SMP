@@ -301,3 +301,30 @@ async def test_changes_wake_agents(app, subject):
     await app.state.bus.publish(Event(subject=subject, org_id=org_id, payload={}))
     await asyncio.sleep(0.05)  # handlers run as tasks
     assert hub.generation > gen
+
+
+# --------------------------------------------------------------------------- the agent download
+
+
+async def test_agent_download(app, admin, monkeypatch, tmp_path):
+    anyone = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")  # not signed in
+    monkeypatch.setattr(get_settings(), "agent_download_dir", str(tmp_path))
+    # nothing built (e.g. a development server)
+    assert (await anyone.get("/downloads/smp-agent.exe")).json()["code"] == "agent.no_download"
+    assert (await admin.get("/api/v1/agent/download")).json() == {
+        "available": False, "url": "/downloads/smp-agent.exe", "version": None, "size": None, "sha256": None}
+
+    exe = b"MZ" + b"\x90" * 1000  # starts like a Windows program; content doesn't matter
+    (tmp_path / "smp-agent.exe").write_bytes(exe)
+    (tmp_path / "smp-agent.version").write_text("0.1.0\n")
+    r = await anyone.get("/downloads/smp-agent.exe")  # no sign-in needed: it's taken to the PCs
+    assert r.status_code == 200 and r.content == exe
+    assert 'filename="smp-agent.exe"' in r.headers["content-disposition"]
+    assert r.headers["x-checksum-sha256"] == hashlib.sha256(exe).hexdigest()
+
+    info = (await admin.get("/api/v1/agent/download")).json()
+    assert info == {"available": True, "url": "/downloads/smp-agent.exe", "version": "0.1.0", "size": len(exe),
+                    "sha256": hashlib.sha256(exe).hexdigest()}
+    async with login_as(app, admin, "teacher.dl", [{"role": "teacher"}]) as t:
+        assert (await t.get("/api/v1/agent/download")).status_code == 403  # the info is for device admins
+    await anyone.aclose()

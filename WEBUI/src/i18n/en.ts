@@ -375,6 +375,17 @@ const en = {
   // ------------------------------------------------------------ devices
   'devices.subtitle': 'Devices appear automatically when the agent is installed; you can also add them here in advance.',
   'devices.new': '+ Add device',
+  'devices.download_agent': '⬇ Agent for Windows',
+  'devices.download_title': 'SMP agent for Windows 10/11',
+  'devices.download_missing':
+    'This SMP server has no agent to offer. It is built together with the server by ./install.sh; on a development server, see agent/README.md.',
+  'devices.download_version': 'version {version}',
+  'devices.download_step_copy': 'Download it on the computer (or copy it there, e.g. on a USB stick).',
+  'devices.download_step_install':
+    'Open a command prompt as administrator in the folder with the file, and run (the address is this SMP server):',
+  'devices.download_step_approve':
+    'The computer shows a fingerprint and appears here under "Waiting for approval". Approve it if the fingerprints match.',
+  'devices.download_verify': 'To check a copied file, compare this with the output of (PowerShell):',
   'devices.no_room': 'Without a room',
   'devices.search_placeholder': 'hostname or MAC',
   'devices.device': 'Device',

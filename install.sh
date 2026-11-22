@@ -6,7 +6,9 @@
 # 1. creates .env with random secrets (or checks the existing one), and works out
 #    SMP's addresses (for nginx and its certificate) and the DNS sinkhole address
 # 2. builds and starts the containers (nginx in front, HTTPS with a self-signed
-#    certificate unless nginx/certs/ holds a real one) and waits until all is up
+#    certificate unless nginx/certs/ holds a real one) and waits until all is up.
+#    The server image also compiles the Windows agent, offered at
+#    https://<smp>/downloads/smp-agent.exe
 # 3. on first setup: asks for the school name and the admin username, creates them,
 #    and prints the admin's one-time password (changed at first sign-in)
 #
@@ -180,7 +182,7 @@ if [ -n "$current" ] && [ "$current" != "$subnet" ]; then
     dc down >/dev/null
 fi
 
-step "Building and starting the containers (the first build takes a few minutes)"
+step "Building and starting the containers (the first build compiles the Windows agent too: allow 5-10 minutes)"
 if ! dc up -d --build; then
     die "starting the containers failed (see above). If a port is already in use on this machine: SMP_HTTP_PORT / SMP_HTTPS_PORT (80/443) and SMP_DNS_PORT (53) in .env, then run ./install.sh again"
 fi
@@ -264,6 +266,14 @@ say "Open SMP:    https://localhost$suffix/"
 for n in ${names//,/ }; do
     case $n in localhost|127.0.0.1) ;; *) say "             https://$n$suffix/" ;; esac
 done
+first_name=localhost
+for n in ${names//,/ }; do
+    case $n in localhost|127.0.0.1) ;; *) first_name=$n; break ;; esac
+done
+say ""
+say "PC agent:    https://$first_name$suffix/downloads/smp-agent.exe   (Windows 10/11; built with this server)"
+say "             on each PC, as administrator: smp-agent.exe install --server $first_name$suffix"
+say "             (also in SMP: Devices -> Agent for Windows)"
 say ""
 if [ "$dns_port" = 53 ]; then
     say "DNS server:  $sinkhole   (give this to the school's computers as their only DNS server)"

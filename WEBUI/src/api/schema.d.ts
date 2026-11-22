@@ -968,6 +968,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Info
+         * @description What the Devices page shows next to the download link.
+         */
+        get: operations["download_info_api_v1_agent_download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/devices/{device_id}/reset-identity": {
         parameters: {
             query?: never;
@@ -1298,6 +1318,19 @@ export interface components {
             /** Notes */
             notes?: string | null;
             status?: components["schemas"]["DeviceStatus"] | null;
+        };
+        /** DownloadInfo */
+        DownloadInfo: {
+            /** Available */
+            available: boolean;
+            /** Url */
+            url: string;
+            /** Version */
+            version?: string | null;
+            /** Size */
+            size?: number | null;
+            /** Sha256 */
+            sha256?: string | null;
         };
         /** EntryIn */
         EntryIn: {
@@ -4545,6 +4578,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_info_api_v1_agent_download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadInfo"];
                 };
             };
         };

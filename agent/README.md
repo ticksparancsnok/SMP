@@ -7,6 +7,21 @@ screen monitoring now, later screen lock, software installation and so on.
 One `smp-agent.exe` (about 4 MB, no runtime or DLLs to install) does everything; what
 it does depends on the command it's started with.
 
+## Getting the exe
+
+Every SMP server offers its own matching agent: `./install.sh` builds it into the
+server's Docker image (`server/Dockerfile`, stage `agent`), and SMP serves it at
+
+```
+https://<smp address>/downloads/smp-agent.exe
+```
+
+No sign-in is needed, so you can download it right on the PC (the exe holds no
+secrets; a PC does nothing until an admin approves it). In SMP, **Devices -> Agent for
+Windows** shows the same link, the version, the SHA-256 checksum and the install
+command with this server's address filled in. After updating SMP and running
+`./install.sh`, download it again and run `install` on the PCs to upgrade them.
+
 ## Installing on a PC (Windows 10/11)
 
 As administrator (right click -> Run as administrator, or an admin command prompt):
@@ -127,9 +142,14 @@ it's fine.
 
 ## Building
 
-No Rust on the host is needed; everything builds in Docker with the pinned toolchain
-(`rust:1.100.0-slim-trixie` plus the MinGW linker). A volume keeps the downloaded
-crates.
+For schools nothing is needed: `./install.sh` compiles the exe as part of the server
+image (above). The first build takes a few extra minutes; after that Docker reuses the
+compiled dependencies and rebuilds only when `agent/` changes. That stage and
+`Dockerfile.build` pin the same toolchain; change both together.
+
+For development, without the whole SMP stack: no Rust on the host is needed either;
+everything builds in Docker with the pinned toolchain (`rust:1.100.0-slim-trixie` plus
+the MinGW linker). A volume keeps the downloaded crates.
 
 ```sh
 cd agent

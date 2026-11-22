@@ -10,6 +10,10 @@ For admins (core.devices.write):
     POST /join-requests/{id}/approve          -> a new Device, or a new identity for one
     POST /join-requests/{id}/reject
     POST /devices/{id}/reset-identity         forget the key: the agent must join again
+    GET  /download                            version, size, SHA-256 of the offered agent
+
+For anyone (no sign-in), outside /api:
+    GET  /downloads/smp-agent.exe             the Windows agent (see download.py)
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, status
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,10 +40,11 @@ from smp.core.errors import AppError
 from smp.core.events import Event
 from smp.core.models import AuditLog, Device, DeviceStatus, Organization, Room
 from smp.core.policy import emit_policy_changed, room_for_ip
-from smp.modules.agent import crypto
+from smp.modules.agent import crypto, download
 from smp.modules.agent.models import AgentJoinRequest
 
 router = APIRouter()
+public = APIRouter()  # outside /api/v1/agent: the download link
 
 WRITE = "core.devices.write"
 JOIN_TTL = timedelta(days=7)
@@ -320,6 +327,14 @@ class JoinRequestOut(BaseModel):
     suggested_device_id: uuid.UUID | None = None
 
 
+class DownloadInfo(BaseModel):
+    available: bool
+    url: str  # where to download it (same origin as the UI)
+    version: str | None = None
+    size: int | None = None  # bytes
+    sha256: str | None = None
+
+
 class ApproveIn(BaseModel):
     device_id: uuid.UUID | None = None  # set: give this existing device the new identity
     room_mode: RoomMode = "fixed"
@@ -395,6 +410,27 @@ async def reject(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
     ctx.audit("agent.join.reject", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "ip": req.ip})
     await ctx.db.delete(req)
     await ctx.commit()
+
+
+@router.get("/download", response_model=DownloadInfo)
+async def download_info(ctx: Ctx = Depends(require(WRITE))):
+    """What the Devices page shows next to the download link."""
+    build = await run_in_threadpool(download.current_build)
+    if build is None:
+        return DownloadInfo(available=False, url=download.URL_PATH)
+    return DownloadInfo(available=True, url=download.URL_PATH, version=build.version, size=build.size,
+                        sha256=build.sha256)
+
+
+@public.get(download.URL_PATH, include_in_schema=False)
+async def download_agent():
+    """The Windows agent. Public on purpose: see download.py."""
+    build = await run_in_threadpool(download.current_build)
+    if build is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "agent.no_download",
+                       "this SMP server has no agent build (the Docker image builds it)")
+    return FileResponse(build.path, media_type="application/vnd.microsoft.portable-executable", filename=download.EXE_NAME,
+                        headers={"Cache-Control": "no-cache", "X-Checksum-SHA256": build.sha256})
 
 
 @router.post("/devices/{device_id}/reset-identity", status_code=204)
