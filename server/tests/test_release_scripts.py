@@ -323,3 +323,31 @@ def test_a_failed_copy_is_reported_not_ignored(tmp_path):
         (target / "server").chmod(0o755)
     assert r.stdout.strip() == "FAILED" and "couldn't write server/Dockerfile" in r.stderr
     assert not (target / "server" / "Dockerfile.smp-new").exists()
+
+
+def version_file(tmp_path, name: str, **versions: str) -> Path:
+    """A Version.toml with every section; `versions` overrides (site_blocker -> Site-blocker)."""
+    v = {"release": "1.0.3", "server": "1.0.3 B", "WEBUI": "1.0.3 B", "agent": "1.0.3 B", "Site-blocker": "1.0.0 A"}
+    v.update({k.replace("site_blocker", "Site-blocker"): val for k, val in versions.items()})
+    path = tmp_path / name
+    path.write_text("".join(f'[{s}] # comment\nname = "x"\nversion = "{val}"\n\n' for s, val in v.items()))
+    return path
+
+
+def version_diff(old: Path, new: Path) -> list[list[str]]:
+    out = subprocess.run(["sh", str(VERSION_SH), "--diff", str(old), str(new)], capture_output=True, text=True, check=True)
+    return [line.split("\t") for line in out.stdout.splitlines()]
+
+
+def test_version_diff_lists_every_component_that_changed(tmp_path):
+    """upgrade.sh --force-components: the same release, other component builds."""
+    installed = version_file(tmp_path, "old.toml")
+    assert version_diff(installed, installed) == []  # nothing differs: up to date
+    newer = version_file(tmp_path, "new.toml", server="1.0.3 C", agent="1.0.3 D")
+    assert version_diff(installed, newer) == [["server", "1.0.3 B", "1.0.3 C", "up"], ["agent", "1.0.3 B", "1.0.3 D", "up"]]
+    older = version_file(tmp_path, "older.toml", site_blocker="0.9.0", release="1.0.3")
+    assert version_diff(installed, older) == [["Site-blocker", "1.0.0 A", "0.9.0", "down"]]
+    broken = tmp_path / "broken.toml"
+    broken.write_text("[server]\nversion = \"1.0.3\"\n")  # sections missing
+    r = subprocess.run(["sh", str(VERSION_SH), "--diff", str(installed), str(broken)], capture_output=True, text=True)
+    assert r.returncode != 0  # upgrade.sh stops with a message instead of guessing

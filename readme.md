@@ -34,7 +34,10 @@ replaces into `backups/`, replaces the files and rebuilds. Your data, `.env` and
 certificate are kept, and SMP keeps running while the new version builds.
 If the new version doesn't build or start, it goes back to the previous one by itself;
 `./upgrade.sh --rollback` goes back later, files and database. Only the newest backup is
-kept.
+kept. It compares `[release]`; a newer build of the same release (e.g. its components
+went from `1.0.3 B` to `1.0.3 C`) is installed with `./upgrade.sh --force-components`,
+which upgrades when any component's version differs (`./upgrade.sh` alone points this
+out). `--force` reinstalls or downgrades whatever the versions say.
 `./install.sh` again first asks GitHub whether a newer version exists. If one does, it
 **stops without rebuilding** (exit status 3) and points to `./upgrade.sh`, so upgrading
 stays a deliberate step; otherwise it checks the configuration and rebuilds what's

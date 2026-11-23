@@ -8,6 +8,8 @@
 #
 #   ./upgrade.sh                 newest version (the main branch on GitHub)
 #   ./upgrade.sh --rollback      back to before the last upgrade (files and database)
+#   ./upgrade.sh --force-components   also a new build of the same release: upgrades when any
+#                                component's version in Version.toml differs, not only [release]
 #   ./upgrade.sh --help          options: another branch/tag, your own download, ...
 #
 # 1. checks the installation (made by install.sh; not a git checkout: update those with git)
@@ -77,6 +79,13 @@ versions_table() {  # versions_table OLD_VERSION_TOML NEW_VERSION_TOML
         fi
     done
 }
+component_changes() {  # component_changes "section<TAB>old<TAB>new<TAB>up|down" lines (tools/version.sh --diff)
+    local section old new way
+    while IFS="$(printf '\t')" read -r section old new way; do
+        [ -n "$section" ] || continue
+        printf '  %-13s %s -> %s%s%s%s\n' "$section" "$old" "$B" "$new" "$N" "$([ "$way" = down ] && echo "   (older)")"
+    done <<<"$1"
+}
 usage() {
     cat <<EOF
 Usage: ./upgrade.sh [options]
@@ -91,6 +100,9 @@ certificate and all data are kept.
   --sha256 HASH        refuse the download unless its SHA-256 is HASH
   --yes                don't ask before changing anything
   --force              also when the download isn't newer (reinstall, or downgrade)
+  --force-components   also when [release] is the same, if any component's version
+                       ([server], [WEBUI], [agent], [Site-blocker]) differs: e.g. a
+                       development build (1.0.3 B -> 1.0.3 C) of the same release
   --no-db-backup       skip the database backup (e.g. you make your own); a rollback
                        can then only put the files back
   --rollback [DIR]     go back to before an upgrade: its files and its database backup
@@ -106,7 +118,7 @@ EOF
 # Everything runs from main(): bash has read the whole function before step 5 replaces
 # this file (which is also written next to the old one and renamed, never overwritten).
 main() {
-    local fetch_args=() assume_yes=no force=no db_backup=yes rollback=no rollback_dir=""
+    local fetch_args=() assume_yes=no force=no components=no db_backup=yes rollback=no rollback_dir=""
     while [ $# -gt 0 ]; do
         case $1 in
             --ref | --download-url | --sha256)
@@ -116,6 +128,7 @@ main() {
                 ;;
             --yes) assume_yes=yes ;;
             --force) force=yes ;;
+            --force-components) components=yes ;;
             --no-db-backup) db_backup=no ;;
             --rollback)
                 rollback=yes
@@ -165,8 +178,28 @@ main() {
     case $(sh "$new/tools/version.sh" --compare "$installed" "$offered") in
         lt) say "available: SMP $offered" ;;
         eq)
-            [ $force = yes ] || { say "${G}SMP $installed is up to date.${N}"; exit 0; }
-            say "available: SMP $offered, the installed version (--force: reinstalling it)"
+            # Same release; its components may still have moved on (1.0.3 B -> 1.0.3 C).
+            local changed
+            # (the installed version.sh: it came with this upgrade.sh, so it knows --diff)
+            changed=$(sh tools/version.sh --diff Version.toml "$new/Version.toml") \
+                || die "can't compare the component versions (see above)"
+            if [ $force = yes ]; then
+                say "available: SMP $offered, the installed version (--force: reinstalling it)"
+            elif [ -z "$changed" ]; then
+                say "${G}SMP $installed is up to date${N} (every component too)."
+                exit 0
+            elif [ $components = no ]; then
+                say "${G}SMP $installed is up to date.${N} Some components differ in the download, though:"
+                component_changes "$changed"
+                say "./upgrade.sh --force-components installs them."
+                exit 0
+            else
+                say "available: SMP $offered with other component versions (--force-components):"
+                component_changes "$changed"
+                if printf '%s\n' "$changed" | grep -q "$(printf '\t')down$"; then
+                    warn "Some components go BACK to an older version (above): their database changes aren't undone."
+                fi
+            fi
             ;;
         gt)
             [ $force = yes ] || die "the download is SMP $offered, older than the installed $installed (--force installs it anyway; ./upgrade.sh --rollback goes back with the database)"

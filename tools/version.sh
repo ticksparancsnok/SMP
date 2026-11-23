@@ -11,6 +11,10 @@
 #                                                e.g. --compare "1.0.2 C" 1.0.3  ->  lt
 #   tools/version.sh --status [Version.toml]     every component against [release]:
 #                                                up to date, ahead (in development), behind
+#   tools/version.sh --diff <old.toml> <new.toml>
+#                                                the sections whose versions differ, one per
+#                                                line: section<TAB>old<TAB>new<TAB>up|down
+#                                                (e.g. upgrade.sh --force-components)
 #
 # Sections: server, WEBUI, agent, Site-blocker, release. Versions look like "1.0.2" or
 # "1.0.2 C": numbers compare as numbers, and a revision letter comes after the plain
@@ -24,6 +28,7 @@ usage() {
     echo "usage: $0 <section> [Version.toml]" >&2
     echo "       $0 --compare <version> <version>" >&2
     echo "       $0 --status [Version.toml]" >&2
+    echo "       $0 --diff <old Version.toml> <new Version.toml>" >&2
     exit 2
 }
 
@@ -54,6 +59,22 @@ if [ "${1:-}" = --compare ]; then
             print (a[4] < $4 ? "lt" : (a[4] > $4 ? "gt" : "eq"))
         }
     '
+    exit 0
+fi
+
+# Every section, old against new: what an upgrade from OLD to NEW changes.
+if [ "${1:-}" = --diff ]; then
+    [ $# -eq 3 ] || usage
+    for s in release server WEBUI agent Site-blocker; do
+        old=$(sh "$0" "$s" "$2") || exit 1
+        new=$(sh "$0" "$s" "$3") || exit 1
+        [ "$old" = "$new" ] && continue
+        case $(sh "$0" --compare "$old" "$new") in
+            lt) way=up ;;
+            *) way=down ;;
+        esac
+        printf '%s\t%s\t%s\t%s\n' "$s" "$old" "$new" "$way"
+    done
     exit 0
 fi
 
