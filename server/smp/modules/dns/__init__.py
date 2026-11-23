@@ -4,9 +4,21 @@
 
 """DNS sinkhole control-plane module."""
 
-from pydantic import BaseModel
+import logging
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from smp.core.module import EventSubject, Module, Permission, UiRoute, Widget
+
+log = logging.getLogger(__name__)
+
+
+class DnsSettings(BaseModel):
+    block_page_language: Literal["hu", "en"] = Field(
+        "hu",
+        description="Language of the page shown for a blocked site (visitors can still switch it there)",
+    )
 
 
 class DnsPolicy(BaseModel):
@@ -31,6 +43,7 @@ class DnsModule(Module):
     )
     ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.blocklist.read", "services"),)
     policy_model = DnsPolicy
+    settings_model = DnsSettings
     events = (
         EventSubject("dns.blocklist.updated", "The DNS blocklist changed"),
         EventSubject("dns.allowlist.updated", "The DNS allowlist changed"),
@@ -38,10 +51,29 @@ class DnsModule(Module):
         EventSubject("dns.domain.unclassified", "An unknown domain is waiting to be classified"),
     )
 
+    def __init__(self) -> None:
+        from smp.modules.dns.imports import ImportJobs
+
+        self.imports = ImportJobs()  # hosts-file imports in progress (imports.py)
+
     def router(self):
         from smp.modules.dns.api import router
 
         return router
+
+    def subscribe(self, bus) -> None:
+        async def settings_changed(event) -> None:
+            # The block page language travels with the lists: send them again.
+            if (event.payload or {}).get("module") != self.name or event.org_id is None:
+                return
+            from smp.modules.dns import api
+
+            try:
+                await api.sync_org(event.org_id)
+            except Exception as e:  # noqa: BLE001 - saved anyway; the next sync carries it
+                log.warning("DNS settings changed, but the sinkhole couldn't be updated yet: %s", e)
+
+        bus.subscribe("core.settings.changed", settings_changed)
 
     async def dashboard(self, ctx) -> list[Widget]:
         if not ctx.principal.can("dns.blocklist.read"):

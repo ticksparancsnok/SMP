@@ -35,8 +35,12 @@ certificate are kept, and SMP keeps running while the new version builds.
 If the new version doesn't build or start, it goes back to the previous one by itself;
 `./upgrade.sh --rollback` goes back later, files and database. Only the newest backup is
 kept.
-`./install.sh` again only checks the configuration and rebuilds what's installed. In a
-git checkout (development) `./install.sh` uses the checkout's files as they are, and
+`./install.sh` again first asks GitHub whether a newer version exists. If one does, it
+**stops without rebuilding** (exit status 3) and points to `./upgrade.sh`, so upgrading
+stays a deliberate step; otherwise it checks the configuration and rebuilds what's
+installed. In scripts (or without internet access) use `./install.sh --local`: it
+rebuilds what's installed and never checks for or downloads anything. In a git
+checkout (development) `./install.sh` uses the checkout's files as they are, and
 `./upgrade.sh` refuses: update with git.
 
 If the server doesn't come up, `docker compose logs server` starts with a plain

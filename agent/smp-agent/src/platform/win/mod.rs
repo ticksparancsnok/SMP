@@ -49,8 +49,39 @@ pub fn restart_self() -> ! {
 
 /// C:\ProgramData\SMP (identity and logs). Only SYSTEM and administrators can read it.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-    base.join("SMP")
+    chosen_state_dir().0.clone()
+}
+
+/// What choosing the folder had to say (folders someone else made, skipped), for the
+/// log: logging can only start once the folder (where the log files go) is known.
+pub fn startup_notes() -> Vec<String> {
+    chosen_state_dir().1.clone()
+}
+
+/// C:\ProgramData\SMP, or SMP-1, SMP-2, ... if someone else made that one before the
+/// agent was installed (platform/state_dir.rs). Decided once per process; the same rule
+/// finds the same folder at every start, also after an update.
+fn chosen_state_dir() -> &'static (PathBuf, Vec<String>) {
+    static CHOSEN: std::sync::OnceLock<(PathBuf, Vec<String>)> = std::sync::OnceLock::new();
+    CHOSEN.get_or_init(|| {
+        let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        let (dir, mut notes) = crate::platform::state_dir::choose(&base, security::inspect_dir, security::create_private_dir);
+        if let Some(dir) = dir {
+            let _ = security::restrict_dir(&dir); // our permissions, also on folders made by older versions
+            return (dir, notes);
+        }
+        // Someone took every name (a student scripting it, to keep the agent from
+        // starting): a folder under Program Files, where only administrators create things.
+        let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+        let fallback = program_files.join("SMP").join("data");
+        if security::inspect_dir(&fallback) == crate::platform::state_dir::Found::Missing {
+            let _ = std::fs::create_dir_all(program_files.join("SMP"));
+            let _ = security::create_private_dir(&fallback);
+        }
+        let _ = security::restrict_dir(&fallback);
+        notes.push(format!("every SMP folder name in {} is taken; using {}", base.display(), fallback.display()));
+        (fallback, notes)
+    })
 }
 
 /// A log file under C:\ProgramData\SMP\logs (the service has no console). Keeps

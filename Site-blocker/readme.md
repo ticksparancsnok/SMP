@@ -101,7 +101,8 @@ school-dns-demo/
     └── schoolfilter/
         ├── blocklist.go
         ├── blocklist_test.go
-        ├── blockpage.html
+        ├── blockpage.html       the block page in Hungarian
+        ├── blockpage.en.html    the same in English (keep the two in step)
         ├── hostsimport.go
         ├── schoolfilter.go
         └── schoolfilter_test.go
@@ -183,6 +184,16 @@ curl -H 'Host: ai-flagged-example.org' http://127.0.0.1:8080/
 
 The admin entry shows the block reason and that an admin added it. The AI entry
 also shows its confidence value.
+
+**Language.** The block page exists in Hungarian (`blockpage.html`) and English
+(`blockpage.en.html`), with a HU | EN switch in its corner. It opens in the school's
+default (SMP -> Site blocker -> "Block page language", admins only; it reaches the
+sinkhole as `blockPageLanguage` in the sync payload and is saved with the lists), and a
+visitor's choice wins: `?lang=hu` or `?lang=en`.
+
+```bash
+curl -H 'Host: example-blocked.com' 'http://127.0.0.1:8080/?lang=en'
+```
 
 ### Importing a hosts blocklist
 

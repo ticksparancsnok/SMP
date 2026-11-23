@@ -41,8 +41,10 @@ impl PresenceProbe {
     }
 
     /// Which of our addresses the system would use to reach the server. A UDP
-    /// "connect" only picks the route; no packet is sent.
-    fn local_address(&mut self) -> Option<IpAddr> {
+    /// "connect" only picks the route; no packet is sent. This is also the address the
+    /// agent reports as the computer's own: right even behind a NAT (e.g. a lab with its
+    /// own router), where the server only sees the router.
+    pub fn local_address(&mut self) -> Option<IpAddr> {
         if self.target.is_none() {
             if self.last_lookup.is_some_and(|t| t.elapsed() < LOOKUP_EVERY) {
                 return None;

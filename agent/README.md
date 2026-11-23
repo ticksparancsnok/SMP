@@ -43,6 +43,12 @@ This copies the exe to `C:\Program Files\SMP`, creates the PC's key in
   and logs (then remove the device in SMP too, or reset its identity).
 - Logs: `C:\ProgramData\SMP\logs\agent.log` (service) and `helper.log` (screen/tray).
 - `smp-agent.exe status` (as administrator) shows the server, fingerprint and device id.
+- The folder is `C:\ProgramData\SMP` unless someone else had made a folder with that
+  name before the install (anyone can create folders in ProgramData, and its creator
+  owns it): then `SMP-1` (or the next free name), and `agent.log` says why. The agent
+  only uses a folder owned by SYSTEM/Administrators, so it always finds its own again.
+- A rejected computer isn't listed again (also not after an IP change or a reinstall):
+  SMP -> Devices -> Rejected computers -> Allow again.
 
 What the user sees: an SMP icon in the tray, always while the agent runs. **Grey** =
 the agent runs, nobody views the screen; **colour** = a teacher is viewing it right
@@ -120,7 +126,8 @@ Windows the service manager starts it again 5 s later.
 - **Heartbeat:** the agent sends its config version and the server holds the answer
   until something changes (max ~25 s). A teacher opening the Monitoring page reaches
   every PC in the room within a second, with one idle HTTPS request per PC meanwhile.
-  Each heartbeat also reports the current IP, so moving between rooms/VLANs works.
+  Each heartbeat also reports the computer's own IP (the one it uses to reach SMP, so it's
+  right behind a NAT too), so moving between rooms/VLANs works.
 - **Monitoring traffic** (schools often have 100 Mbps): nothing at all unless someone
   has the room open. Then a 480 px JPEG thumbnail every 5 s (15-40 KB; a room of 30
   PCs is about 1-2 Mbit/s), an unchanged screen costs an empty request, and only the

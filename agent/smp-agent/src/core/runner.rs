@@ -38,6 +38,8 @@ use crate::core::watchdog::Contact;
 
 /// Retries after errors wait 1, 2, 4, ... seconds, at most this long.
 const MAX_RETRY_DELAY_S: u64 = 30;
+/// How often a rejected computer checks whether it was allowed again (seconds).
+const REJECTED_CHECK_EVERY_S: u64 = 600;
 /// A heartbeat's answer is given up on after this (its own timeout is 40 s).
 const ANSWER_DEADLINE: Duration = Duration::from_secs(60);
 
@@ -136,13 +138,29 @@ impl Agent {
                     }
                     delay = 5;
                 }
+                Ok(s) if s.status == "rejected" => {
+                    // An admin said no. Asking again wouldn't change it (the server
+                    // remembers this key and MAC); check now and then whether someone
+                    // chose "allow again" in SMP.
+                    if delay != REJECTED_CHECK_EVERY_S {
+                        log::warn!("an admin rejected this computer in SMP (Devices); waiting");
+                    }
+                    delay = REJECTED_CHECK_EVERY_S;
+                }
                 Ok(_) | Err(ApiError::Unauthorized) => {
-                    // Never asked, rejected, expired, or reset: (re)send the join request.
+                    // Never asked, expired, forgotten or reset: (re)send the join request.
                     match self.client.join(&SysInfo::collect()) {
+                        Ok(r) if r.status == "rejected" => {
+                            // e.g. reinstalled with a new key, but this machine was rejected
+                            self.remember_certificate();
+                            log::warn!("an admin rejected this computer in SMP (Devices); waiting");
+                            delay = REJECTED_CHECK_EVERY_S;
+                        }
                         Ok(r) => {
                             self.remember_certificate();
                             on_pending(&r.fingerprint_display);
                             asked = true;
+                            delay = 5;
                             if r.status == "approved" {
                                 return Ok(true);
                             }
@@ -196,6 +214,7 @@ impl Agent {
                 config_version: version.clone(),
                 wait: version.is_some(),
                 platform: PLATFORM,
+                address: presence.address.map(|a| a.to_string()),
             };
             sent += 1;
             let (client, answers_tx, number) = (self.client.clone(), answers_tx.clone(), sent);

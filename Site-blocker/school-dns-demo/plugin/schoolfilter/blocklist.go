@@ -29,15 +29,48 @@ type Entry struct {
 type blocklistFile struct {
 	Entries   []Entry `json:"entries"`
 	Allowlist []Entry `json:"allowlist,omitempty"`
+	// The block page's language unless the visitor picks one ("hu" or "en"; the school
+	// chooses it on SMP's Site blocker page). Empty: DefaultLanguage.
+	BlockPageLanguage string `json:"blockPageLanguage,omitempty"`
 }
+
+// The block page languages (blockpage.html, blockpage.en.html).
+const DefaultLanguage = "hu"
+
+func validLanguage(lang string) bool { return lang == "hu" || lang == "en" }
 
 // Blocklist holds the blocked domains and the allowlist, which is checked first
 // (see Match). Public suffixes (com, co.uk, ...) are kept off both lists by the
 // control plane (server/smp/modules/dns/domains.py).
 type Blocklist struct {
-	mu      sync.RWMutex
-	entries map[string]Entry
-	allow   map[string]Entry
+	mu       sync.RWMutex
+	entries  map[string]Entry
+	allow    map[string]Entry
+	language string // the block page's default language
+}
+
+// SetLanguage sets the block page's default language; "" means DefaultLanguage.
+func (b *Blocklist) SetLanguage(lang string) error {
+	if lang == "" {
+		lang = DefaultLanguage
+	}
+	if !validLanguage(lang) {
+		return fmt.Errorf("blockPageLanguage must be \"hu\" or \"en\", not %q", lang)
+	}
+	b.mu.Lock()
+	b.language = lang
+	b.mu.Unlock()
+	return nil
+}
+
+// Language is the block page's default language.
+func (b *Blocklist) Language() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.language == "" {
+		return DefaultLanguage
+	}
+	return b.language
 }
 
 func (b *Blocklist) Add(entry Entry) error {
@@ -93,7 +126,7 @@ func sortedEntries(m map[string]Entry) []Entry {
 func (b *Blocklist) Snapshot() blocklistFile {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return blocklistFile{Entries: sortedEntries(b.entries), Allowlist: sortedEntries(b.allow)}
+	return blocklistFile{Entries: sortedEntries(b.entries), Allowlist: sortedEntries(b.allow), BlockPageLanguage: b.language}
 }
 
 func (b *Blocklist) Count() int {
@@ -150,6 +183,9 @@ func LoadBlocklist(path string) (*Blocklist, error) {
 	}
 	blocklist := &Blocklist{}
 	if err := blocklist.Replace(file.Entries, file.Allowlist); err != nil {
+		return nil, err
+	}
+	if err := blocklist.SetLanguage(file.BlockPageLanguage); err != nil {
 		return nil, err
 	}
 	return blocklist, nil

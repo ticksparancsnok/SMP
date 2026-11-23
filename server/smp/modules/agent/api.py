@@ -12,7 +12,9 @@ For agents (signed requests, see crypto.py; no user session involved):
 For admins (core.devices.write):
     GET  /join-requests                       pending machines
     POST /join-requests/{id}/approve          -> a new Device, or a new identity for one
-    POST /join-requests/{id}/reject
+    POST /join-requests/{id}/reject           remembered: it can't ask again (key or MAC)
+    GET  /join-requests/rejected              those remembered rejections
+    POST /join-requests/{id}/allow            forget a rejection
     POST /devices/{id}/reset-identity         forget the key: the agent must join again
     GET  /download                            version, size, SHA-256 of the offered agent
 
@@ -29,7 +31,9 @@ version. See agent/smp-agent/src/capabilities/update.rs.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -46,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from smp.core import db
 from smp.core.config import get_settings
 from smp.core.context import Ctx, client_ip, require
+from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
 from smp.core.events import Event
 from smp.core.models import AuditLog, Device, DeviceStatus, ModuleSetting, Organization, Room
@@ -58,8 +63,15 @@ public = APIRouter()  # outside /api/v1/agent: the download link
 
 WRITE = "core.devices.write"
 JOIN_TTL = timedelta(days=7)
-MAX_PENDING_PER_IP = 20
+# A rejected machine is remembered (by key and by MAC) this long after it last asked, so
+# it doesn't come back with a new request every few seconds or after an IP change.
+# "Allow again" in Devices forgets it at once.
+REJECT_TTL = timedelta(days=90)
+# Pending requests per network (one IPv4 address; an IPv6 /64, which a single machine
+# can fill with addresses) and in total: a flood can't crowd out the school's own PCs.
+MAX_PENDING_PER_NETWORK = 20
 MAX_PENDING_TOTAL = 500
+_MAC_RE = re.compile(r"^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$")
 RoomMode = Literal["fixed", "network"]
 
 
@@ -123,6 +135,69 @@ def _audit(s: AsyncSession, org_id, action: str, request: Request, target: Any =
     ))
 
 
+# --------------------------------------------------------------------------- addresses
+#
+# Two addresses per agent:
+#   reported  what the agent says its address is: the one its system uses to reach SMP
+#             (agent/smp-agent/src/core/presence.rs). Right also behind a NAT, e.g. a lab
+#             with its own router, where every PC would otherwise look like the router.
+#   observed  where SMP sees the request come from (client_ip: nginx passes it on).
+# The device's IP (Device.last_ip) is the reported one; the observed one is kept too
+# (Device.observed_ip). Limits that must not be dodged (pending join requests per
+# address) use the observed one: a reported address is only the agent's word.
+
+
+def reported_address(value: str | None) -> str | None:
+    """The agent's own address, normalized, or None if missing or not a usable address."""
+    if not value:
+        return None
+    try:
+        addr = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
+    if addr.is_unspecified or addr.is_multicast:
+        return None
+    return str(addr)
+
+
+def normalize_mac(value: str | None) -> str | None:
+    """aa:bb:cc:dd:ee:ff, or None for nothing / not a MAC / all zeros or all ones."""
+    mac = (value or "").strip().lower().replace("-", ":")
+    if not _MAC_RE.match(mac) or mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
+        return None
+    return mac
+
+
+def network_of(ip: str | None) -> str | None:
+    """What counts as one sender for the join limits: an IPv4 address, or an IPv6 /64
+    (one machine gets a whole /64 and can use any address in it)."""
+    try:
+        addr = ipaddress.ip_address(ip or "")
+    except ValueError:
+        return ip
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:  # ::ffff:10.0.0.5 is the IPv4 address 10.0.0.5
+            return str(addr.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
+async def network_room(s: AsyncSession, org_id: uuid.UUID, reported: str | None, observed: str | None) -> Room | None:
+    """The room for a "by network" device: whose subnet holds the agent's own address,
+    else the address SMP sees (a NATted lab can be set up either by its inner subnet or
+    by its router's address; two labs reusing the same inner range: by router address)."""
+    for ip in (reported, observed):
+        if ip and (room := await room_for_ip(s, org_id, ip)) is not None:
+            return room
+    return None
+
+
+def _agent_online(device: Device) -> bool:
+    """The device has an agent key that reported within the online window (dashboard.py)."""
+    return bool(device.agent_id) and device.last_seen_at is not None and \
+        device.last_seen_at >= datetime.now(UTC) - ONLINE_WINDOW
+
+
 # --------------------------------------------------------------------------- join
 
 
@@ -134,10 +209,12 @@ class JoinIn(BaseModel):
     os_version: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, max_length=32)
     org: str | None = None
+    address: str | None = Field(default=None, max_length=64)  # the machine's own IP (see above)
 
 
 class JoinOut(BaseModel):
-    status: Literal["pending", "approved", "unknown"]
+    # rejected: an admin said no; the agent waits (asking again changes nothing)
+    status: Literal["pending", "approved", "rejected", "unknown"]
     fingerprint: str
     fingerprint_display: str
     server_time: str
@@ -162,19 +239,37 @@ async def join(request: Request):
         if (await s.execute(select(Device.id).where(Device.org_id == org.id, Device.agent_id == fp))).first():
             return JoinOut(status="approved", fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp), server_time=_server_time())
         await s.execute(AgentJoinRequest.__table__.delete().where(AgentJoinRequest.expires_at <= now))
+        mac = normalize_mac(body.mac)
         req = (
             await s.execute(select(AgentJoinRequest).where(AgentJoinRequest.org_id == org.id, AgentJoinRequest.fingerprint == fp))
         ).scalar_one_or_none()
+        # Rejected before: by this key, or this machine (MAC) with a new key (reinstalled).
+        rejected = req if req is not None and req.rejected_at is not None else None
+        if rejected is None and req is None and mac:
+            rejected = (await s.execute(select(AgentJoinRequest).where(
+                AgentJoinRequest.org_id == org.id, AgentJoinRequest.mac == mac, AgentJoinRequest.rejected_at.is_not(None),
+            ).limit(1))).scalar_one_or_none()
+        if rejected is not None:
+            rejected.expires_at = now + REJECT_TTL  # remembered while it keeps asking
+            await s.commit()
+            return JoinOut(status="rejected", fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp),
+                           server_time=_server_time())
         if req is None:
-            # Don't let anyone flood the admins' approval list.
-            per_ip = await s.scalar(select(func.count()).where(AgentJoinRequest.org_id == org.id, AgentJoinRequest.ip == ip))
-            total = await s.scalar(select(func.count()).where(AgentJoinRequest.org_id == org.id))
-            if (per_ip or 0) >= MAX_PENDING_PER_IP or (total or 0) >= MAX_PENDING_TOTAL:
+            pending = AgentJoinRequest.rejected_at.is_(None)
+            if mac:  # one request per machine: a reinstalled PC's new request replaces its old one
+                await s.execute(AgentJoinRequest.__table__.delete().where(
+                    AgentJoinRequest.org_id == org.id, AgentJoinRequest.mac == mac, pending))
+            # Don't let anyone flood the admins' approval list. Counted by where the
+            # requests come from (what a script can't fake), not by key or MAC (it can).
+            ips = (await s.execute(select(AgentJoinRequest.ip).where(AgentJoinRequest.org_id == org.id, pending))).scalars().all()
+            here = network_of(ip)
+            if sum(1 for other in ips if network_of(other) == here) >= MAX_PENDING_PER_NETWORK or len(ips) >= MAX_PENDING_TOTAL:
                 raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "agent.too_many_join_requests", "too many pending join requests")
             req = AgentJoinRequest(org_id=org.id, fingerprint=fp, public_key=body.public_key)
             s.add(req)
             _audit(s, org.id, "agent.join.request", request, details={"hostname": body.hostname, "fingerprint": fp})
-        req.hostname, req.mac, req.ip = body.hostname, body.mac, ip
+        req.hostname, req.mac, req.ip = body.hostname, mac, ip  # ip: observed (the limit above)
+        req.reported_ip = reported_address(body.address)
         req.os_name, req.os_version, req.agent_version = body.os_name, body.os_version, body.agent_version
         req.expires_at = now + JOIN_TTL
         await s.commit()
@@ -196,10 +291,10 @@ async def join_status(request: Request):
             ).scalar_one_or_none()
     key = device.agent_public_key if device else (req.public_key if req else None)
     if key is None:
-        # Rejected, expired or never asked: the agent should join (again).
+        # Expired, forgotten ("allow again") or never asked: the agent should join (again).
         return JoinOut(status="unknown", fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp), server_time=_server_time())
     await _verify(request, key, raw)
-    state = "approved" if device else "pending"
+    state = "approved" if device else ("rejected" if req is not None and req.rejected_at is not None else "pending")
     return JoinOut(status=state, fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp), server_time=_server_time())
 
 
@@ -243,6 +338,8 @@ class HeartbeatIn(BaseModel):
     config_version: str | None = None  # the version the agent already has
     wait: bool = False  # long-poll: hold the answer until the config changes
     platform: str | None = Field(default=None, max_length=32)  # e.g. "windows-x86_64": which build updates it
+    # The machine's own IP (the one its system uses to reach SMP); see reported_address().
+    address: str | None = Field(default=None, max_length=64)
 
 
 class HeartbeatOut(BaseModel):
@@ -254,6 +351,10 @@ class HeartbeatOut(BaseModel):
 
 async def update_offer(s: AsyncSession, org_id: uuid.UUID, platform: str | None) -> dict[str, Any] | None:
     """The agent build this server offers for `platform`, if the school wants automatic updates."""
+    # TODO(evaluate, issue #17): whatever this returns, every PC installs and runs as
+    # SYSTEM within minutes; a compromised server can push anything. Options: offer a new
+    # version only after an admin approved it (audited), or to a test room/group first
+    # (staged rollout); on the agent: signed builds, a minimum version.
     from smp.modules.agent import AgentSettings
 
     row = await s.get(ModuleSetting, (org_id, "agent"))
@@ -289,7 +390,8 @@ async def heartbeat(request: Request):
     body: HeartbeatIn = _json(raw, HeartbeatIn)
     mod = _module(request)
     registry, bus = request.app.state.registry, request.app.state.bus
-    ip = client_ip(request)
+    observed = client_ip(request)
+    reported = reported_address(body.address)
     room_changed: tuple[uuid.UUID | None, uuid.UUID | None] | None = None
 
     async with db.sessionmaker()() as s:
@@ -298,13 +400,14 @@ async def heartbeat(request: Request):
             raise _unauthorized("unknown device")
         await _verify(request, device.agent_public_key, raw)
         device.last_seen_at = datetime.now(UTC)
-        device.last_ip = ip
+        device.last_ip = reported or observed  # older agents don't report theirs
+        device.observed_ip = observed
         device.logged_in_user = body.user or None
         for field in ("hostname", "agent_version", "os_name", "os_version"):
             if (value := getattr(body, field)) is not None:
                 setattr(device, field, value)
-        if device.room_mode == "network" and ip:
-            room = await room_for_ip(s, device.org_id, ip)
+        if device.room_mode == "network" and (reported or observed):
+            room = await network_room(s, device.org_id, reported, observed)
             new_room = room.id if room else None
             if new_room != device.room_id:
                 room_changed = (device.room_id, new_room)
@@ -342,7 +445,8 @@ class JoinRequestOut(BaseModel):
     id: uuid.UUID
     hostname: str
     mac: str | None
-    ip: str | None
+    ip: str | None  # the machine's own address (as its agent reports), else observed_ip
+    observed_ip: str | None = None  # where SMP saw the request come from (differs behind a NAT)
     os_name: str | None
     os_version: str | None
     agent_version: str | None
@@ -353,6 +457,10 @@ class JoinRequestOut(BaseModel):
     # An existing device this machine probably is (same MAC, or same hostname):
     # approving "as" it gives that device the new identity (reinstalled PC).
     suggested_device_id: uuid.UUID | None = None
+    # ...and that device's own agent is online right now: then this request is more
+    # likely another machine pretending to be it (same hostname/MAC) than a reinstall.
+    suggested_device_online: bool = False
+    rejected_at: datetime | None = None
 
 
 class DownloadInfo(BaseModel):
@@ -367,14 +475,29 @@ class ApproveIn(BaseModel):
     device_id: uuid.UUID | None = None  # set: give this existing device the new identity
     room_mode: RoomMode = "fixed"
     room_id: uuid.UUID | None = None
+    # Required to take over a device whose own agent is online right now (see approve()).
+    replace_online: bool = False
 
 
 @router.get("/join-requests", response_model=list[JoinRequestOut])
 async def list_join_requests(ctx: Ctx = Depends(require(WRITE))):
+    """Machines waiting for approval."""
+    return await _join_requests(ctx, rejected=False)
+
+
+@router.get("/join-requests/rejected", response_model=list[JoinRequestOut])
+async def list_rejected(ctx: Ctx = Depends(require(WRITE))):
+    """Machines an admin rejected: they can't ask again (also not with a new key from the
+    same MAC) until "allow again" or REJECT_TTL after they last tried."""
+    return await _join_requests(ctx, rejected=True)
+
+
+async def _join_requests(ctx: Ctx, rejected: bool) -> list[JoinRequestOut]:
     now = datetime.now(UTC)
+    state = AgentJoinRequest.rejected_at.is_not(None) if rejected else AgentJoinRequest.rejected_at.is_(None)
     rows = (
         await ctx.db.execute(
-            ctx.select(AgentJoinRequest).where(AgentJoinRequest.expires_at > now).order_by(AgentJoinRequest.created_at)
+            ctx.select(AgentJoinRequest).where(AgentJoinRequest.expires_at > now, state).order_by(AgentJoinRequest.created_at)
         )
     ).scalars()
     out = []
@@ -386,9 +509,11 @@ async def list_join_requests(ctx: Ctx = Depends(require(WRITE))):
             ).order_by((Device.mac == r.mac.lower()).desc())
         match = (await ctx.db.execute(stmt.limit(1))).scalar_one_or_none()
         out.append(JoinRequestOut(
-            id=r.id, hostname=r.hostname, mac=r.mac, ip=r.ip, os_name=r.os_name, os_version=r.os_version,
+            id=r.id, hostname=r.hostname, mac=r.mac, ip=r.reported_ip or r.ip, observed_ip=r.ip,
+            os_name=r.os_name, os_version=r.os_version,
             agent_version=r.agent_version, fingerprint=r.fingerprint, fingerprint_display=crypto.display_fingerprint(r.fingerprint),
             created_at=r.created_at, expires_at=r.expires_at, suggested_device_id=match.id if match else None,
+            suggested_device_online=match is not None and _agent_online(match), rejected_at=r.rejected_at,
         ))
     return out
 
@@ -404,6 +529,14 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
     if body.device_id is not None:
         device = await ctx.get(Device, body.device_id)
         old_room = device.room_id
+        # A request with an online PC's hostname and MAC is easy to fake (a student's
+        # laptop): approving it "as" that PC would cut off the real one and let the laptop
+        # be it (its room, its screen on the monitoring page). Reinstalls happen to PCs
+        # whose old agent is gone, so taking over a live one needs an explicit yes.
+        if _agent_online(device) and not body.replace_online:
+            raise AppError(status.HTTP_409_CONFLICT, "agent.device_online",
+                           f"{device.hostname} is online with its own agent; confirm replacing it",
+                           hostname=device.hostname)
     else:
         device = Device(org_id=ctx.org_id, hostname=req.hostname)
         ctx.db.add(device)
@@ -414,16 +547,18 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
     device.agent_id, device.agent_public_key = req.fingerprint, req.public_key
     device.status = DeviceStatus.ACTIVE
     device.room_mode = body.room_mode
+    device.last_ip, device.observed_ip = req.reported_ip or req.ip, req.ip
     if body.room_mode == "fixed":
         device.room_id = body.room_id if body.room_id is not None else device.room_id
-    elif req.ip:
-        room = await room_for_ip(ctx.db, ctx.org_id, req.ip)
+    elif req.reported_ip or req.ip:
+        room = await network_room(ctx.db, ctx.org_id, req.reported_ip, req.ip)
         device.room_id = room.id if room else None
     await ctx.db.delete(req)
     await ctx.db.flush()
     ctx.audit("agent.join.approve", device, {
         "hostname": device.hostname, "fingerprint": req.fingerprint,
         "as_existing_device": body.device_id is not None, "room_mode": body.room_mode,
+        "replaced_online_agent": body.device_id is not None and body.replace_online,
     })
     ctx.emit("core.device.updated" if body.device_id else "core.device.created", {"id": str(device.id), "hostname": device.hostname})
     if device.room_id != old_room:
@@ -434,8 +569,22 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
 
 @router.post("/join-requests/{request_id}/reject", status_code=204)
 async def reject(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
+    """No. The machine is remembered (key and MAC), so it doesn't come straight back
+    with a new request, also not after an IP change or a reinstall."""
     req = await ctx.get(AgentJoinRequest, request_id)
-    ctx.audit("agent.join.reject", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "ip": req.ip})
+    ctx.audit("agent.join.reject", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "ip": req.ip, "mac": req.mac})
+    now = datetime.now(UTC)
+    req.rejected_at, req.expires_at = now, now + REJECT_TTL
+    await ctx.commit()
+
+
+@router.post("/join-requests/{request_id}/allow", status_code=204)
+async def allow_again(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
+    """Forget a rejection: the machine's next request shows up as a normal one."""
+    req = await ctx.get(AgentJoinRequest, request_id)
+    if req.rejected_at is None:
+        raise AppError(status.HTTP_409_CONFLICT, "agent.not_rejected", "this request wasn't rejected")
+    ctx.audit("agent.join.allow_again", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "mac": req.mac})
     await ctx.db.delete(req)
     await ctx.commit()
 

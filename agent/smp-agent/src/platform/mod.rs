@@ -20,6 +20,10 @@ pub use win::*;
 #[cfg(any(windows, test))]
 pub mod helper_protocol;
 
+/// Which folder the agent's identity and logs go in (Windows; tested on Linux).
+#[cfg(any(windows, test))]
+pub mod state_dir;
+
 /// This program's path as it was started. main() asks first thing: an update renames
 /// the running file later, and the path the OS reports may then change with it.
 pub fn exe_path() -> std::path::PathBuf {

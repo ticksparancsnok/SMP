@@ -2,29 +2,41 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
-"""DNS blocklist and allowlist (decision order and domain rules: domains.py)."""
+"""DNS blocklist and allowlist (decision order and domain rules: domains.py; hosts-file
+imports: imports.py).
 
+The blocklist can hold 100k+ imported domains, so nothing here loads it whole as ORM
+objects on the event loop: pages are paged in SQL, a check looks up only the domain and
+its parents, and for the sinkhole sync Postgres builds the JSON itself; one sync per
+school at a time."""
+
+import asyncio
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import ARRAY, String, bindparam, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from smp.core import db
 from smp.core.api import Page
 from smp.core.config import get_settings
-from smp.core.context import Ctx, require
+from smp.core.context import Ctx, client_ip, require
 from smp.core.errors import AppError
+from smp.core.models import ModuleSetting
+from smp.core.uploads import read_limited
+from smp.modules.dns import imports
 from smp.modules.dns.domains import (
     blocked_by,
     by_domain,
     is_public_suffix,
     match,
     normalize_domain,
-    parse_hosts,
+    plain_public_suffixes,
     public_suffix_count,
     public_suffix_source,
 )
@@ -86,11 +98,23 @@ class AllowlistOut(BaseModel):
     public_suffix_source: str
 
 
-class HostsPreviewOut(BaseModel):
-    domains: list[str]
-    unique_count: int
-    # Valid domains left out because the allowlist covers them or they are public suffixes.
-    skipped: list[str] = []
+class ImportErrorOut(BaseModel):
+    code: str
+    detail: str
+    params: dict = {}
+
+
+class ImportJobOut(BaseModel):
+    id: str
+    state: Literal["checking", "ready", "saving", "syncing", "done", "failed"]
+    progress: float  # of the current state, 0..1
+    file_bytes: int
+    new: int  # domains the import adds
+    existing: int  # already on the blocklist
+    skipped: int  # allowlisted or public suffixes: never blocked
+    added: int | None = None  # after saving
+    sync_ok: bool | None = None  # after syncing: False = saved, but the sinkhole didn't take it yet
+    error: ImportErrorOut | None = None
 
 
 class SyncStatusOut(BaseModel):
@@ -98,6 +122,9 @@ class SyncStatusOut(BaseModel):
     allowlist_entries: int = 0
     sinkhole_url: str
     sync_configured: bool
+    # The block page's default language (DNS settings; admins change it on the Site
+    # blocker page, visitors can switch it on the page itself).
+    block_page_language: Literal["hu", "en"] = "hu"
 
 
 def row_to_out(row: DnsBlocklistEntry, allow: dict | None = None) -> EntryOut:
@@ -130,64 +157,88 @@ def allow_to_out(row: DnsAllowlistEntry) -> AllowEntryOut:
     )
 
 
-async def _blocklist(ctx: Ctx) -> list[DnsBlocklistEntry]:
-    rows = await ctx.db.execute(ctx.select(DnsBlocklistEntry).order_by(DnsBlocklistEntry.domain))
-    return list(rows.scalars())
-
-
 async def _allowlist(ctx: Ctx) -> list[DnsAllowlistEntry]:
     rows = await ctx.db.execute(ctx.select(DnsAllowlistEntry).order_by(DnsAllowlistEntry.domain))
     return list(rows.scalars())
 
 
-def _wire(row: DnsBlocklistEntry | DnsAllowlistEntry) -> dict:
-    out = {
-        "domain": row.domain,
-        "includeSubdomains": row.include_subdomains,
-        "reason": row.reason,
-        "addedBy": row.added_by,
-        "addedAt": row.added_at.isoformat(),
-    }
-    if isinstance(row, DnsBlocklistEntry):
-        out["confidence"] = row.confidence
-    return out
+class SyncPayload(BaseModel):
+    """What goes to the sinkhole: the JSON, already encoded, and how many entries."""
+
+    body: bytes
+    entries: int
+    allowlist: int
 
 
-async def sync_payload(db: AsyncSession, org_id: uuid.UUID) -> dict:
+# Postgres builds the JSON: 100k rows never become Python objects (that took over a second
+# of the event loop). Same fields as the sinkhole's Entry (Site-blocker/.../blocklist.go).
+_SYNC_SQL = text("""
+    SELECT
+      (SELECT count(*) FROM dns_blocklist_entries b WHERE b.org_id = :org AND b.domain <> ALL(:suffixes)),
+      (SELECT coalesce(json_agg(json_build_object(
+                'domain', b.domain, 'includeSubdomains', b.include_subdomains, 'reason', b.reason,
+                'addedBy', b.added_by, 'addedAt', b.added_at, 'confidence', b.confidence) ORDER BY b.domain), '[]')::text
+         FROM dns_blocklist_entries b WHERE b.org_id = :org AND b.domain <> ALL(:suffixes)),
+      (SELECT count(*) FROM dns_allowlist_entries a WHERE a.org_id = :org),
+      (SELECT coalesce(json_agg(json_build_object(
+                'domain', a.domain, 'includeSubdomains', a.include_subdomains, 'reason', a.reason,
+                'addedBy', a.added_by, 'addedAt', a.added_at) ORDER BY a.domain), '[]')::text
+         FROM dns_allowlist_entries a WHERE a.org_id = :org)
+""").bindparams(bindparam("suffixes", type_=ARRAY(String)))
+
+
+async def sync_payload(s: AsyncSession, org_id: uuid.UUID) -> SyncPayload:
     """The full state the sinkhole should have: both lists of the school.
     Public-suffix blocklist entries (legacy rows) are never sent."""
-    block = await db.execute(
-        select(DnsBlocklistEntry).where(DnsBlocklistEntry.org_id == org_id).order_by(DnsBlocklistEntry.domain)
-    )
-    allow = await db.execute(
-        select(DnsAllowlistEntry).where(DnsAllowlistEntry.org_id == org_id).order_by(DnsAllowlistEntry.domain)
-    )
-    return {
-        "entries": [_wire(r) for r in block.scalars() if not is_public_suffix(r.domain)],
-        "allowlist": [_wire(r) for r in allow.scalars()],
-    }
+    row = (await s.execute(_SYNC_SQL, {"org": org_id, "suffixes": list(plain_public_suffixes())})).one()
+    n_block, block_json, n_allow, allow_json = row
+    language = (await _dns_settings(s, org_id)).block_page_language  # "hu" | "en": safe to inline
+    body = (b'{"entries":' + block_json.encode() + b',"allowlist":' + allow_json.encode()
+            + b',"blockPageLanguage":"' + language.encode() + b'"}')
+    return SyncPayload(body=body, entries=n_block, allowlist=n_allow)
 
 
-async def push_to_sinkhole(payload: dict) -> None:
+async def _dns_settings(s: AsyncSession, org_id: uuid.UUID):
+    from smp.modules.dns import DnsSettings
+
+    row = await s.get(ModuleSetting, (org_id, "dns"))
+    return DnsSettings.model_validate(row.data if row else {})
+
+
+async def push_to_sinkhole(payload: SyncPayload) -> None:
     """Replace the Go sinkhole's lists (it applies allowlist -> blocklist -> allow).
     Raises httpx.HTTPError if it can't be reached or refuses the token."""
     settings = get_settings()
-    headers = {}
+    headers = {"Content-Type": "application/json"}
     if settings.dns_sync_token:
         headers["Authorization"] = f"Bearer {settings.dns_sync_token}"
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    # A big list is ~15 MB the sinkhole parses and writes to disk: give it time.
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
         response = await client.post(
             settings.dns_sinkhole_url.rstrip("/") + "/api/blocklist/sync",
-            json=payload,
+            content=payload.body,
             headers=headers,
         )
         response.raise_for_status()
 
 
+_sync_locks: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+async def sync_org(org_id: uuid.UUID) -> None:
+    """Push the school's current lists. One sync per school at a time; each reads the
+    lists when its turn comes, so the last one always sends the latest state."""
+    lock = _sync_locks.setdefault(org_id, asyncio.Lock())
+    async with lock:
+        async with db.sessionmaker()() as s:
+            payload = await sync_payload(s, org_id)
+        await push_to_sinkhole(payload)
+
+
 async def sync_sinkhole(ctx: Ctx) -> None:
-    """After a change: push the school's full state (also: `smp dns-sync`)."""
+    """After a change (committed): push the school's full state (also: `smp dns-sync`)."""
     try:
-        await push_to_sinkhole(await sync_payload(ctx.db, ctx.org_id))
+        await sync_org(ctx.org_id)
     except httpx.HTTPError as exc:
         raise AppError(
             status.HTTP_502_BAD_GATEWAY,
@@ -289,51 +340,90 @@ async def delete_entry(entry_id: str, ctx: Ctx = Depends(require(WRITE))):
     await sync_sinkhole(ctx)
 
 
-async def _importable(ctx: Ctx, content: bytes) -> tuple[list[str], list[str]]:
-    """(domains to block, valid domains skipped because allowlisted / public suffix)."""
-    allow = by_domain(await _allowlist(ctx))
-    take, skipped = [], []
-    for domain in parse_hosts(content):
-        (skipped if is_public_suffix(domain) or match(domain, allow) else take).append(domain)
-    return take, skipped
+def _jobs(request: Request) -> imports.ImportJobs:
+    return request.app.state.registry.get("dns").imports
 
 
-@router.post("/blocklist/import-preview", response_model=HostsPreviewOut)
-async def preview_import(request: Request, ctx: Ctx = Depends(require(WRITE))):
-    domains, skipped = await _importable(ctx, await request.body())
-    return HostsPreviewOut(domains=domains, unique_count=len(domains), skipped=skipped)
-
-
-@router.post("/blocklist/import", response_model=HostsPreviewOut, status_code=201)
-async def import_hosts(request: Request, ctx: Ctx = Depends(require(WRITE))):
-    domains, skipped = await _importable(ctx, await request.body())
-    if not domains:
-        raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "dns.no_valid_domains", "no valid domains found")
-    existing = set((await ctx.db.execute(select(DnsBlocklistEntry.domain).where(DnsBlocklistEntry.org_id == ctx.org_id))).scalars())
-    now = datetime.now(UTC)
-    added_by = f"imported by: {ctx.principal.name}"
-    new = [d for d in domains if d not in existing]
-    ctx.db.add_all(
-        DnsBlocklistEntry(
-            org_id=ctx.org_id,
-            domain=d,
-            include_subdomains=True,
-            reason="imported",
-            added_by=added_by,
-            confidence=None,
-            added_at=now,
-        )
-        for d in new
+def _job_out(job: imports.ImportJob) -> ImportJobOut:
+    return ImportJobOut(
+        id=job.id, state=job.state, progress=round(job.progress, 3), file_bytes=job.file_bytes,
+        new=len(job.new) if job.added is None else job.added, existing=len(job.existing), skipped=len(job.skipped),
+        added=job.added, sync_ok=job.sync_ok, error=ImportErrorOut(**job.error) if job.error else None,
     )
-    ctx.audit(
-        "dns.blocklist.import",
-        target_type="dns_blocklist",
-        details={"imported": len(new), "skipped": len(skipped), "addedBy": added_by},
-    )
-    ctx.emit("dns.blocklist.updated", {"imported": len(new)})
-    await ctx.commit()
-    await sync_sinkhole(ctx)
-    return HostsPreviewOut(domains=domains, unique_count=len(new), skipped=skipped)
+
+
+def _own_job(request: Request, ctx: Ctx, job_id: str) -> imports.ImportJob:
+    job = _jobs(request).get(job_id, ctx.org_id, ctx.principal.id)
+    if job is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "import not found", entity="import")
+    return job
+
+
+@router.post("/blocklist/imports", response_model=ImportJobOut, status_code=202)
+async def start_import(request: Request, ctx: Ctx = Depends(require(WRITE))):
+    """Upload a hosts file (raw body). Checking runs in the background; poll the job.
+    One import per person: this replaces their unconfirmed one (see imports.py)."""
+    content = await read_limited(request, imports.MAX_IMPORT_BYTES)
+    job = imports.ImportJob(org_id=ctx.org_id, owner_id=ctx.principal.id, owner_name=ctx.principal.name,
+                            file_bytes=len(content))
+    match _jobs(request).add(job):
+        case "dns.import_in_progress":
+            raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "dns.import_in_progress",
+                           "your previous import is still being checked or saved; wait until it's finished")
+        case "dns.too_many_imports":
+            raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "dns.too_many_imports",
+                           "too many imports at once in this school; try again in a few minutes",
+                           max=imports.MAX_JOBS_PER_ORG)
+    _jobs(request).run(imports.check(job, content))
+    return _job_out(job)
+
+
+@router.get("/blocklist/imports/{job_id}", response_model=ImportJobOut)
+async def import_status(job_id: str, request: Request, ctx: Ctx = Depends(require(WRITE))):
+    return _job_out(_own_job(request, ctx, job_id))
+
+
+@router.get("/blocklist/imports/{job_id}/domains", response_model=Page[str])
+async def import_domains(
+    job_id: str,
+    request: Request,
+    ctx: Ctx = Depends(require(WRITE)),
+    kind: Literal["new", "existing", "skipped"] = "new",
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+) -> Page[str]:
+    """One page of the preview: what the import adds, what's already listed, what's skipped."""
+    job = _own_job(request, ctx, job_id)
+    domains = {"new": job.new, "existing": job.existing, "skipped": job.skipped}[kind]
+    return Page(items=domains[offset:offset + limit], total=len(domains))
+
+
+@router.post("/blocklist/imports/{job_id}/confirm", response_model=ImportJobOut, status_code=202)
+async def confirm_import(job_id: str, request: Request, ctx: Ctx = Depends(require(WRITE))):
+    """Add the new domains (in the background; poll the job)."""
+    job = _own_job(request, ctx, job_id)
+    if job.state != "ready":
+        raise AppError(status.HTTP_409_CONFLICT, "dns.import_not_ready", f"the import is {job.state}", state=job.state)
+    if not job.new:
+        raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "dns.no_valid_domains", "no new domains to import")
+    p = ctx.principal
+    actor = imports.Actor(kind=p.kind, id=str(p.id), name=p.name, ip=client_ip(request),
+                          user_agent=(request.headers.get("user-agent") or "")[:400] or None)
+    job.state, job.progress = "saving", 0.0
+    _jobs(request).run(imports.save(job, actor, request.app.state.bus, _sync_for_jobs))
+    return _job_out(job)
+
+
+async def _sync_for_jobs(org_id: uuid.UUID) -> None:
+    await sync_org(org_id)  # looked up at call time (tests replace sync_org)
+
+
+@router.delete("/blocklist/imports/{job_id}", status_code=204)
+async def cancel_import(job_id: str, request: Request, ctx: Ctx = Depends(require(WRITE))):
+    job = _own_job(request, ctx, job_id)
+    if job.state in ("saving", "syncing"):
+        raise AppError(status.HTTP_409_CONFLICT, "dns.import_running", "the import is being saved; it can't be stopped now")
+    _jobs(request).remove(job.id)
 
 
 # --------------------------------------------------------------------------- allowlist
@@ -388,7 +478,10 @@ async def check_domain(domain: str, ctx: Ctx = Depends(require(READ))) -> dict:
     d = normalize_domain(domain)
     if d is None:
         raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "dns.invalid_domain", "invalid domain")
-    allow, block = by_domain(await _allowlist(ctx)), by_domain(await _blocklist(ctx))
+    labels = d.split(".")
+    candidates = [".".join(labels[i:]) for i in range(len(labels))]  # the domain and its parents
+    block_rows = await ctx.db.execute(ctx.select(DnsBlocklistEntry).where(DnsBlocklistEntry.domain.in_(candidates)))
+    allow, block = by_domain(await _allowlist(ctx)), by_domain(block_rows.scalars())
     entry = blocked_by(d, allow, block)
     covering = match(d, allow)
     return {
@@ -422,4 +515,5 @@ async def sync_status(ctx: Ctx = Depends(require(READ))):
         allowlist_entries=allowed or 0,
         sinkhole_url=settings.dns_sinkhole_url,
         sync_configured=sync_configured,
+        block_page_language=(await _dns_settings(ctx.db, ctx.org_id)).block_page_language,
     )

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::core::identity::{hex, Identity};
+use crate::core::presence::PresenceProbe;
 use crate::core::sysinfo::SysInfo;
 use crate::core::tls::{client_config, PinningVerifier};
 
@@ -85,6 +86,8 @@ struct JoinIn<'a> {
     os_name: &'a str,
     os_version: &'a str,
     agent_version: &'a str,
+    /// This computer's own IP (see HeartbeatIn::address).
+    address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +110,10 @@ pub struct HeartbeatIn {
     pub wait: bool,
     /// [`PLATFORM`]: which build the server offers as an update.
     pub platform: &'static str,
+    /// This computer's own IP: the one it uses to reach the server (core/presence.rs).
+    /// The server shows it as the device's address and uses it for "by network" rooms;
+    /// it can't see it itself when the computer is behind a NAT.
+    pub address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,6 +173,7 @@ impl Client {
             os_name: &info.os_name,
             os_version: &info.os_version,
             agent_version: AGENT_VERSION,
+            address: PresenceProbe::new(&self.server).local_address().map(|a| a.to_string()),
         };
         self.post("/api/v1/agent/join", &body, Duration::from_secs(30))
     }

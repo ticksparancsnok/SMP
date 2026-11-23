@@ -58,25 +58,55 @@ async function send(method: string, path: string, opts: Options = {}): Promise<R
     headers,
     body,
   })
-  if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized()
-  if (!res.ok) {
-    let detail: unknown = res.statusText
-    let code: string | null = null
-    let params: Params = {}
-    try {
-      const body = await res.json()
-      detail = body.detail
-      if (typeof body.code === 'string') code = body.code
-      if (body.params && typeof body.params === 'object') params = body.params
-    } catch {
-      /* not JSON */
-    }
-    // Safety net: an admin reset this user's password while they were using the app.
-    if (res.status === 403 && (code === 'auth.password_change_required' || detail === 'password change required'))
-      onPasswordChangeRequired()
-    throw new ApiError(res.status, detail, code, params)
-  }
+  if (!res.ok) throw failure(path, res.status, res.statusText, await res.text().catch(() => ''))
   return res
+}
+
+/** The ApiError for a failed response (fetch or XMLHttpRequest), after the global
+ *  reactions: signed out -> login page, password reset meanwhile -> change it. */
+function failure(path: string, status: number, statusText: string, text: string): ApiError {
+  if (status === 401 && !path.startsWith('/auth/')) onUnauthorized()
+  let detail: unknown = statusText
+  let code: string | null = null
+  let params: Params = {}
+  try {
+    const body = JSON.parse(text)
+    detail = body.detail
+    if (typeof body.code === 'string') code = body.code
+    if (body.params && typeof body.params === 'object') params = body.params
+  } catch {
+    /* not JSON */
+  }
+  // Safety net: an admin reset this user's password while they were using the app.
+  if (status === 403 && (code === 'auth.password_change_required' || detail === 'password change required'))
+    onPasswordChangeRequired()
+  return new ApiError(status, detail, code, params)
+}
+
+/** POST a file and report how much of it went out (0..1). fetch() can't tell upload
+ *  progress, XMLHttpRequest can; errors are the same ApiErrors as everywhere else. */
+function uploadWithProgress<T>(path: string, file: Blob, fileType: string, onProgress: (sent: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', new URL('/api/v1' + path, window.location.origin))
+    xhr.withCredentials = true
+    xhr.setRequestHeader('content-type', fileType || file.type || 'application/octet-stream')
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(1)
+        try {
+          resolve((xhr.status === 204 ? undefined : JSON.parse(xhr.responseText)) as T)
+        } catch (e) {
+          reject(e)
+        }
+      } else reject(failure(path, xhr.status, xhr.statusText, xhr.responseText))
+    }
+    xhr.onerror = () => reject(new ApiError(0, t('error.network')))
+    xhr.send(file)
+  })
 }
 
 async function request<T>(method: string, path: string, opts: Options = {}): Promise<T> {
@@ -108,6 +138,7 @@ export const api = {
   del: (path: string) => request<void>('DELETE', path),
   upload: <T>(path: string, file: Blob, fileType: string, query?: Query) =>
     request<T>('POST', path, { file, fileType, query }),
+  uploadWithProgress,
   download,
 }
 

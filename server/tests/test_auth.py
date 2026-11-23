@@ -289,3 +289,24 @@ async def test_chunked_upload_is_cut_off(admin, monkeypatch):
     assert r.status_code == 413
     assert "content-length" not in {k.lower() for k in r.request.headers}
 
+
+
+async def test_guessing_the_current_password_counts_like_failed_logins(app, admin):
+    """A teacher left SMP open: guessing their password through the change-password
+    form uses up the same 5 attempts as the login, then the account locks and the open
+    session ends."""
+    from tests.conftest import OWN_PW
+
+    app.state.login_throttle.reset()
+    async with login_as(app, admin, "guess.victim", [{"role": "teacher"}]) as open_session:
+        wrong = {"current_password": "guess-Abc-123", "new_password": "Whatever-New-987"}
+        codes = [(await open_session.post("/api/v1/auth/password", json=wrong)).status_code for _ in range(5)]
+        assert codes == [400, 400, 400, 400, 429]
+        assert (await open_session.get("/api/v1/auth/me")).status_code == 401  # session ended
+        # ...and the account is locked for the login too, even with the right password
+        fresh = make_client(app)
+        r = await fresh.post("/api/v1/auth/login", json={"username": "guess.victim", "password": OWN_PW})
+        assert r.status_code == 429 and r.json()["code"] == "auth.too_many_attempts"
+    actions = [e["action"] for e in (await admin.get("/api/v1/audit", params={"action": "core.auth."})).json()]
+    assert "core.auth.password_change_failed" in actions and "core.auth.sessions_ended" in actions
+    app.state.login_throttle.reset()

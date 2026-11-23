@@ -300,3 +300,10 @@ details summary {
 .sidebar-foot .sidebar-legal {
   padding: 10px 8px 0;
 }
+
+/* DNS hosts import: progress of the current step (upload, check, save, sync) */
+.import-progress {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--accent, #2b6cb0);
+}

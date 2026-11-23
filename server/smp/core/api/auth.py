@@ -245,8 +245,25 @@ async def change_password(body: PasswordChangeIn, response: Response, ctx: Ctx =
     user = await ctx.get(User, p.id)
     if user.auth_source != AuthSource.LOCAL:
         raise AppError(status.HTTP_400_BAD_REQUEST, "auth.external_password", "password is managed by an external directory")
+    # The same per-account counter as the login (smp/core/throttle.py), so an open
+    # session (a teacher's unlocked PC) can't be used to guess the account's password.
+    throttle: LoginThrottle = ctx.request.app.state.login_throttle
+    ip = client_ip(ctx.request) or "unknown"
+    if not throttle.allowed(ip, user.username):
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts", "too many attempts, try again later")
+    throttle.record_attempt(ip)
     if not await verify_password_async(user.password_hash, body.current_password):
+        throttle.record_failure(user.username)
+        ctx.audit("core.auth.password_change_failed", user, {"reason": "wrong current password"})
+        if throttle.locked(user.username):
+            # Locked like after failed logins; and whoever is guessing loses the session.
+            await ctx.db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+            ctx.audit("core.auth.sessions_ended", user, {"reason": "too many wrong current passwords"})
+            await ctx.commit()
+            raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts", "too many attempts, try again later")
+        await ctx.commit()
         raise AppError(status.HTTP_400_BAD_REQUEST, "auth.wrong_current_password", "The current password is incorrect.")
+    throttle.record_success(user.username)
     if body.new_password == body.current_password:
         raise AppError(
             status.HTTP_400_BAD_REQUEST, "auth.password_unchanged", "The new password must be different from the current one."

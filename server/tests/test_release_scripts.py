@@ -275,3 +275,51 @@ def test_version_compare(a, b, result):
 def test_version_compare_refuses_malformed_versions(bad):
     out = subprocess.run(["sh", str(VERSION_SH), "--compare", bad, "1.0.0"], capture_output=True, text=True)
     assert out.returncode == 1 and "is not a version" in out.stderr
+
+
+def apply_reports(new: Path, target: Path, plan: Path, backup: Path) -> subprocess.CompletedProcess:
+    """smp_apply called the way upgrade.sh calls it (`if ! smp_apply`): there bash ignores
+    `set -e` inside the function, so only its own return value tells about failures."""
+    script = ('set -euo pipefail; source "$5"; smp_plan "$1" "$2" "$3"; '
+              'if smp_apply "$1" "$2" "$3" "$4"; then echo APPLIED; else echo FAILED; fi')
+    return subprocess.run(["bash", "-c", script, "-", str(new), str(target), str(plan), str(backup), str(RELEASE_SH)],
+                          capture_output=True, text=True)
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores file permissions")
+def test_a_failed_copy_is_reported_not_ignored(tmp_path):
+    target = tmp_path / "smp"
+    target.mkdir()
+    install(release(tmp_path, "r1"), target, tmp_path / "plan1")
+    r2 = release(tmp_path, "r2", docs__a_md="new a\n", server__Dockerfile="FROM scratch AS two\n")
+    untouched = BASE["server/Dockerfile"]
+
+    # A file of the installation that can't be read: refused while planning (it would
+    # otherwise look absent and be overwritten without a backup).
+    (target / "docs" / "a.md").chmod(0o000)
+    try:
+        r = apply_reports(r2, target, tmp_path / "plan2", tmp_path / "backup2")
+    finally:
+        (target / "docs" / "a.md").chmod(0o644)
+    assert r.returncode != 0 and "can't read" in r.stderr and "docs/a.md" in r.stderr
+    assert (target / "server" / "Dockerfile").read_text() == untouched
+
+    # The backup can't be written: reported before anything is replaced.
+    backup = tmp_path / "backup3"
+    backup.mkdir()
+    backup.chmod(0o555)
+    try:
+        r = apply_reports(r2, target, tmp_path / "plan3", backup)
+    finally:
+        backup.chmod(0o755)
+    assert r.stdout.strip() == "FAILED" and "couldn't back up" in r.stderr
+    assert (target / "server" / "Dockerfile").read_text() == untouched
+
+    # A file can't be written (e.g. a full disk): reported, so upgrade.sh rolls back.
+    (target / "server").chmod(0o555)
+    try:
+        r = apply_reports(r2, target, tmp_path / "plan4", tmp_path / "backup4")
+    finally:
+        (target / "server").chmod(0o755)
+    assert r.stdout.strip() == "FAILED" and "couldn't write server/Dockerfile" in r.stderr
+    assert not (target / "server" / "Dockerfile.smp-new").exists()

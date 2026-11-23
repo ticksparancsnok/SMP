@@ -30,8 +30,11 @@ def b64url(b: bytes) -> str:
 
 
 class FakeAgent:
-    def __init__(self, app, ip: str = "10.20.0.5", hostname: str = "LAB1-PC01", mac: str = "aa:bb:cc:00:00:01"):
-        self.app, self.ip, self.hostname, self.mac = app, ip, hostname, mac
+    def __init__(self, app, ip: str = "10.20.0.5", hostname: str = "LAB1-PC01", mac: str = "aa:bb:cc:00:00:01",
+                 address: str | None = None):
+        # ip: where the server sees requests come from. address: what the agent reports as
+        # its own (None: an agent from before it reported one).
+        self.app, self.ip, self.hostname, self.mac, self.address = app, ip, hostname, mac, address
         self.key = ec.generate_private_key(ec.SECP256R1())
         point = self.key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
         self.public_key = b64url(point)
@@ -59,6 +62,7 @@ class FakeAgent:
         return await self.post("/api/v1/agent/join", {
             "public_key": self.public_key, "hostname": self.hostname, "mac": self.mac,
             "os_name": "Windows 11 Pro", "os_version": "10.0.26100", "agent_version": "0.1.0",
+            **({"address": self.address} if self.address else {}),
         })
 
     async def status(self) -> str:
@@ -68,6 +72,7 @@ class FakeAgent:
         r = await self.post("/api/v1/agent/heartbeat", {
             "hostname": self.hostname, "user": user, "agent_version": "0.1.0",
             "config_version": self.config_version, "wait": wait, "platform": platform,
+            **({"address": self.address} if self.address else {}),
         })
         if r.status_code == 200:
             self.config_version = r.json()["config_version"]
@@ -121,21 +126,54 @@ async def test_join_approve_heartbeat(app, admin):
     assert {"agent.join.request", "agent.join.approve"} <= actions
 
 
-async def test_reject_and_rejoin(app, admin):
-    agent = FakeAgent(app)
+async def test_a_rejected_machine_stays_rejected_until_allowed_again(app, admin):
+    agent = FakeAgent(app, mac="AA-BB-CC-00-00-01")  # however the MAC is written
     await agent.join()
     (req,) = await pending(admin)
     assert (await admin.post(f"/api/v1/agent/join-requests/{req['id']}/reject")).status_code == 204
-    assert await agent.status() == "unknown"  # rejected: the agent may ask again ...
-    assert (await agent.join()).json()["status"] == "pending"  # ... and lands in the list again
-    assert len(await pending(admin)) == 1
+    assert await agent.status() == "rejected" and await pending(admin) == []
+    # Asking again changes nothing: not with the same key, not after an IP change...
+    agent.ip = "10.20.0.77"
+    assert (await agent.join()).json()["status"] == "rejected"
+    # ...and not reinstalled with a new key on the same machine (same MAC).
+    reinstalled = FakeAgent(app, ip="10.20.0.78", mac="aa:bb:cc:00:00:01")
+    assert (await reinstalled.join()).json()["status"] == "rejected"
+    assert await pending(admin) == []
+    (gone,) = (await admin.get("/api/v1/agent/join-requests/rejected")).json()
+    assert gone["hostname"] == agent.hostname and gone["rejected_at"]
+
+    # "Allow again": the machine's next request is a normal one.
+    assert (await admin.post(f"/api/v1/agent/join-requests/{gone['id']}/allow")).status_code == 204
+    assert await agent.status() == "unknown"
+    assert (await agent.join()).json()["status"] == "pending" and len(await pending(admin)) == 1
+    actions = [e["action"] for e in (await admin.get("/api/v1/audit", params={"action": "agent.join."})).json()]
+    assert {"agent.join.reject", "agent.join.allow_again"} <= set(actions)
+
+
+async def test_a_reinstalled_pc_replaces_its_own_request(app, admin):
+    first = FakeAgent(app, mac="aa:bb:cc:00:00:31")
+    await first.join()
+    again = FakeAgent(app, mac="aa:bb:cc:00:00:31")  # new key, same machine
+    await again.join()
+    assert [r["fingerprint"] for r in await pending(admin)] == [again.fingerprint]
 
 
 async def test_join_requests_are_rate_limited(app, admin, monkeypatch):
-    monkeypatch.setattr("smp.modules.agent.api.MAX_PENDING_PER_IP", 2)
-    codes = [(await FakeAgent(app, ip="10.30.0.9").join()).status_code for _ in range(3)]
+    monkeypatch.setattr("smp.modules.agent.api.MAX_PENDING_PER_NETWORK", 2)
+    codes = [(await FakeAgent(app, ip="10.30.0.9", mac=f"aa:bb:cc:30:00:{i:02x}").join()).status_code for i in range(3)]
     assert codes == [200, 200, 429]
-    assert (await FakeAgent(app, ip="10.30.0.10").join()).status_code == 200  # other machines aren't blocked
+    assert (await FakeAgent(app, ip="10.30.0.10", mac="aa:bb:cc:30:01:00").join()).status_code == 200  # others aren't blocked
+
+
+async def test_one_laptop_cant_flood_the_queue_with_ipv6_addresses(app, admin, monkeypatch):
+    """A machine owns a whole IPv6 /64 and could send each request from a new address,
+    with a new key and a made-up MAC: the limit counts the /64."""
+    monkeypatch.setattr("smp.modules.agent.api.MAX_PENDING_PER_NETWORK", 3)
+    codes = [(await FakeAgent(app, ip=f"2001:db8:5:6::{i + 1:x}", mac=f"02:00:00:00:00:{i:02x}").join()).status_code
+             for i in range(5)]
+    assert codes == [200, 200, 200, 429, 429]
+    other_net = FakeAgent(app, ip="2001:db8:5:7::1", mac="02:00:00:00:01:00")  # another /64: another machine
+    assert (await other_net.join()).status_code == 200
 
 
 async def test_only_admins_approve(app, admin):
@@ -395,3 +433,67 @@ def test_the_offered_build_follows_file_changes(monkeypatch, tmp_path):
     assert second.sha256 != first.sha256 and second.sha256 == hashlib.sha256(b"MZ-two").hexdigest()
     ver.write_text("0.2.0\n")
     assert download.current_build().version == "0.2.0"
+
+
+# --------------------------------------------------------------------------- addresses behind a NAT
+
+
+async def test_agents_report_their_own_address_behind_a_nat(app, admin):
+    """A lab behind its own router: the server sees the router (10.20.0.1) for every PC,
+    the agents report their real addresses (192.168.50.x)."""
+    inner = (await admin.post("/api/v1/rooms", json={"name": "NAT lab", "subnets": ["192.168.50.0/24"]})).json()
+    outer = (await admin.post("/api/v1/rooms", json={"name": "Behind the router", "subnets": ["10.20.0.0/24"]})).json()
+
+    pc = FakeAgent(app, ip="10.20.0.1", hostname="NATLAB-PC01", mac="aa:bb:cc:50:00:01", address="192.168.50.11")
+    await pc.join()
+    (req,) = [r for r in await pending(admin) if r["fingerprint"] == pc.fingerprint]
+    assert (req["ip"], req["observed_ip"]) == ("192.168.50.11", "10.20.0.1")  # what the admin sees
+    device_id = await approve(admin, pc, room_mode="network")
+    device = (await admin.get(f"/api/v1/devices/{device_id}")).json()
+    assert (device["last_ip"], device["observed_ip"], device["room_id"]) == ("192.168.50.11", "10.20.0.1", inner["id"])
+
+    # The PC moves within the lab: its own address follows, the router's stays.
+    pc.address = "192.168.50.42"
+    assert (await pc.heartbeat()).status_code == 200
+    device = (await admin.get(f"/api/v1/devices/{device_id}")).json()
+    assert (device["last_ip"], device["observed_ip"]) == ("192.168.50.42", "10.20.0.1")
+    found = (await admin.get("/api/v1/devices", params={"ip": "192.168.50.42"})).json()["items"]
+    assert [d["id"] for d in found] == [device_id]
+    via_router = (await admin.get("/api/v1/devices", params={"ip": "10.20.0.1"})).json()["items"]
+    assert device_id in [d["id"] for d in via_router]  # every PC behind the router
+
+    # An inner address no room knows: the room comes from the address the server sees.
+    pc.address = "172.30.9.9"
+    await pc.heartbeat()
+    assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["room_id"] == outer["id"]
+
+    # Nonsense is ignored (the seen address is used), and so is an agent that sends none.
+    for bad in ("0.0.0.0", "not-an-ip", "224.0.0.1"):
+        pc.address = bad
+        await pc.heartbeat()
+        assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["last_ip"] == "10.20.0.1", bad
+    pc.address = None
+    await pc.heartbeat()
+    assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["last_ip"] == "10.20.0.1"
+
+
+async def test_an_online_pc_isnt_taken_over_by_mistake(app, admin):
+    """A laptop asking to join with an online lab PC's hostname and MAC."""
+    real = FakeAgent(app, ip="10.88.0.20", hostname="LAB-PC07", mac="aa:bb:cc:88:00:07")
+    await real.join()
+    real_id = await approve(admin, real)
+    await real.heartbeat()
+    fake = FakeAgent(app, ip="10.88.0.66", hostname="LAB-PC07", mac="aa:bb:cc:88:00:07")
+    await fake.join()
+    (req,) = [r for r in await pending(admin) if r["fingerprint"] == fake.fingerprint]
+    assert req["suggested_device_id"] == real_id and req["suggested_device_online"] is True  # the UI warns
+
+    r = await admin.post(f"/api/v1/agent/join-requests/{req['id']}/approve", json={"device_id": real_id})
+    assert r.status_code == 409 and r.json()["code"] == "agent.device_online"
+    assert (await real.heartbeat()).status_code == 200  # the real PC is untouched
+
+    # A real reinstall: the admin says so explicitly (and it's audited).
+    r = await admin.post(f"/api/v1/agent/join-requests/{req['id']}/approve", json={"device_id": real_id, "replace_online": True})
+    assert r.status_code == 200
+    (entry, *_) = (await admin.get("/api/v1/audit", params={"action": "agent.join.approve"})).json()
+    assert entry["details"]["replaced_online_agent"] is True

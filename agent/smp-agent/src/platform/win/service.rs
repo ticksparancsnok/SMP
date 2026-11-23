@@ -69,6 +69,7 @@ pub fn install(server: Option<String>) -> Result<()> {
     let agent = Agent::open(&state_path, Some(&server))?;
     match agent.client.join(&SysInfo::collect()) {
         Ok(reply) if reply.status == "approved" => println!("This computer is already approved in SMP."),
+        Ok(reply) if reply.status == "rejected" => println!("{}", crate::REJECTED_NOTE),
         Ok(reply) => crate::show_fingerprint(&reply.fingerprint_display),
         Err(e) => println!("Couldn't reach {server} now ({e}); the service will keep trying."),
     }
