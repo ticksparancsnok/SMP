@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, IPvAnyAddress, ValidationError, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from smp.core.api import ORMModel
 from smp.core.context import Ctx, require
@@ -103,6 +103,9 @@ class AssignmentOut(ORMModel):
     enabled: bool
     label: str
     created_by: uuid.UUID | None
+    # Display name of the target (room/group name, hostname, "Name (username)"); None
+    # for the whole school or when the target no longer exists. Filled by the list.
+    target_name: str | None = None
 
 
 # --------------------------------------------------------------------------- policies
@@ -257,7 +260,54 @@ async def list_assignments(
         stmt = stmt.where(PolicyAssignment.target_type == target_type)
     if target_id:
         stmt = stmt.where(PolicyAssignment.target_id == target_id)
-    return list((await ctx.db.execute(stmt)).scalars())
+    rows = list((await ctx.db.execute(stmt)).scalars())
+    names = await _target_names(ctx, rows)
+    return [
+        AssignmentOut.model_validate(a).model_copy(update={"target_name": names.get((a.target_type, a.target_id))})
+        for a in rows
+    ]
+
+
+async def _target_names(ctx: Ctx, rows: list[PolicyAssignment]) -> dict[tuple[str, uuid.UUID], str]:
+    """Names of the assignments' targets, one query per target type, so the UI can show
+    them without downloading every device and user of the school. Only names the caller
+    could read from the matching list endpoint (/rooms, /devices, /groups, /users)."""
+    wanted: dict[TargetType, set[uuid.UUID]] = {}
+    for a in rows:
+        if a.target_id is not None and a.target_type != TargetType.ORG:
+            wanted.setdefault(TargetType(a.target_type), set()).add(a.target_id)
+    p = ctx.principal
+    names: dict[tuple[str, uuid.UUID], str] = {}
+    for tt, ids in wanted.items():
+        if tt == TargetType.ROOM:
+            if not p.can_anywhere("core.rooms.read"):
+                continue
+            stmt = select(Room.id, Room.name).where(Room.org_id == ctx.org_id, Room.id.in_(ids))
+            if (allowed := p.rooms_with("core.rooms.read")) is not None:
+                stmt = stmt.where(Room.id.in_(allowed))
+        elif tt == TargetType.DEVICE:
+            if not p.can_anywhere("core.devices.read"):
+                continue
+            stmt = select(Device.id, Device.hostname).where(Device.org_id == ctx.org_id, Device.id.in_(ids))
+            if (allowed := p.rooms_with("core.devices.read")) is not None:
+                stmt = stmt.where(Device.room_id.in_(allowed))
+        elif tt == TargetType.GROUP:
+            if not p.can("core.groups.read"):
+                continue
+            stmt = select(Group.id, Group.name).where(Group.org_id == ctx.org_id, Group.id.in_(ids))
+        else:  # USER
+            if not p.can("core.users.read"):
+                continue
+            stmt = select(
+                User.id,
+                case(
+                    (User.display_name.in_(["", User.username]), User.username),
+                    else_=User.display_name + " (" + User.username + ")",
+                ),
+            ).where(User.org_id == ctx.org_id, User.id.in_(ids))
+        for tid, name in await ctx.db.execute(stmt):
+            names[(tt.value, tid)] = name
+    return names
 
 
 @router.post("/policy-assignments", response_model=AssignmentOut, status_code=201)

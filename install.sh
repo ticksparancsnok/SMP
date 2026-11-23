@@ -3,10 +3,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
-# SMP installer: first-time setup, and safe to re-run for upgrades.
+# SMP installer: first-time setup, and safe to re-run (it checks the configuration and
+# rebuilds what is installed; newer versions are installed with ./upgrade.sh).
 #
-#   ./install.sh
+#   curl -fsSLO https://raw.githubusercontent.com/ticksparancsnok/SMP/main/install.sh
+#   bash install.sh                  installs into this folder (empty, or --dir /opt/smp)
+#   bash install.sh --help           options: another branch/tag, your own download, ...
 #
+# 0. gets SMP: downloads the newest version (the main branch on GitHub, or --ref /
+#    --download-url) and unpacks it here, then continues with the installer that came
+#    with it. Not in a git checkout (its files are used as they are), and not where SMP
+#    is already installed (there it only says if ./upgrade.sh has something newer).
 # 1. creates .env with random secrets (or checks the existing one), and works out
 #    SMP's addresses (for nginx and its certificate) and the DNS sinkhole address
 # 2. builds and starts the containers (nginx in front, HTTPS with a self-signed
@@ -16,9 +23,9 @@
 # 3. on first setup: asks for the school name and the admin username, creates them,
 #    and prints the admin's one-time password (changed at first sign-in)
 #
-# Answers can also be piped in (one per line), e.g. for automated test installs.
+# Answers can also be piped in (one per line), e.g. for automated test installs
+# (`bash install.sh < answers`, not `curl ... | bash`: the script itself would be stdin).
 set -euo pipefail
-cd "$(dirname "$0")"
 
 if [ -t 1 ]; then B=$'\e[1m' R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' N=$'\e[0m'; else B="" R="" G="" Y="" N=""; fi
 say()  { printf '%s\n' "$*"; }
@@ -53,6 +60,152 @@ is_name() { [[ $1 =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; }
 add_name() {  # add_name LIST NAME -> LIST with NAME appended once (comma separated)
     case ",$1," in *",$2,"*) printf '%s' "$1" ;; *) printf '%s' "${1:+$1,}$2" ;; esac
 }
+
+# ------------------------------------------------------------------ getting SMP
+# Where SMP is downloaded from. A modified SMP served elsewhere: --download-url, or change
+# these (keep the AGPL attribution, see NOTICE).
+SMP_REPO_URL=https://github.com/ticksparancsnok/SMP
+SMP_DEFAULT_REF=main
+
+usage() {
+    cat <<EOF
+Usage: install.sh [options]
+
+Installs SMP into a folder: downloads the newest version, sets it up, builds and starts it.
+Run again where SMP is installed, it checks the configuration and rebuilds; newer versions
+are installed with ./upgrade.sh.
+
+  --dir DIR            install into DIR (default: the folder this script is in)
+  --ref REF            a branch or tag of $SMP_REPO_URL (default: $SMP_DEFAULT_REF)
+  --download-url URL   download this .tar.gz of SMP instead (e.g. a modified SMP)
+  --sha256 HASH        refuse the download unless its SHA-256 is HASH
+  --local              don't download: install the SMP files already in the folder
+  --fetch DIR          only download and unpack SMP into DIR (used by upgrade.sh)
+  -h, --help           this help
+EOF
+}
+
+local_files=no
+target=""
+ref=$SMP_DEFAULT_REF
+download_url=""
+sha256=""
+fetch_to=""
+while [ $# -gt 0 ]; do
+    case $1 in
+        --local) local_files=yes ;;
+        --dir | --ref | --download-url | --sha256 | --fetch)
+            [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value (see --help)"
+            case $1 in
+                --dir) target=$2 ;;
+                --ref) ref=$2 ;;
+                --download-url) download_url=$2 ;;
+                --sha256) sha256=$2 ;;
+                --fetch) fetch_to=$2 ;;
+            esac
+            shift
+            ;;
+        -h | --help) usage; exit 0 ;;
+        *) die "unknown option: $1 (see --help)" ;;
+    esac
+    shift
+done
+here=$(cd "$(dirname "$0")" && pwd)
+target=${target:-$here}
+url=${download_url:-$SMP_REPO_URL/archive/$ref.tar.gz}
+
+# fetch_release DEST: downloads SMP and unpacks it into DEST (which must not exist yet).
+# Prints why and returns 1 when that fails or the download isn't an SMP release.
+fetch_release() {
+    local dest=$1 tmp root entries
+    command -v tar >/dev/null || { warn "tar is not installed"; return 1; }
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/smp-download.XXXXXX")
+    say "downloading $url"
+    if command -v curl >/dev/null; then
+        curl -fsSL --retry 3 --max-filesize 500000000 -o "$tmp/smp.tar.gz" "$url" || { warn "download failed: $url"; rm -rf "$tmp"; return 1; }
+    elif command -v wget >/dev/null; then
+        wget -q -O "$tmp/smp.tar.gz" "$url" || { warn "download failed: $url"; rm -rf "$tmp"; return 1; }
+    else
+        warn "neither curl nor wget is installed"; rm -rf "$tmp"; return 1
+    fi
+    if [ -n "$sha256" ] && ! printf '%s  %s\n' "$sha256" "$tmp/smp.tar.gz" | sha256sum -c --quiet - >/dev/null 2>&1; then
+        warn "the download's SHA-256 is $(sha256sum "$tmp/smp.tar.gz" | cut -d' ' -f1), not $sha256"
+        rm -rf "$tmp"; return 1
+    fi
+    mkdir "$tmp/x"
+    tar -xzf "$tmp/smp.tar.gz" -C "$tmp/x" --no-same-owner || { warn "the download isn't a .tar.gz archive"; rm -rf "$tmp"; return 1; }
+    # GitHub's archives hold one folder (SMP-main/); take what's in it.
+    root=$tmp/x
+    entries=$(find "$tmp/x" -mindepth 1 -maxdepth 1 | wc -l)
+    if [ "$entries" = 1 ] && [ -d "$(find "$tmp/x" -mindepth 1 -maxdepth 1)" ]; then
+        root=$(find "$tmp/x" -mindepth 1 -maxdepth 1)
+    fi
+    if [ ! -f "$root/Version.toml" ] || [ ! -f "$root/tools/release.sh" ]; then
+        warn "the download is not an SMP release this installer can use (no Version.toml / tools/release.sh: SMP before 1.0.2 C?)"
+        rm -rf "$tmp"; return 1
+    fi
+    mkdir -p "$(dirname "$dest")"
+    mv "$root" "$dest"
+    rm -rf "$tmp"
+    # shellcheck source=tools/release.sh
+    source "$dest/tools/release.sh"
+    smp_check_release "$dest" || { rm -rf "$dest"; return 1; }
+    sh "$dest/tools/version.sh" release "$dest/Version.toml" >/dev/null || { rm -rf "$dest"; return 1; }
+}
+
+if [ -n "$fetch_to" ]; then  # upgrade.sh: download only
+    [ ! -e "$fetch_to" ] || die "--fetch: $fetch_to already exists"
+    fetch_release "$fetch_to" || die "couldn't download SMP"
+    exit 0
+fi
+
+if [ $local_files = no ]; then
+    step "Getting SMP"
+    if [ -e "$target/.git" ]; then
+        say "$target is a git checkout: installing its files as they are (update them with git)"
+    elif [ -f "$target/Version.toml" ] && [ -f "$target/docker-compose.yml" ]; then
+        # SMP is here already: this run checks and rebuilds it. A newer version is
+        # upgrade.sh's job (it shows what changes and keeps the replaced files).
+        installed=$(sh "$target/tools/version.sh" release "$target/Version.toml" 2>/dev/null || true)
+        say "SMP ${installed:-(unknown version)} is installed in $target; checking for a newer one"
+        work=$(mktemp -d "${TMPDIR:-/tmp}/smp-check.XXXXXX")
+        if fetch_release "$work/smp"; then
+            offered=$(sh "$work/smp/tools/version.sh" release "$work/smp/Version.toml")
+            newer=$(sh "$work/smp/tools/version.sh" --compare "${installed:-0.0.0}" "$offered" 2>/dev/null || true)
+            rm -rf "$work"
+            if [ "$newer" = lt ]; then
+                say "SMP $offered is available."
+                say "  ./upgrade.sh          installs it (shows what changes first, keeps the replaced files)"
+                say "  ./install.sh --local  rebuilds the installed $installed as it is"
+                exit 1
+            fi
+            say "that is the newest one ($offered); rebuilding what is installed"
+        else
+            rm -rf "$work"
+            warn "couldn't check for a newer version; rebuilding what is installed"
+        fi
+    else
+        mkdir -p "$target"
+        target=$(cd "$target" && pwd)
+        # Only into a fresh folder: anything else there could be overwritten.
+        others=$(find "$target" -mindepth 1 -maxdepth 1 ! -name install.sh ! -name upgrade.sh ! -name .env ! -name nginx -printf '%f ' 2>/dev/null)
+        if [ -n "$others" ]; then
+            die "$target isn't empty (${others% }): install into an empty folder, e.g. bash install.sh --dir /opt/smp"
+        fi
+        work=$(mktemp -d "${TMPDIR:-/tmp}/smp-install.XXXXXX")
+        fetch_release "$work/smp" || { rm -rf "$work"; die "couldn't download SMP (see above); --download-url / --ref choose another source"; }
+        # shellcheck source=tools/release.sh
+        source "$work/smp/tools/release.sh"
+        smp_plan "$work/smp" "$target" "$work/plan" || { rm -rf "$work"; die "couldn't unpack SMP"; }
+        smp_apply "$work/smp" "$target" "$work/plan" || { rm -rf "$work"; die "couldn't copy SMP into $target"; }
+        say "SMP $(sh "$work/smp/tools/version.sh" release "$work/smp/Version.toml") unpacked into $target"
+        rm -rf "$work"
+    fi
+    # Continue with the installer of the files being installed (maybe newer than this one).
+    exec bash "$target/install.sh" --local --dir "$target"
+fi
+[ -f "$target/docker-compose.yml" ] && [ -f "$target/.env.example" ] || die "$target has no SMP files (run without --local to download them)"
+cd "$target"
 
 # ------------------------------------------------------------------ prerequisites
 step "Checking prerequisites"
@@ -94,8 +247,9 @@ if [ ! -f .env ]; then
     env_set SMP_DB_PASSWORD "$(secret)"
     env_set SMP_SECRET_KEY "$(secret)"
     env_set SMP_DNS_SYNC_TOKEN "$(secret)"
+    env_set SMP_BACKUP_KEY "$(secret)"
     env_set SMP_DNS_SINKHOLE_URL "http://dns-sinkhole:8080"
-    say "created .env with new random secrets (keep a backup: without it the database can't be opened)"
+    say "created .env with new random secrets (keep a copy away from this server: without it the database and its backups can't be opened)"
 else
     say "using the existing .env"
     if ! key_ok "$(env_get SMP_SECRET_KEY)"; then
@@ -106,6 +260,13 @@ else
     if [ -z "$(env_get SMP_DNS_SYNC_TOKEN)" ]; then
         env_set SMP_DNS_SYNC_TOKEN "$(secret)"
         say "generated SMP_DNS_SYNC_TOKEN"
+    fi
+    # Only when missing: replacing it would make every existing backup unreadable.
+    if [ -z "$(env_get SMP_BACKUP_KEY)" ]; then
+        env_set SMP_BACKUP_KEY "$(secret)"
+        say "generated SMP_BACKUP_KEY (encrypts the database backups ./upgrade.sh makes)"
+    elif ! key_ok "$(env_get SMP_BACKUP_KEY)"; then
+        die "SMP_BACKUP_KEY in .env is too short or a placeholder: set it to at least 32 random characters (existing backups need the key they were made with)"
     fi
     if [ -z "$(env_get SMP_DB_PASSWORD)" ] || [ "$(env_get SMP_DB_PASSWORD)" = change-me ]; then
         [ $db_exists = yes ] && die "SMP_DB_PASSWORD in .env is empty/placeholder but a database exists: put its original password back"
@@ -266,6 +427,7 @@ suffix=""
 [ "$https_port" = 443 ] || suffix=":$https_port"
 step "Done"
 say "School:      $school"
+say "Version:     SMP $(sh tools/version.sh release)"
 say "Open SMP:    https://localhost$suffix/"
 for n in ${names//,/ }; do
     case $n in localhost|127.0.0.1) ;; *) say "             https://$n$suffix/" ;; esac

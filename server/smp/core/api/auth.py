@@ -5,9 +5,10 @@
 import logging
 import uuid
 from datetime import timedelta
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +38,41 @@ class LoginIn(BaseModel):
     org: str | None = None  # org slug; defaults to SMP_DEFAULT_ORG
 
 
+# The rows-per-page choices the UI offers (WEBUI/src/paging.ts PAGE_SIZES).
+PageSize = Literal[10, 50, 100, 500]
+# The UI languages (WEBUI/src/i18n/index.ts LOCALES).
+Locale = Literal["hu", "en"]
+# A list's key in the UI, e.g. "dns.blocklist" or "users".
+PrefKey = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_.-]{1,64}$")]
+MAX_PAGE_SIZE_KEYS = 100  # far more lists than the UI has; keeps the stored JSON small
+
+
+class PreferencesOut(BaseModel):
+    """A user's own UI settings, stored on their account (users.preferences)."""
+
+    page_size: dict[str, PageSize] = {}
+    # None = not chosen on this account yet (the UI then keeps the browser's choice).
+    locale: Locale | None = None
+
+
+class PreferencesPatch(BaseModel):
+    """Merged into the stored preferences: only the fields sent change. A null page size
+    removes that list's choice; "locale": null forgets the language."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page_size: dict[PrefKey, PageSize | None] = Field(default={}, max_length=MAX_PAGE_SIZE_KEYS)
+    locale: Locale | None = None
+
+
+def _preferences(user: User | None) -> PreferencesOut:
+    # Unknown or no-longer-valid stored values are dropped rather than failing /auth/me.
+    raw = (user.preferences if user else None) or {}
+    sizes = raw.get("page_size") if isinstance(raw.get("page_size"), dict) else {}
+    locale = raw.get("locale") if raw.get("locale") in ("hu", "en") else None
+    return PreferencesOut(page_size={k: v for k, v in sizes.items() if v in (10, 50, 100, 500)}, locale=locale)
+
+
 class MeOut(BaseModel):
     id: uuid.UUID
     kind: str
@@ -48,6 +84,7 @@ class MeOut(BaseModel):
     permissions: list[str]
     room_permissions: dict[str, list[str]]
     must_change_password: bool = False
+    preferences: PreferencesOut = PreferencesOut()
 
 
 class PasswordChangeIn(BaseModel):
@@ -228,6 +265,31 @@ async def change_password(body: PasswordChangeIn, response: Response, ctx: Ctx =
     await ctx.commit()
 
 
+@router.patch("/preferences", response_model=PreferencesOut)
+async def update_preferences(body: PreferencesPatch, ctx: Ctx = Depends(get_ctx)):
+    """Save the signed-in user's own UI settings (not audited: they change nothing
+    for anyone else). API tokens have no account to store them on."""
+    p = ctx.principal
+    if p is None or p.kind != "user":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "only users have preferences")
+    user = await ctx.get(User, p.id)
+    current = _preferences(user)
+    sizes = dict(current.page_size)
+    for key, size in body.page_size.items():
+        if size is None:
+            sizes.pop(key, None)
+        else:
+            sizes[key] = size
+    if len(sizes) > MAX_PAGE_SIZE_KEYS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "too many saved page sizes")
+    locale = body.locale if "locale" in body.model_fields_set else current.locale
+    updated = PreferencesOut(page_size=sizes, locale=locale)
+    # Assign a new dict: in-place changes to a JSON column are not detected.
+    user.preferences = {**(user.preferences or {}), **updated.model_dump()}
+    await ctx.commit()
+    return updated
+
+
 def _me(p, user: User | None, org, registry) -> MeOut:
     return MeOut(
         id=p.id,
@@ -240,4 +302,5 @@ def _me(p, user: User | None, org, registry) -> MeOut:
         permissions=p.all_permissions(registry),
         room_permissions={str(k): sorted(v) for k, v in p.room_perms.items()},
         must_change_password=bool(user and user.must_change_password),
+        preferences=_preferences(user),
     )

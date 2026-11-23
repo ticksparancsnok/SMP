@@ -19,8 +19,11 @@ https://<smp address>/downloads/smp-agent.exe
 No sign-in is needed, so you can download it right on the PC (the exe holds no
 secrets; a PC does nothing until an admin approves it). In SMP, **Devices -> Agent for
 Windows** shows the same link, the version, the SHA-256 checksum and the install
-command with this server's address filled in. After updating SMP and running
-`./install.sh`, download it again and run `install` on the PCs to upgrade them.
+command with this server's address filled in. After updating SMP (`./upgrade.sh`),
+download it again and run `install` on the PCs to upgrade them (automatic updates are
+planned: issue SMP#12). Until then, PCs keep running their agent and stay connected:
+the upgrade keeps the database (their approved keys) and the HTTPS certificate they
+pinned.
 
 ## Installing on a PC (Windows 10/11)
 
@@ -156,7 +159,8 @@ cd agent
 docker build -t smp-agent-build -f Dockerfile.build .
 docker volume create smp-cargo
 docker run --rm -v smp-cargo:/cargo smp-agent-build chown $(id -u):$(id -g) /cargo
-alias cargo-docker='docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/cargo -v smp-cargo:/cargo -v "$PWD":/src -w /src smp-agent-build cargo'
+# The repository root is mounted (not just agent/): build.rs reads ../Version.toml
+alias cargo-docker='docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/cargo -v smp-cargo:/cargo -v "$PWD/..":/src -w /src/agent smp-agent-build cargo'
 
 cargo-docker test                                               # unit tests (Linux)
 cargo-docker clippy --all-targets                               # lints, Linux
@@ -165,6 +169,12 @@ cargo-docker build --release --target x86_64-pc-windows-gnu     # the Windows .e
 ```
 
 The exe is `target/x86_64-pc-windows-gnu/release/smp-agent.exe`.
+
+**Version:** the agent has no version in `Cargo.toml`. It is `[agent]` in
+`../Version.toml` (the one file holding all SMP versions), compiled in by
+`smp-agent/build.rs`: `smp-agent --version`, the heartbeats (Devices page) and the
+download's `smp-agent.version` all show it. The build fails with a clear message if it
+can't find the file; `SMP_VERSION_FILE=/path/to/Version.toml` points it elsewhere.
 
 ## Trying it on Linux
 

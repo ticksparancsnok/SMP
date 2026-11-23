@@ -37,12 +37,11 @@ async function submit() {
 <template>
   <div class="auth">
     <form class="card stack" @submit.prevent="submit">
-      <div class="spread" style="align-items: flex-start">
-        <div>
-          <h1>SMP</h1>
-          <p class="muted" style="margin: 0">{{ t('login.subtitle') }}</p>
-        </div>
-        <LangSwitch />
+      <!-- own row: the subtitle wraps differently per language and would move it -->
+      <div class="auth-lang"><LangSwitch /></div>
+      <div>
+        <h1>SMP</h1>
+        <p class="muted" style="margin: 0">{{ t('login.subtitle') }}</p>
       </div>
       <div v-if="error" class="alert err">{{ error }}</div>
       <div class="field">

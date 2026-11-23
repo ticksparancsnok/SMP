@@ -90,7 +90,7 @@ async def test_dns_sync_pushes_the_database_lists(admin):
     # entries saved through the API (its own push fails here: no sinkhole in tests)
     await admin.post("/api/v1/dns/blocklist", json={"domain": "games.example"})
     await admin.post("/api/v1/dns/allowlist", json={"domain": "school.example"})
-    assert [e["domain"] for e in (await admin.get("/api/v1/dns/blocklist")).json()] == ["games.example"]
+    assert [e["domain"] for e in (await admin.get("/api/v1/dns/blocklist")).json()["items"]] == ["games.example"]
 
     received: list[tuple[str, str, dict]] = []
 

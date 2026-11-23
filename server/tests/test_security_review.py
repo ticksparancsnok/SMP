@@ -141,13 +141,13 @@ async def test_allowlist_is_checked_before_blocklist(app, admin, monkeypatch):
         assert check == {"domain": "edu.news.example", "blocked": False, "blocked_by": None, "allowed_by": "edu.news.example"}
         assert (await t.get("/api/v1/dns/check", params={"domain": "www.news.example"})).json()["blocked_by"] == "news.example"
         await t.post("/api/v1/dns/allowlist", json={"domain": "news.example"})
-        (entry,) = (await t.get("/api/v1/dns/blocklist")).json()
+        (entry,) = (await t.get("/api/v1/dns/blocklist")).json()["items"]
         assert entry["domain"] == "news.example" and not entry["active"] and entry["inactiveReason"] == "allowlisted"
         assert (await t.get("/api/v1/dns/check", params={"domain": "www.news.example"})).json()["blocked"] is False
 
         allow_id = next(e["id"] for e in (await t.get("/api/v1/dns/allowlist")).json()["entries"] if e["domain"] == "news.example")
         assert (await t.delete(f"/api/v1/dns/allowlist/{allow_id}")).status_code == 204
-        assert (await t.get("/api/v1/dns/blocklist")).json()[0]["active"] is True
+        assert (await t.get("/api/v1/dns/blocklist")).json()["items"][0]["active"] is True
     # every change was pushed to the sinkhole with both lists
     assert sent[-1] == {"entries": ["news.example"], "allowlist": ["edu.news.example", "school.example"]}
     audit = (await admin.get("/api/v1/audit", params={"action": "dns.allowlist."})).json()
@@ -170,7 +170,7 @@ async def test_legacy_public_suffix_entry_is_shown_but_never_synced(app, admin, 
         await s.commit()
     teacher, sent = await _dns_teacher(app, admin, monkeypatch, "dns.t3")
     async with teacher as t:
-        (entry,) = (await t.get("/api/v1/dns/blocklist")).json()
+        (entry,) = (await t.get("/api/v1/dns/blocklist")).json()["items"]
         assert entry["active"] is False and entry["inactiveReason"] == "public_suffix"
         assert (await t.get("/api/v1/dns/check", params={"domain": "bbc.co.uk"})).json()["blocked"] is False
         assert (await t.post("/api/v1/dns/blocklist", json={"domain": "ads.example"})).status_code == 201
@@ -195,7 +195,7 @@ async def test_hosts_import_skips_allowlisted_and_malformed(app, admin, monkeypa
         assert pre["skipped"] == ["co.uk", "cdn.school.example"]
         r = await t.post("/api/v1/dns/blocklist/import", content=hosts, headers=hdr)
         assert r.status_code == 201 and r.json()["unique_count"] == 1  # tracker.example already there
-        assert sorted(e["domain"] for e in (await t.get("/api/v1/dns/blocklist")).json()) == ["ads.example", "tracker.example"]
+        assert sorted(e["domain"] for e in (await t.get("/api/v1/dns/blocklist")).json()["items"]) == ["ads.example", "tracker.example"]
         r = await t.post("/api/v1/dns/blocklist/import", content=b"0.0.0.0 co.uk\n127.0.0.1 localhost\n", headers=hdr)
         assert r.status_code == 422 and r.json()["code"] == "dns.no_valid_domains"
 

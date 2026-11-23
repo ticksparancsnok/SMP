@@ -6,7 +6,7 @@ How SMP's core protects accounts, what operators must configure, and the decisio
 
 1. **`SMP_SECRET_KEY`**: required, at least 32 random characters. The server refuses to start without it.
    - **Generate:** `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
-   - **Where to keep it:** in a file passed as `SMP_SECRET_KEY_FILE` (e.g. a Docker secret, `chmod 600`) rather than in the environment. Never store it next to database backups: key + DB dump = readable unused one-time passwords.
+   - **Where to keep it:** in a file passed as `SMP_SECRET_KEY_FILE` (e.g. a Docker secret, `chmod 600`) rather than in the environment. Never copy it to where you keep database backups: key + DB dump = readable unused one-time passwords. (The backups `upgrade.sh` makes are encrypted with their own key, `SMP_BACKUP_KEY`; see below.)
 2. **TLS and the reverse proxy** come with the Docker stack: the bundled nginx terminates TLS, sets `SMP_COOKIE_SECURE=true`, forwards real client IPs (trusted only from SMP's docker network) and applies the rate limits below (`nginx/templates/smp.conf.template`). Replace the self-signed certificate with a real one in `nginx/certs/`; once you have, consider adding HSTS there.
 3. **If you run your own proxy instead** (outside Docker): keep `SMP_COOKIE_SECURE=true`, set `SMP_FORWARDED_ALLOW_IPS` to the proxy's address (otherwise every client appears to come from the proxy and shares one login-throttle budget), and rate-limit requests there; the app throttles logins itself (below), but general request floods belong at the proxy:
 
@@ -35,6 +35,18 @@ How SMP's core protects accounts, what operators must configure, and the decisio
    ```
 4. **`SMP_DNS_SYNC_TOKEN`**: required by Compose, ≥32 random characters, same value on the server and the DNS sinkhole (`DNS_SYNC_TOKEN`). The sinkhole's port 8080 serves the block page to every client, so its `/api/blocklist/*` endpoints only accept this Bearer token; with no token set they are disabled.
 5. **Local development over plain http:** set `SMP_COOKIE_SECURE=false`, otherwise the browser drops the session cookie and you can't stay logged in. Never use it in production.
+
+6. **`SMP_BACKUP_KEY`**: made by `install.sh`, encrypts the database backups `upgrade.sh` takes before every upgrade (see below). Keep a copy of `.env`, or at least this key, **away from the server** (a password manager): the backups can't be read without it, and a backup that leaks on its own is useless.
+
+### Database backups (`upgrade.sh`)
+- **When:** before every upgrade, `upgrade.sh` stores `backups/<time>-from-<version>/database.smpbackup` (a full `pg_dump`, plus the files it replaces) and reads it back to check it before it changes anything. `./upgrade.sh --rollback` restores files and database from it.
+- **Encryption** (`smp/core/backup.py`, `tools/db-backup.sh`): streamed AES-256-GCM in 64 KiB chunks (the STREAM construction, as in `age`), key from `SMP_BACKUP_KEY` via HKDF with a fresh salt per backup. Changed, reordered, cut-off or extended files are refused, and a wrong key is reported as such. The plain dump never touches the disk: `pg_dump` in the db container is piped into `smp backup encrypt` in a one-off server container, which is also the only container that gets the key.
+- **Why its own key:** not `SMP_SECRET_KEY`, because the dump contains the encrypted one-time passwords that key opens. Not the database password, because changing it would lock every old backup, and it's in the database container's environment anyway.
+- **What it protects, and what not:** a backup copied off the server (USB stick, NAS, cloud folder) without the key. It does **not** protect against someone with access to the server's SMP folder: `.env` is next to `backups/`, and they could read the live database anyway. Backups are `chmod 600` in a `700` folder.
+- **Restoring** goes into a new database first, which replaces the current one only once it fully worked. The replaced database is kept as `smp_before_restore` until the next restore.
+- **Failed upgrades go back by themselves:** the backup folder records the running version (`installed-version`) and the database's migration revision (`db-revision`). If the new version doesn't build or start, `upgrade.sh` puts the old files back, starts the old version, and imports the database backup if the new version had already migrated the database (otherwise the database is kept, with nothing lost).
+- **Only the newest upgrade backup is kept:** a successful upgrade removes the older `backups/*-from-*` folders (a rollback only goes one upgrade back). Other folders in `backups/` are left alone.
+- TODO(scheduled-backups, issue #13): there are no regular backups between upgrades yet (scheduling, retention, a copy off the server).
 
 ### Rotating `SMP_SECRET_KEY`
 1. Set the new key as `SMP_SECRET_KEY` and the old one as `SMP_SECRET_KEY_PREVIOUS`, then restart. Both keys decrypt, and new data uses the new key.

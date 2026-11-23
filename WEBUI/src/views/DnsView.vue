@@ -6,8 +6,8 @@
 <script setup lang="ts">
 // Decision order (same in the server and the Go sinkhole): allowlist -> blocklist ->
 // everything else allowed. Public suffixes (com, co.uk, ...) can't go on either list.
-import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
-import { api, errorText } from '../api/client'
+import { onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { api, ApiError, errorText } from '../api/client'
 import type {
   DnsAllowEntry,
   DnsAllowIn,
@@ -16,63 +16,98 @@ import type {
   DnsEntryIn,
   DnsHostsPreview,
   DnsStatus,
+  Page,
 } from '../api/types'
 import Modal from '../components/Modal.vue'
+import Pager from '../components/Pager.vue'
 import { t, tOr } from '../i18n'
+import { usePage, usePageSize } from '../paging'
 import { can } from '../session'
 
 const tab = ref<'blocklist' | 'allowlist'>('blocklist')
-// shallowRef avoids deep-proxying tens of thousands of domain objects
-const entries = shallowRef<DnsEntry[]>([])
 const allowlist = shallowRef<DnsAllowlist | null>(null)
 const status = ref<DnsStatus | null>(null)
 const error = ref('')
 const busy = ref(false)
 const canWrite = can('dns.blocklist.write')
 
-// ---------------------------------------------------------------- pagination & filtering
-const PAGE_SIZES = [10, 50, 100] as const
+/** The change was saved but the sinkhole could not be told: the lists did change. */
+const savedAnyway = (e: unknown) => e instanceof ApiError && e.code === 'dns.sync_failed'
+
+// ---------------------------------------------------------------- blocklist (paged on the server)
+// It can hold 100k+ imported domains: only one page is ever downloaded and rendered.
+const entries = shallowRef<DnsEntry[]>([])
+const total = ref(0)
+const offset = ref(0)
+const limit = usePageSize('dns.blocklist')
 const searchQuery = ref('')
-const pageSize = ref<number>(50)
-const currentPage = ref(1)
+let loadSeq = 0
 
-const filteredEntries = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return entries.value
-  return entries.value.filter(
-    (entry) =>
-      entry.domain.toLowerCase().includes(q) ||
-      (entry.reason && entry.reason.toLowerCase().includes(q)) ||
-      (entry.addedBy && entry.addedBy.toLowerCase().includes(q)),
-  )
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredEntries.value.length / pageSize.value)))
-
-const paginatedEntries = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredEntries.value.slice(start, start + pageSize.value)
-})
-
-const pageRangeLabel = computed(() => {
-  const total = filteredEntries.value.length
-  if (total === 0) return '0 / 0'
-  const start = (currentPage.value - 1) * pageSize.value + 1
-  const end = Math.min(currentPage.value * pageSize.value, total)
-  return `${start.toLocaleString()}–${end.toLocaleString()} / ${total.toLocaleString()}`
-})
-
-// Reset to page 1 when search query or page size changes
-watch([searchQuery, pageSize], () => {
-  currentPage.value = 1
-})
-
-// Clamp currentPage if entries are deleted from the last page
-watch(totalPages, (maxPage) => {
-  if (currentPage.value > maxPage) {
-    currentPage.value = maxPage
+async function loadBlocklist() {
+  const seq = ++loadSeq
+  try {
+    const page = await api.get<Page<DnsEntry>>('/dns/blocklist', {
+      q: searchQuery.value.trim(),
+      limit: limit.value,
+      offset: offset.value,
+    })
+    if (seq !== loadSeq) return // a newer page/search was requested meanwhile
+    // Deleted the last row of the last page: show the page before it.
+    if (!page.items.length && offset.value > 0) {
+      offset.value = Math.max(0, offset.value - limit.value)
+      return
+    }
+    entries.value = page.items
+    total.value = page.total
+    error.value = ''
+  } catch (e) {
+    if (seq === loadSeq) error.value = errorText(e)
   }
+}
+
+/** Back to the first page (new search); the [limit, offset] watcher loads it. */
+function firstPage() {
+  if (offset.value) offset.value = 0
+  else loadBlocklist()
+}
+
+let debounce: number | undefined
+watch(searchQuery, () => {
+  window.clearTimeout(debounce)
+  debounce = window.setTimeout(firstPage, 250)
 })
+watch([limit, offset], loadBlocklist)
+
+// ---------------------------------------------------------------- status & allowlist
+// Status pings the sinkhole (up to a few seconds), so the list never waits for it.
+async function loadStatus() {
+  try {
+    status.value = await api.get<DnsStatus>('/dns/status')
+  } catch (e) {
+    error.value = errorText(e)
+  }
+}
+
+/** Keep the counts in the status bar right without asking the sinkhole again. */
+function count(field: 'entries' | 'allowlist_entries', delta: number) {
+  if (status.value) status.value = { ...status.value, [field]: Math.max(0, (status.value[field] ?? 0) + delta) }
+}
+
+const allowPage = usePage(() => allowlist.value?.entries ?? [], { key: 'dns.allowlist' })
+
+async function loadAllowlist() {
+  try {
+    allowlist.value = await api.get<DnsAllowlist>('/dns/allowlist')
+  } catch (e) {
+    error.value = errorText(e)
+  }
+}
+// Fetched the first time its tab is opened.
+watch(tab, (v) => v === 'allowlist' && !allowlist.value && loadAllowlist())
+
+function setAllowEntries(list: DnsAllowEntry[]) {
+  if (allowlist.value) allowlist.value = { ...allowlist.value, entries: list }
+}
 
 // ---------------------------------------------------------------- blocklist entry dialog
 const createOpen = ref(false)
@@ -89,22 +124,9 @@ const importOpen = ref(false)
 const importFile = ref<File | null>(null)
 const preview = ref<DnsHostsPreview | null>(null)
 const importError = ref('')
-
-async function load() {
-  busy.value = true
-  try {
-    ;[entries.value, allowlist.value, status.value] = await Promise.all([
-      api.get<DnsEntry[]>('/dns/blocklist'),
-      api.get<DnsAllowlist>('/dns/allowlist'),
-      api.get<DnsStatus>('/dns/status'),
-    ])
-    error.value = ''
-  } catch (e) {
-    error.value = errorText(e)
-  } finally {
-    busy.value = false
-  }
-}
+// A hosts file can list 100k+ domains: page the preview chips too.
+const previewPage = usePage(() => preview.value?.domains ?? [], { key: 'dns.import_preview', resetOn: [preview] })
+const skippedPage = usePage(() => preview.value?.skipped ?? [], { key: 'dns.import_skipped', resetOn: [preview] })
 
 function openCreate() {
   Object.assign(form, { domain: '', includeSubdomains: true, reason: '', confidence: '' })
@@ -122,12 +144,13 @@ async function createEntry() {
       confidence: form.confidence === '' ? null : Number(form.confidence),
     } satisfies DnsEntryIn)
     createOpen.value = false
+    count('entries', 1)
   } catch (e) {
     createError.value = errorText(e)
-    return
-  } finally {
-    await load() // also after a sync error: the entry is saved either way
+    if (!savedAnyway(e)) return
+    count('entries', 1)
   }
+  await loadBlocklist() // just the visible page
 }
 
 async function removeEntry(entry: DnsEntry) {
@@ -136,8 +159,10 @@ async function removeEntry(entry: DnsEntry) {
     await api.del(`/dns/blocklist/${entry.id}`)
   } catch (e) {
     error.value = errorText(e)
+    if (!savedAnyway(e)) return
   }
-  await load()
+  count('entries', -1)
+  await loadBlocklist()
 }
 
 function openAllow() {
@@ -149,18 +174,21 @@ function openAllow() {
 async function createAllow() {
   allowError.value = ''
   try {
-    await api.post('/dns/allowlist', {
+    const entry = await api.post<DnsAllowEntry>('/dns/allowlist', {
       domain: allowForm.domain,
       include_subdomains: allowForm.includeSubdomains,
       reason: allowForm.reason,
     } satisfies DnsAllowIn)
     allowOpen.value = false
+    const list = [...(allowlist.value?.entries ?? []), entry].sort((a, b) => a.domain.localeCompare(b.domain))
+    setAllowEntries(list)
   } catch (e) {
     allowError.value = errorText(e)
-    return
-  } finally {
-    await load()
+    if (!savedAnyway(e)) return
+    await loadAllowlist() // saved, but we didn't get the row back
   }
+  count('allowlist_entries', 1)
+  await loadBlocklist() // the "allowlisted" marks on the visible page may change
 }
 
 async function removeAllow(entry: DnsAllowEntry) {
@@ -169,8 +197,11 @@ async function removeAllow(entry: DnsAllowEntry) {
     await api.del(`/dns/allowlist/${entry.id}`)
   } catch (e) {
     error.value = errorText(e)
+    if (!savedAnyway(e)) return
   }
-  await load()
+  setAllowEntries((allowlist.value?.entries ?? []).filter((x) => x.id !== entry.id))
+  count('allowlist_entries', -1)
+  await loadBlocklist()
 }
 
 function openImport() {
@@ -200,17 +231,23 @@ async function confirmImport() {
   busy.value = true
   importError.value = ''
   try {
-    await api.upload<DnsHostsPreview>('/dns/blocklist/import', importFile.value, 'text/plain')
+    const result = await api.upload<DnsHostsPreview>('/dns/blocklist/import', importFile.value, 'text/plain')
     importOpen.value = false
+    count('entries', result.unique_count) // the newly added ones
   } catch (e) {
     importError.value = errorText(e)
+    if (!savedAnyway(e)) return
+    await loadStatus() // imported, but we don't know how many were new
   } finally {
     busy.value = false
-    await load()
   }
+  await loadBlocklist()
 }
 
-onMounted(load)
+onMounted(() => {
+  loadBlocklist()
+  loadStatus()
+})
 </script>
 
 <template>
@@ -242,12 +279,9 @@ onMounted(load)
       <input
         v-model="searchQuery"
         type="search"
-        placeholder="Filter domains..."
+        :placeholder="t('dns.filter_placeholder')"
         style="max-width: 260px"
       />
-      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
-      </select>
       <span class="grow"></span>
       <button v-if="canWrite" class="ghost" @click="openImport">{{ t('dns.hosts_import') }}</button>
       <button v-if="canWrite" @click="openCreate">{{ t('dns.manual_block') }}</button>
@@ -265,7 +299,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in paginatedEntries" :key="entry.id" :class="{ muted: entry.active === false }">
+          <tr v-for="entry in entries" :key="entry.id" :class="{ muted: entry.active === false }">
             <td>
               <strong>{{ entry.domain }}</strong>
               <span v-if="entry.includeSubdomains" class="badge" style="margin-left: 6px">{{ t('dns.with_subdomains') }}</span>
@@ -285,22 +319,14 @@ onMounted(load)
               <button v-if="canWrite" class="danger small" @click="removeEntry(entry)">{{ t('common.delete') }}</button>
             </td>
           </tr>
-          <tr v-if="!paginatedEntries.length">
-            <td colspan="5" class="empty">{{ t('dns.empty') }}</td>
+          <tr v-if="!entries.length">
+            <td colspan="5" class="empty">{{ searchQuery ? t('common.no_matches') : t('dns.empty') }}</td>
           </tr>
         </tbody>
       </table>
+      <Pager v-model:offset="offset" v-model:limit="limit" :total="total" />
     </div>
 
-    <div v-if="filteredEntries.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
-      <span class="muted small">{{ pageRangeLabel }}</span>
-      <span class="grow"></span>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
-      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
-    </div>
   </template>
 
   <!-- ------------------------------------------------------------ allowlist -->
@@ -322,7 +348,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in allowlist?.entries ?? []" :key="entry.id">
+          <tr v-for="entry in allowPage.rows" :key="entry.id">
             <td>
               <strong>{{ entry.domain }}</strong>
               <span v-if="entry.includeSubdomains" class="badge" style="margin-left: 6px">{{ t('dns.with_subdomains') }}</span>
@@ -342,6 +368,7 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+      <Pager v-model:offset="allowPage.offset" v-model:limit="allowPage.limit" :total="allowPage.total" />
     </div>
   </template>
 
@@ -406,14 +433,16 @@ onMounted(load)
       <details v-if="preview?.domains.length">
         <summary>{{ t('dns.import_preview') }}</summary>
         <div class="chips" style="margin-top: 8px">
-          <span v-for="domain in preview.domains" :key="domain" class="badge mono">{{ domain }}</span>
+          <span v-for="domain in previewPage.rows" :key="domain" class="badge mono">{{ domain }}</span>
         </div>
+        <Pager v-model:offset="previewPage.offset" v-model:limit="previewPage.limit" :total="previewPage.total" />
       </details>
       <details v-if="preview?.skipped?.length">
         <summary>{{ t('dns.import_skipped_list') }}</summary>
         <div class="chips" style="margin-top: 8px">
-          <span v-for="domain in preview.skipped" :key="domain" class="badge mono">{{ domain }}</span>
+          <span v-for="domain in skippedPage.rows" :key="domain" class="badge mono">{{ domain }}</span>
         </div>
+        <Pager v-model:offset="skippedPage.offset" v-model:limit="skippedPage.limit" :total="skippedPage.total" />
       </details>
       <div class="modal-foot">
         <button type="button" class="ghost" @click="importOpen = false">{{ t('common.cancel') }}</button>

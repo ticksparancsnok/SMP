@@ -4,16 +4,19 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { api, errorText } from '../api/client'
 import { copyText } from '../clipboard'
 import type { ShortLink } from '../api/types'
+import Pager from '../components/Pager.vue'
 import { fmtDate, fromLocalInput } from '../format'
 import { t } from '../i18n'
+import { usePage } from '../paging'
 import { can } from '../session'
 
-const links = ref<ShortLink[]>([])
+const links = shallowRef<ShortLink[]>([])
 const showAll = ref(false)
+const linkPage = usePage(links, { key: 'shortlinks', resetOn: [showAll] })
 const error = ref('')
 const form = reactive({ target_url: '', code: '', title: '', expires_at: '' })
 const formError = ref('')
@@ -122,7 +125,7 @@ async function copy(code: string) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="l in links" :key="l.id">
+        <tr v-for="l in linkPage.rows" :key="l.id">
           <td>
             <a :href="shortUrl(l.code)" target="_blank" class="mono">/s/{{ l.code }}</a>
             <br v-if="l.title" /><span class="muted small">{{ l.title }}</span>
@@ -148,5 +151,6 @@ async function copy(code: string) {
         </tr>
       </tbody>
     </table>
+    <Pager v-model:offset="linkPage.offset" v-model:limit="linkPage.limit" :total="linkPage.total" />
   </div>
 </template>

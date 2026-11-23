@@ -29,6 +29,8 @@ export const LOCALES: { code: Locale; label: string; name: string }[] = [
 ]
 
 const DICTIONARIES: Record<Locale, Dictionary> = { hu, en }
+// This browser's last language (used before sign-in, e.g. on the login page). Once
+// signed in, the account's language applies and changes are saved there: session.ts.
 const STORAGE_KEY = 'smp.locale'
 const DEFAULT: Locale = 'hu'
 

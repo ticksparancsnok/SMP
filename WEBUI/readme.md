@@ -36,6 +36,11 @@ src/
 
 `npm run build` typechecks and writes `dist/`. The server Docker image does this automatically and serves it.
 
+The UI has no version in `package.json`: `vite.config.ts` compiles in `[WEBUI]` of
+`../Version.toml` (the one file holding all SMP versions) as `__SMP_WEBUI_VERSION__`
+(declared in `src/env.d.ts`). The sidebar shows the server's version, with both in its
+tooltip.
+
 ## Languages (HU / EN)
 
 The UI is Hungarian or English, switched with the HU | EN toggle on the login page,

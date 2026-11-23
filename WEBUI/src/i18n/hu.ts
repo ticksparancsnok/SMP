@@ -51,6 +51,7 @@ const hu: Dictionary = {
 
   // ------------------------------------------------------------ app shell & navigation
   'app.menu': 'Menü',
+  'app.versions': 'Szerver: {server} · webes felület: {ui}',
   'nav.section.overview': 'Áttekintés',
   'nav.section.account': 'Fiók',
   'nav.section.admin': 'Adminisztráció',
@@ -252,6 +253,11 @@ const hu: Dictionary = {
   // ------------------------------------------------------------ pager
   'pager.prev': '‹ Előző',
   'pager.next': 'Következő ›',
+  'pager.first': 'Első oldal',
+  'pager.last': 'Utolsó oldal',
+  'pager.per_page': 'Oldalanként',
+  'picker.search': 'Keresés gépeléssel…',
+  'picker.more': '{shown} látható, összesen {total} – szűkítsd kereséssel',
 
   // ------------------------------------------------------------ one-time password display
   'otp.issued_before': 'Egyszeri jelszó a(z)',
@@ -452,6 +458,7 @@ const hu: Dictionary = {
   'policies.windows': 'Idősávok',
   'policies.timezone': 'Időzóna',
   'policies.no_schedules': 'Nincs időbeosztás.',
+  'policies.filter_placeholder': 'Szűrés…',
   'policies.edit_policy': 'Szabály szerkesztése',
   'policies.new_policy_title': 'Új szabály',
   'policies.kind': 'Típus (modul)',
@@ -489,7 +496,6 @@ const hu: Dictionary = {
   'audit.details': 'Részletek',
   'audit.open': 'megnyitás',
   'audit.empty': 'Nincs bejegyzés.',
-  'audit.more': 'Továbbiak betöltése',
 
   // ------------------------------------------------------------ settings & tokens
   'settings.subtitle': 'Modulonkénti beállítások és a szolgáltatások (pl. DNS szerver) API tokenjei.',
@@ -554,6 +560,7 @@ const hu: Dictionary = {
   'dns.confidence': 'Bizonyosság',
   'dns.with_subdomains': 'aldomainokkal',
   'dns.empty': 'Nincs blokklista-bejegyzés.',
+  'dns.filter_placeholder': 'Szűrés: domain, indok, hozzáadta',
   'dns.manual_title': 'Domain kézi blokkolása',
   'dns.include_subdomains': 'Aldomaineket is blokkolja',
   'dns.reason_placeholder': 'Tanórai zavaró tartalom',

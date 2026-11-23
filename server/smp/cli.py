@@ -12,6 +12,7 @@
                   --otp               ...with a one-time password instead of a typed one
     smp create-token --name dns --perm core.policies.read --perm core.devices.read
     smp reencrypt-otps                re-encrypt stored OTPs after rotating SMP_SECRET_KEY
+    smp backup encrypt|decrypt|verify database dumps with SMP_BACKUP_KEY, stdin -> stdout
     smp openapi -o ../WEBUI/openapi.json   dump the API schema for the UI
     smp serve                         run the API server
 """
@@ -338,6 +339,30 @@ def cmd_serve(args) -> None:
     )
 
 
+def cmd_backup(args) -> None:
+    """stdin -> stdout, for pipes like `pg_dump -Fc | smp backup encrypt > file` (see
+    smp/core/backup.py and tools/db-backup.sh)."""
+    from smp.core.backup import BackupError, decrypt, encrypt
+    from smp.core.config import get_settings
+
+    settings = get_settings()
+    if problem := settings.backup_key_problem():
+        sys.exit(f"smp backup: {problem}")
+    if args.action != "verify" and sys.stdout.isatty():
+        sys.exit("smp backup: the output is binary; redirect it to a file or a pipe")
+    try:
+        if args.action == "encrypt":
+            encrypt(sys.stdin.buffer, sys.stdout.buffer, settings.backup_key)
+        elif args.action == "decrypt":
+            decrypt(sys.stdin.buffer, sys.stdout.buffer, settings.backup_key)
+        else:
+            size = decrypt(sys.stdin.buffer, None, settings.backup_key)
+            print(f"backup ok: {size} bytes of database dump")
+        sys.stdout.flush()
+    except BackupError as e:
+        sys.exit(f"smp backup: {e}")
+
+
 def main(argv: list[str] | None = None) -> None:
     from smp.core.config import get_settings
 
@@ -375,6 +400,10 @@ def main(argv: list[str] | None = None) -> None:
 
     r = sub.add_parser("reencrypt-otps", help="re-encrypt stored one-time passwords after rotating SMP_SECRET_KEY")
     r.set_defaults(func=lambda a: asyncio.run(_reencrypt_otps(a)))
+
+    bk = sub.add_parser("backup", help="encrypt/decrypt a database dump with SMP_BACKUP_KEY (stdin -> stdout)")
+    bk.add_argument("action", choices=["encrypt", "decrypt", "verify"])
+    bk.set_defaults(func=cmd_backup)
 
     o = sub.add_parser("openapi", help="dump the OpenAPI schema as JSON")
     o.add_argument("-o", "--output", default="-")

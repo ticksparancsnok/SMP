@@ -4,7 +4,8 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-// HU | EN toggle. The choice is remembered in this browser (see i18n/index.ts).
+// HU | EN toggle. Remembered in this browser (i18n/index.ts) and, when signed in, on the
+// user's account (session.ts), so it follows them to any computer.
 import { locale, LOCALES, t } from '../i18n'
 </script>
 

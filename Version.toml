@@ -1,10 +1,27 @@
+# The ONLY place SMP's version numbers are written. Change a version here, nowhere else:
+# every component reads its own section when it is built (the server: when it starts).
+#
+#   [server]        server/smp/version.py            -> API, /healthz, core module (sidebar),
+#                                                       pip package metadata (pyproject.toml)
+#   [WEBUI]         WEBUI/vite.config.ts             -> compiled into the web UI
+#   [agent]         agent/smp-agent/build.rs         -> smp-agent --version, heartbeats,
+#                                                       Devices page (smp-agent.version)
+#   [Site-blocker]  Site-blocker/.../Dockerfile      -> sinkhole log + /api/blocklist/status
+#   [release]       the SMP release as a whole (install.sh / upgrade.sh)
+#
+# Format: "MAJOR.MINOR.PATCH" with an optional revision letter after one space
+# ("1.0.2", "1.0.2 C"); at most 32 characters. Keep each value on one line as
+# `version = "..."`: besides Python's TOML parser, the agent's build.rs, vite.config.ts
+# and tools/version.sh read this file line by line. server/tests/test_version.py checks
+# the format and that tools/version.sh agrees with a real TOML parser.
+
 [server] # marks the version of the server core (files located under /server)
 name = "smp-server-core"
 version = "1.0.2 C"
 
 [WEBUI] # marks the version of the WEB UI (files located under /WEBUI)
 name = "smp-server-WEBUI"
-version = "1.0.2 C"
+version = "1.0.3 A"
 
 [agent] # marks the version of the monitoring agent (files located under /agent)
 name = "smp-monitoring-agent"

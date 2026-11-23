@@ -4,4 +4,6 @@
 
 """SMP control plane."""
 
-__version__ = "1.0.2"
+from smp.version import SERVER_VERSION as __version__  # from Version.toml, [server]
+
+__all__ = ["__version__"]

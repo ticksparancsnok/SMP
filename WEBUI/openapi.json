@@ -7,7 +7,7 @@
    "name": "AGPL-3.0-or-later",
    "identifier": "AGPL-3.0-or-later"
   },
-  "version": "1.0.1"
+  "version": "1.0.2 C"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -107,6 +107,48 @@
     "responses": {
      "204": {
       "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/auth/preferences": {
+   "patch": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Update Preferences",
+    "description": "Save the signed-in user's own UI settings (not audited: they change nothing\nfor anyone else). API tokens have no account to store them on.",
+    "operationId": "update_preferences_api_v1_auth_preferences_patch",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PreferencesPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PreferencesOut"
+        }
+       }
+      }
      },
      "422": {
       "description": "Validation Error",
@@ -3029,18 +3071,69 @@
      "dns"
     ],
     "summary": "List Blocklist",
+    "description": "One page of the blocklist, by domain. The list can hold 100k+ imported domains,\nso it is never sent whole (the sinkhole gets it through sync_payload()).",
     "operationId": "list_blocklist_api_v1_dns_blocklist_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 253
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "substring of the domain, reason or added-by",
+       "title": "Q"
+      },
+      "description": "substring of the domain, reason or added-by"
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 1000,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "items": {
-          "$ref": "#/components/schemas/EntryOut"
-         },
-         "type": "array",
-         "title": "Response List Blocklist Api V1 Dns Blocklist Get"
+         "$ref": "#/components/schemas/Page_EntryOut_"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
       }
@@ -3054,14 +3147,14 @@
     "summary": "Create Entry",
     "operationId": "create_entry_api_v1_dns_blocklist_post",
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/EntryIn"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -4144,6 +4237,17 @@
        }
       ],
       "title": "Created By"
+     },
+     "target_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Name"
      }
     },
     "type": "object",
@@ -5493,6 +5597,12 @@
       "type": "boolean",
       "title": "Must Change Password",
       "default": false
+     },
+     "preferences": {
+      "$ref": "#/components/schemas/PreferencesOut",
+      "default": {
+       "page_size": {}
+      }
      }
     },
     "type": "object",
@@ -5553,6 +5663,27 @@
      "total"
     ],
     "title": "Page[DeviceOut]"
+   },
+   "Page_EntryOut_": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/EntryOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     }
+    },
+    "type": "object",
+    "required": [
+     "items",
+     "total"
+    ],
+    "title": "Page[EntryOut]"
    },
    "Page_UserOut_": {
     "properties": {
@@ -5755,6 +5886,89 @@
     },
     "type": "object",
     "title": "PolicyUpdate"
+   },
+   "PreferencesOut": {
+    "properties": {
+     "page_size": {
+      "additionalProperties": {
+       "type": "integer",
+       "enum": [
+        10,
+        50,
+        100,
+        500
+       ]
+      },
+      "type": "object",
+      "title": "Page Size",
+      "default": {}
+     },
+     "locale": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "hu",
+         "en"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Locale"
+     }
+    },
+    "type": "object",
+    "title": "PreferencesOut",
+    "description": "A user's own UI settings, stored on their account (users.preferences)."
+   },
+   "PreferencesPatch": {
+    "properties": {
+     "page_size": {
+      "patternProperties": {
+       "^[a-z0-9_.-]{1,64}$": {
+        "anyOf": [
+         {
+          "type": "integer",
+          "enum": [
+           10,
+           50,
+           100,
+           500
+          ]
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "type": "object",
+      "maxProperties": 100,
+      "title": "Page Size",
+      "default": {}
+     },
+     "locale": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "hu",
+         "en"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Locale"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "PreferencesPatch",
+    "description": "Merged into the stored preferences: only the fields sent change. A null page size\nremoves that list's choice; \"locale\": null forgets the language."
    },
    "Role": {
     "type": "string",

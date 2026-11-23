@@ -1,6 +1,6 @@
 [project]
 name = "smp-server"
-version = "1.0.2"
+dynamic = ["version"]  # from Version.toml in the repository root: see smp/version.py
 description = "SMP (School Management Portal) control plane: core + modules"
 license = "AGPL-3.0-or-later"  # see LICENSE and NOTICE in the repository root
 requires-python = ">=3.12"
@@ -38,6 +38,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["smp*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "smp.version.PACKAGE_VERSION" }  # "1.0.2 C" -> 1.0.2+c
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

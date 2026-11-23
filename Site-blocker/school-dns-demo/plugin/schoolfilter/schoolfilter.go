@@ -29,6 +29,14 @@ import (
 //go:embed blockpage.html
 var blockPage embed.FS
 
+// Version is [Site-blocker] of Version.toml in the SMP repository root (the only place
+// SMP's versions are written), stamped in at build time by the Dockerfile:
+//
+//	go build -ldflags "-X 'school-dns-demo/plugin/schoolfilter.Version=1.0.0 A'"
+//
+// A plain `go build` leaves "dev".
+var Version = "dev"
+
 var blockPageTemplate = template.Must(template.ParseFS(blockPage, "blockpage.html"))
 
 type SchoolFilter struct {
@@ -118,6 +126,7 @@ func setup(c *caddy.Controller) error {
 		syncToken:     syncToken,
 	}
 
+	log.Printf("[INFO] schoolfilter: SMP website blocker %s", Version)
 	if syncToken == "" {
 		log.Printf("[WARNING] schoolfilter: DNS_SYNC_TOKEN is not set; the /api/blocklist/* endpoints are disabled (DNS filtering and the block page still work)")
 	}
@@ -334,6 +343,7 @@ func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":    "ok",
+		"version":   Version,
 		"entries":   s.blocklist.Count(),
 		"allowlist": s.blocklist.AllowCount(),
 	})

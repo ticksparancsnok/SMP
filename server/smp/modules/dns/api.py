@@ -8,12 +8,13 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from smp.core.api import Page
 from smp.core.config import get_settings
 from smp.core.context import Ctx, require
 from smp.core.errors import AppError
@@ -219,10 +220,29 @@ def _parse_id(entry_id: str, entity: str) -> uuid.UUID:
 # --------------------------------------------------------------------------- blocklist
 
 
-@router.get("/blocklist", response_model=list[EntryOut])
-async def list_blocklist(ctx: Ctx = Depends(require(READ))) -> list[EntryOut]:
-    allow = by_domain(await _allowlist(ctx))
-    return [row_to_out(row, allow) for row in await _blocklist(ctx)]
+@router.get("/blocklist", response_model=Page[EntryOut])
+async def list_blocklist(
+    ctx: Ctx = Depends(require(READ)),
+    q: str | None = Query(None, max_length=253, description="substring of the domain, reason or added-by"),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+) -> Page[EntryOut]:
+    """One page of the blocklist, by domain. The list can hold 100k+ imported domains,
+    so it is never sent whole (the sinkhole gets it through sync_payload())."""
+    stmt = ctx.select(DnsBlocklistEntry)
+    if q and (q := q.strip()):
+        like = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                DnsBlocklistEntry.domain.ilike(like),
+                DnsBlocklistEntry.reason.ilike(like),
+                DnsBlocklistEntry.added_by.ilike(like),
+            )
+        )
+    total = await ctx.db.scalar(stmt.with_only_columns(func.count()).order_by(None))
+    rows = await ctx.db.execute(stmt.order_by(DnsBlocklistEntry.domain).limit(limit).offset(offset))
+    allow = by_domain(await _allowlist(ctx))  # small: hand-picked exceptions
+    return Page(items=[row_to_out(row, allow) for row in rows.scalars()], total=total or 0)
 
 
 @router.post("/blocklist", response_model=EntryOut, status_code=201)

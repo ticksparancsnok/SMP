@@ -4,14 +4,15 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { AuditEntry } from '../api/types'
+import Pager from '../components/Pager.vue'
 import { fmtDate, fromLocalInput } from '../format'
 import { t } from '../i18n'
+import { usePageSize } from '../paging'
 
-const LIMIT = 100
 const route = useRoute()
 const filters = reactive({
   action: typeof route.query.action === 'string' ? route.query.action : '',
@@ -19,28 +20,49 @@ const filters = reactive({
   since: '',
   until: '',
 })
-const entries = ref<AuditEntry[]>([])
+const entries = shallowRef<AuditEntry[]>([])
 const more = ref(false)
 const error = ref('')
 
-async function load(append = false) {
+// Keyset paging (the log only grows, so there is no total/offset on the server):
+// cursors[i] is the before_id that fetches page i, learned while paging forward.
+const limit = usePageSize('audit')
+const offset = ref(0)
+let cursors: (number | undefined)[] = [undefined]
+
+async function load() {
+  const index = Math.floor(offset.value / limit.value)
   try {
-    const page = await api.get<AuditEntry[]>('/audit', {
+    // One extra row tells whether there is a next page.
+    const rows = await api.get<AuditEntry[]>('/audit', {
       action: filters.action.trim(),
       target_type: filters.target_type.trim(),
       since: fromLocalInput(filters.since),
       until: fromLocalInput(filters.until),
-      before_id: append ? entries.value.at(-1)?.id : undefined,
-      limit: LIMIT,
+      before_id: cursors[index],
+      limit: limit.value + 1,
     })
-    entries.value = append ? [...entries.value, ...page] : page
-    more.value = page.length === LIMIT
+    more.value = rows.length > limit.value
+    entries.value = rows.slice(0, limit.value)
+    cursors[index + 1] = entries.value.at(-1)?.id
     error.value = ''
   } catch (e) {
     error.value = errorText(e)
   }
 }
-onMounted(() => load())
+
+/** New filters or page size: the cursors no longer apply, start over from the newest. */
+function firstPage() {
+  cursors = [undefined]
+  if (offset.value) offset.value = 0
+  else load()
+}
+
+watch([limit, offset], ([l], [prevLimit]) => {
+  if (l !== prevLimit) firstPage()
+  else load()
+})
+onMounted(load)
 </script>
 
 <template>
@@ -49,7 +71,7 @@ onMounted(() => load())
     <p>{{ t('audit.subtitle') }}</p>
   </div>
 
-  <form class="toolbar" @submit.prevent="load()">
+  <form class="toolbar" @submit.prevent="firstPage">
     <div class="field">
       <label>{{ t('audit.action_filter') }}</label>
       <input v-model="filters.action" class="mono" placeholder="core.user." />
@@ -88,7 +110,7 @@ onMounted(() => load())
           <td class="small" style="white-space: nowrap">{{ fmtDate(e.at) }}</td>
           <td>{{ e.actor_name || e.actor_type }}</td>
           <td>
-            <a href="#" class="mono" @click.prevent="(filters.action = e.action), load()">{{ e.action }}</a>
+            <a href="#" class="mono" @click.prevent="(filters.action = e.action), firstPage()">{{ e.action }}</a>
           </td>
           <td class="mono small">{{ e.target_type }}<br />{{ e.target_id }}</td>
           <td style="max-width: 360px">
@@ -104,8 +126,12 @@ onMounted(() => load())
         </tr>
       </tbody>
     </table>
-    <div v-if="more" class="pager">
-      <button class="ghost small" @click="load(true)">{{ t('audit.more') }}</button>
-    </div>
+    <Pager
+      v-model:offset="offset"
+      v-model:limit="limit"
+      :total="null"
+      :has-more="more"
+      :shown="entries.length"
+    />
   </div>
 </template>

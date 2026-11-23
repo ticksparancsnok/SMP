@@ -17,7 +17,9 @@ const router = useRouter()
 const navOpen = ref(false)
 
 const sections = computed(() => navSections())
+// The server's version (core module, [server] of Version.toml); the UI's own is compiled in
 const version = computed(() => session.modules.find((m) => m.name === 'core')?.version ?? '')
+const versionTitle = computed(() => t('app.versions', { server: version.value || '?', ui: __SMP_WEBUI_VERSION__ }))
 const roleText = computed(() =>
   [...new Set((session.me?.roles ?? []).map((r) => roleLabel(r.role)))].join(', '),
 )
@@ -46,7 +48,7 @@ async function signOut() {
         <!-- width/height: the file's real size, so the browser reserves the space (no
              jump while loading); CSS sets the displayed size (app.css, "brand") -->
         <img class="brand-logo" src="../Assets/SMP-logo-dark.png" alt="SMP" width="164" height="144" />
-        <small>{{ version }}</small>
+        <small :title="versionTitle">{{ version }}</small>
       </div>
       <nav class="nav">
         <template v-for="s in sections" :key="s.title">
