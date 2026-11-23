@@ -352,8 +352,22 @@ if [ -n "$current" ] && [ "$current" != "$subnet" ]; then
     dc down >/dev/null
 fi
 
-step "Building and starting the containers (the first build compiles the Windows agent too: allow 5-10 minutes)"
-if ! dc up -d --build; then
+# Building and starting are separate steps, so a failure says which one it was: a build
+# fails on downloads (no internet, DNS, proxy), starting fails on ports in use.
+if [ -f tools/preflight.sh ]; then
+    # shellcheck source=tools/preflight.sh
+    source tools/preflight.sh
+    if ! smp_check_registries; then
+        warn "Docker can't reach the package registries above right now. Parts of SMP that changed"
+        warn "since the last build can't be built without them (check this server's DNS, firewall or proxy)."
+    fi
+fi
+step "Building the containers (the first build compiles the Windows agent too: allow 5-10 minutes)"
+if ! dc build; then
+    die "building failed (see above). Most often a download during the build (\"Could not find a version\", \"timed out\", \"Temporary failure in name resolution\"): this server can't reach the package registries (PyPI, npm, Rust crates, Go modules); check its DNS, firewall or proxy, then run ./install.sh again. SMP as it was keeps running."
+fi
+step "Starting the containers"
+if ! dc up -d; then
     die "starting the containers failed (see above). If a port is already in use on this machine: SMP_HTTP_PORT / SMP_HTTPS_PORT (80/443) and SMP_DNS_PORT (53) in .env, then run ./install.sh again"
 fi
 

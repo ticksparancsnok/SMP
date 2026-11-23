@@ -37,7 +37,9 @@ If the new version doesn't build or start, it goes back to the previous one by i
 kept. It compares `[release]`; a newer build of the same release (e.g. its components
 went from `1.0.3 B` to `1.0.3 C`) is installed with `./upgrade.sh --force-components`,
 which upgrades when any component's version differs (`./upgrade.sh` alone points this
-out). `--force` reinstalls or downgrades whatever the versions say.
+out). `--force` reinstalls or downgrades whatever the versions say. Before changing
+anything it checks that Docker can reach the package registries the rebuild downloads
+from (PyPI, npm, Rust crates, Go modules); without internet access it stops there.
 `./install.sh` again first asks GitHub whether a newer version exists. If one does, it
 **stops without rebuilding** (exit status 3) and points to `./upgrade.sh`, so upgrading
 stays a deliberate step; otherwise it checks the configuration and rebuilds what's

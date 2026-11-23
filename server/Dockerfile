@@ -54,8 +54,11 @@ RUN touch smp-agent/src/main.rs \
 
 # ---- server
 FROM python:3.13-slim
+# PIP_RETRIES / PIP_DEFAULT_TIMEOUT: a slow or briefly unreachable PyPI (school networks)
+# doesn't fail the build at once; pip also downloads setuptools for every build here.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_RETRIES=10 PIP_DEFAULT_TIMEOUT=60
 WORKDIR /app
 
 COPY server/pyproject.toml Version.toml ./

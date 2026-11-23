@@ -103,6 +103,8 @@ certificate and all data are kept.
   --force-components   also when [release] is the same, if any component's version
                        ([server], [WEBUI], [agent], [Site-blocker]) differs: e.g. a
                        development build (1.0.3 B -> 1.0.3 C) of the same release
+  --no-network-check   skip checking that the build can reach the package registries
+                       (PyPI, npm, Rust crates, Go modules) before changing anything
   --no-db-backup       skip the database backup (e.g. you make your own); a rollback
                        can then only put the files back
   --rollback [DIR]     go back to before an upgrade: its files and its database backup
@@ -118,7 +120,7 @@ EOF
 # Everything runs from main(): bash has read the whole function before step 5 replaces
 # this file (which is also written next to the old one and renamed, never overwritten).
 main() {
-    local fetch_args=() assume_yes=no force=no components=no db_backup=yes rollback=no rollback_dir=""
+    local fetch_args=() assume_yes=no force=no components=no db_backup=yes rollback=no rollback_dir="" net_check=yes
     while [ $# -gt 0 ]; do
         case $1 in
             --ref | --download-url | --sha256)
@@ -130,6 +132,7 @@ main() {
             --force) force=yes ;;
             --force-components) components=yes ;;
             --no-db-backup) db_backup=no ;;
+            --no-network-check) net_check=no ;;
             --rollback)
                 rollback=yes
                 if [ $# -ge 2 ] && [[ $2 != -* ]]; then rollback_dir=$2; shift; fi
@@ -235,6 +238,19 @@ main() {
         say "few minutes after the upgrade (unless Settings -> Device agents switched that off)."
     fi
     [ $db_backup = yes ] || warn "--no-db-backup: no database backup; a rollback could only put the files back."
+    if [ $net_check = yes ] && [ -f "$new/tools/preflight.sh" ]; then  # (older downloads don't have it)
+        # The rebuild downloads what changed (Python, npm, Rust, Go packages). Without
+        # internet access it would fail halfway and roll back: find out now instead.
+        step "Checking that the build can download what it needs"
+        # shellcheck source=tools/preflight.sh
+        source "$new/tools/preflight.sh"
+        if ! smp_check_registries; then
+            say "This server (or Docker on it) can't reach the package registries above right now:"
+            say "check its DNS (/etc/resolv.conf), firewall or proxy. ./upgrade.sh --no-network-check skips this test."
+            die "stopped; nothing was changed"
+        fi
+        say "package registries reachable"
+    fi
     say ""
     if [ $assume_yes = no ]; then
         yesno "Upgrade SMP $installed to $offered now?" y || die "stopped; nothing was changed"
