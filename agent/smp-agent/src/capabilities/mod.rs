@@ -5,13 +5,18 @@
 //! Everything the agent can do, each in its own module (see core/capability.rs).
 
 pub mod screen;
+pub mod update;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::core::api::Client;
 use crate::core::capability::Capability;
 
-/// The capabilities this build runs. Add new ones here.
-pub fn all(client: Arc<Client>) -> Vec<Box<dyn Capability>> {
-    vec![Box::new(screen::Screen::new(client, crate::platform::screen_source()))]
+/// The capabilities this build runs. Add new ones here. `state_dir`: where agent.json is.
+pub fn all(client: Arc<Client>, state_dir: PathBuf) -> Vec<Box<dyn Capability>> {
+    vec![
+        Box::new(screen::Screen::new(client.clone(), crate::platform::screen_source())),
+        Box::new(update::Updater::new(client, state_dir)),
+    ]
 }

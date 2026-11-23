@@ -429,6 +429,10 @@ const hu: Dictionary = {
   'devices.room_network_badge': 'hálózat szerint',
   'devices.room_network_title': 'A terem a gép aktuális alhálózatát követi',
   'devices.agent': 'Ügynök',
+  'devices.agent_version': 'ügynök: {version}',
+  'devices.agent_updating': '→ {version}',
+  'devices.agent_updating_title':
+    'Az SMP a(z) {version} ügynököt kínálja: ez a gép néhány percen belül magától telepíti (Beállítások → Gépügynökök).',
   'devices.reset_identity': 'Ügynök-azonosító visszaállítása',
   'devices.confirm_reset_identity':
     'Visszaállítod {hostname} ügynök-azonosítóját? Az ügynöke addig nem működik, amíg újra nem kér csatlakozást, és jóvá nem hagyod.',
@@ -514,6 +518,12 @@ const hu: Dictionary = {
   'settings.classroom.detail_interval_s': 'Nagyított kép gyakorisága (másodperc)',
   'settings.classroom.jpeg_quality': 'JPEG minőség',
   'settings.classroom.jpeg_quality.help': 'Alacsonyabb: kevesebb forgalom, elmosódottabb szöveg.',
+  'settings.agent.auto_update': 'Ügynökök automatikus frissítése',
+  'settings.agent.auto_update.help':
+    'A gépek maguktól telepítik az ügynöknek azt a verzióját, amelyet ez az SMP kínál (az SMP frissítéseivel érkezik). Kikapcsolva: kézzel kell telepíteni.',
+  'settings.agent.update_spread_s': 'Frissítések elosztása (másodperc)',
+  'settings.agent.update_spread_s.help':
+    'Minden gép véletlen ideig, legfeljebb ennyit vár a letöltés előtt, hogy ne egyszerre töltsön le az egész iskola.',
   'tokens.title': 'API tokenek',
   'tokens.intro_before': 'Szolgáltatások (DNS szerver, scriptek) ezzel azonosítják magukat:',
   'tokens.intro_after': 'Csak a szükséges jogosultságokat add meg.',

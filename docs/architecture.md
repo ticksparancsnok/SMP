@@ -13,7 +13,9 @@ Rule: the data plane (DNS, agent, and later the screen relay if Python can't kee
 
 ### Versions (`Version.toml`)
 
-Every version number lives in `Version.toml` in the repository root, one section per component (`[server]`, `[WEBUI]`, `[agent]`, `[Site-blocker]`) plus `[release]` for SMP as a whole. To bump a version, edit that file only. The format is `"1.0.2"` or `"1.0.2 C"` (an optional revision letter).
+Every version number lives in `Version.toml` in the repository root, one section per component (`[server]`, `[WEBUI]`, `[agent]`, `[Site-blocker]`) plus `[release]` for SMP as a whole. To bump a version, edit that file only.
+
+**Which number:** `[server]`, `[WEBUI]` and `[agent]` carry the release's number (`1.0.3` in release 1.0.3); during development their revision letter counts up (`1.0.3 A`, `1.0.3 B`, ...), so each component reads as up to date (equal to `[release]`), ahead (in development) or behind. `tools/version.sh --status` lists them, and a test fails if one of them has another number than `[release]`. Server modules report `[server]` too (they're built with it). `[Site-blocker]` is versioned on its own by the DNS filter's maintainer. Agents update to whatever differs from their own version, so on a development server every letter reaches the PCs. The format is `"1.0.2"` or `"1.0.2 C"` (an optional revision letter).
 
 | Component | Reads it | Where it shows |
 |---|---|---|
@@ -127,6 +129,8 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 - **Heartbeat = long poll:** the agent sends its config version; the server answers when the config changes (`AgentHub` wakes waiting agents on policy, room, device and `agent.config.changed` events) or after `SMP_AGENT_LONGPOLL_SECONDS` (25). No DB connection is held while waiting. Each heartbeat updates the last IP (and, for `network` devices, the room), the logged-in user and OS info.
 - **Config:** `Module.agent_config(db, device)` hooks; each module returns its section (`{"classroom": {...}}`), and the agent hands each section to its capability. New agent features = a module hook + a Rust capability; the core on both sides stays the same.
 - **TLS:** the agent trusts a certificate the OS trusts, or the one it pinned on first contact (SMP's nginx starts self-signed). A different, untrusted certificate is refused.
+- **Updates:** the config's `agent` section carries `update` (version, size, SHA-256, path) for the build the server has for the agent's platform (`download.py`; the image builds Windows). An agent whose version differs installs it by itself (`capabilities/update.rs`): random delay up to `update_spread_s`, download over the pinned TLS, size + hash + `--version` check, then on Windows an exe swap and a watcher process that restarts the service and undoes the update if the new version doesn't reach the server within 3 minutes (`platform/win/update.rs`). `update.json` next to `agent.json` is the bookkeeping between them. Admins switch it off in the agent settings.
+- **Reconnecting** (issue #10): every error is retried (backoff up to 30 s), a heartbeat without an answer after 60 s counts as an error, network errors reset the connection pool, and a watchdog restarts the agent after 15 minutes without contact (`core/watchdog.rs`).
 
 ### Monitoring (`server/smp/modules/classroom/`)
 - PCs send nothing unless someone has the room's Monitoring page open: the page sends a keep-alive every ≤5 s, a viewer without one for 20 s times out. Only the PC a teacher enlarged sends full-size pictures.

@@ -40,9 +40,8 @@
 # everything done in SMP since that upgrade is lost. The database it replaces is kept as
 # smp_before_restore until the next restore.
 #
-# PCs keep running their installed agent; the new one is offered at
-# https://<smp>/downloads/smp-agent.exe and has to be installed on them by hand for now
-# (automatic agent updates: issue SMP#12, planned for 1.0.3).
+# PCs update their agent by themselves to the one the new version offers (within a few
+# minutes, see agent/README.md "Updates"; Settings -> Device agents can switch it off).
 set -euo pipefail
 
 if [ -t 1 ]; then B=$'\e[1m' R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' N=$'\e[0m'; else B="" R="" G="" Y="" N=""; fi
@@ -199,9 +198,8 @@ main() {
     agent_new=$(sh tools/version.sh agent "$new/Version.toml")
     if [ "$agent_old" != "$agent_new" ]; then
         say ""
-        say "The PC agent changes ($agent_old -> $agent_new). Installed PCs keep running theirs and stay"
-        say "connected; install the new one on them from Devices -> Agent for Windows after the upgrade"
-        say "(automatic agent updates are planned: issue SMP#12)."
+        say "The PC agent changes ($agent_old -> $agent_new): the PCs install it by themselves within a"
+        say "few minutes after the upgrade (unless Settings -> Device agents switched that off)."
     fi
     [ $db_backup = yes ] || warn "--no-db-backup: no database backup; a rollback could only put the files back."
     say ""

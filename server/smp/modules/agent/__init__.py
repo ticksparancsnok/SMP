@@ -11,10 +11,22 @@ something they depend on changes. Protocol details: crypto.py and api.py.
 """
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 from smp.core.module import EventSubject, Module
 from smp.modules.agent.crypto import MAX_SKEW_SECONDS
 from smp.modules.agent.hub import AgentHub, ReplayGuard
+
+
+class AgentSettings(BaseModel):
+    auto_update: bool = Field(
+        True, description="Computers install the agent version this server offers by themselves (it comes with SMP updates)"
+    )
+    update_spread_s: int = Field(
+        300, ge=0, le=3600,
+        description="Seconds: each computer waits a random time up to this long before downloading an update, "
+        "so a whole school doesn't download at once",
+    )
 
 
 class AgentModule(Module):
@@ -22,6 +34,7 @@ class AgentModule(Module):
     title = "Device agents"
     description = "Join requests, device identity keys, heartbeats and agent configuration"
     # Approving machines uses core.devices.write; agents themselves sign requests.
+    settings_model = AgentSettings
     events = (
         EventSubject("agent.config.changed", "Something agents' configs depend on changed (wakes heartbeats)"),
     )

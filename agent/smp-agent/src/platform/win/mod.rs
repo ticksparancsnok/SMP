@@ -27,6 +27,7 @@ mod session;
 pub mod service;
 mod tray;
 mod tray_visibility;
+pub mod update;
 mod wts;
 
 use std::path::{Path, PathBuf};
@@ -37,6 +38,14 @@ use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_
 use crate::capabilities::screen::source::ScreenSource;
 
 pub use security::{protect, restrict_file, unprotect};
+
+/// End this process so Windows' service manager starts the agent again (its recovery
+/// actions restart it after 5 s): the watchdog's restart. Never returns. (Run by hand,
+/// `smp-agent run`, it just ends.)
+pub fn restart_self() -> ! {
+    log::logger().flush();
+    std::process::exit(3)
+}
 
 /// C:\ProgramData\SMP (identity and logs). Only SYSTEM and administrators can read it.
 pub fn state_dir() -> PathBuf {

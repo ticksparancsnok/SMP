@@ -85,9 +85,18 @@ enum Command {
         #[arg(long)]
         server_pid: u32,
     },
+    /// (an update starts this from the old exe: restart the service with the new one,
+    /// go back if it doesn't reach the server; platform/win/update.rs)
+    #[cfg(windows)]
+    #[command(hide = true)]
+    UpdateWatch {
+        #[arg(long)]
+        to: String,
+    },
 }
 
 fn main() -> ExitCode {
+    platform::exe_path(); // remember where we were started from (an update renames the file)
     let cli = Cli::parse();
     init_logging(&cli.command);
     match real_main(cli) {
@@ -108,6 +117,7 @@ fn init_logging(command: &Command) {
         let file = match command {
             Command::Service => platform::log_file("agent.log"),
             Command::SessionHelper { .. } => platform::log_file("helper.log"),
+            Command::UpdateWatch { .. } => platform::log_file("update.log"),
             _ => None,
         };
         if let Some(file) = file {
@@ -122,7 +132,8 @@ fn init_logging(command: &Command) {
 /// Used by `run` (foreground) and by the Windows service.
 pub fn run_agent(state_path: &std::path::Path, stop: &AtomicBool) -> Result<()> {
     let mut agent = Agent::open(state_path, None)?;
-    let mut registry = Registry::new(capabilities::all(agent.client.clone()));
+    core::watchdog::start(agent.contact.clone(), core::watchdog::limit());
+    let mut registry = Registry::new(capabilities::all(agent.client.clone(), agent.state_dir()));
     agent.run(&mut registry, stop)
 }
 
@@ -162,6 +173,8 @@ fn real_main(cli: Cli) -> Result<()> {
         Command::Service => platform::service::run()?,
         #[cfg(windows)]
         Command::SessionHelper { pipe, server_pid } => platform::helper::run(&pipe, server_pid)?,
+        #[cfg(windows)]
+        Command::UpdateWatch { to } => platform::update::watch(&to, &state_path)?,
     }
     Ok(())
 }

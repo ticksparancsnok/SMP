@@ -11,7 +11,9 @@
 //!                                               (--purge: also forget the identity)
 //!
 //! The service runs as SYSTEM and starts with Windows. If it crashes or exits with
-//! an error, Windows restarts it after 5 seconds.
+//! an error, Windows restarts it after 5 seconds. Every start re-applies these service
+//! settings (ensure_service_config), so an agent that updated itself (update.rs) brings
+//! its own service configuration along without anyone running `install` again.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -92,14 +94,7 @@ pub fn install(server: Option<String>) -> Result<()> {
             .create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS)
             .context("creating the service")?,
     };
-    service.set_description(DESCRIPTION)?;
-    service.update_failure_actions(ServiceFailureActions {
-        reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(24 * 3600)),
-        reboot_msg: None,
-        command: None,
-        actions: Some(vec![ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(5) }; 3]),
-    })?;
-    service.set_failure_actions_on_non_crash_failures(true)?;
+    apply_service_config(&service)?;
     service.start(&[] as &[&OsStr]).context("starting the service")?;
 
     println!("Installed: {} (service \"{DISPLAY_NAME}\"), server {server}.", exe.display());
@@ -144,12 +139,33 @@ fn install_exe() -> Result<PathBuf> {
     Ok(target)
 }
 
+/// Description and recovery: restart 5 s after a crash or an error exit (also what the
+/// watchdog and a stuck update rely on).
+fn apply_service_config(service: &windows_service::service::Service) -> Result<()> {
+    service.set_description(DESCRIPTION)?;
+    service.update_failure_actions(ServiceFailureActions {
+        reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(24 * 3600)),
+        reboot_msg: None,
+        command: None,
+        actions: Some(vec![ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(5) }; 3]),
+    })?;
+    service.set_failure_actions_on_non_crash_failures(true)?;
+    Ok(())
+}
+
+/// At every service start: this version's service settings (see the top of this file).
+fn ensure_service_config() -> Result<()> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::CHANGE_CONFIG | ServiceAccess::QUERY_STATUS)?;
+    apply_service_config(&service)
+}
+
 fn program_dir() -> PathBuf {
     let base = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
     base.join("SMP")
 }
 
-fn stop_and_wait(service: &windows_service::service::Service) -> Result<()> {
+pub fn stop_and_wait(service: &windows_service::service::Service) -> Result<()> {
     let status = service.query_status()?;
     if status.current_state == ServiceState::Stopped {
         return Ok(());
@@ -213,6 +229,9 @@ fn run_service() -> Result<()> {
     })?;
     report(&status, ServiceState::Running, 0)?;
     log::info!("service started");
+    if let Err(e) = ensure_service_config() {
+        log::warn!("couldn't refresh the service settings: {e:#}");
+    }
     super::tray_visibility::ensure_windows10_policy(); // the tray icon must stay visible
 
     let agent = std::thread::spawn(|| crate::run_agent(&state::default_path(), &STOP));

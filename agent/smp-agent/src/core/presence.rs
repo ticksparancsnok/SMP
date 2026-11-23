@@ -7,6 +7,7 @@
 //! Wi-Fi/VLAN, the DHCP lease changed). The main loop checks every second.
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::time::{Duration, Instant};
 
 use crate::core::sysinfo::console_user;
 
@@ -22,11 +23,17 @@ pub struct PresenceProbe {
     server: String,
     /// The server's resolved address (looked up again after a failure).
     target: Option<SocketAddr>,
+    /// The last name lookup. While the server is away its name may not resolve (often
+    /// SMP itself is the school's DNS), and each try can block for seconds; the main
+    /// loop samples every second, so look it up again at most every LOOKUP_EVERY.
+    last_lookup: Option<Instant>,
 }
+
+const LOOKUP_EVERY: Duration = Duration::from_secs(30);
 
 impl PresenceProbe {
     pub fn new(server_url: &str) -> Self {
-        Self { server: host_port(server_url), target: None }
+        Self { server: host_port(server_url), target: None, last_lookup: None }
     }
 
     pub fn sample(&mut self) -> Presence {
@@ -37,6 +44,10 @@ impl PresenceProbe {
     /// "connect" only picks the route; no packet is sent.
     fn local_address(&mut self) -> Option<IpAddr> {
         if self.target.is_none() {
+            if self.last_lookup.is_some_and(|t| t.elapsed() < LOOKUP_EVERY) {
+                return None;
+            }
+            self.last_lookup = Some(Instant::now());
             self.target = self.server.to_socket_addrs().ok()?.next();
         }
         let target = self.target?;

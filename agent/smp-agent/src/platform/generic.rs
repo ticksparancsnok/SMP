@@ -6,6 +6,57 @@
 
 use std::path::{Path, PathBuf};
 
+/// Start this program again in the same process (same arguments): the watchdog's
+/// restart, and how an update hands over. Never returns.
+pub fn restart_self() -> ! {
+    use std::os::unix::process::CommandExt;
+    let exe = super::exe_path();
+    let error = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).exec();
+    log::error!("restarting {} failed: {error}", exe.display());
+    std::process::exit(1)
+}
+
+/// Updates here: replace the binary, then restart into it. There is no service manager
+/// to fall back on, so no watcher either: this is for development and test machines
+/// (the Windows version, platform/win/update.rs, can undo an update that fails).
+pub mod update {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::{Context, Result};
+
+    use crate::core::api::AGENT_VERSION;
+    use crate::core::update::UpdateState;
+
+    pub fn staging_path(state_dir: &Path) -> Result<PathBuf> {
+        Ok(state_dir.join("update").join("smp-agent.download"))
+    }
+
+    pub fn install(staging: &Path, to: &str, _state_dir: &Path) -> Result<()> {
+        let exe = crate::platform::exe_path();
+        // Next to the binary first (the same file system), then renamed over it: the
+        // running process keeps its own copy, and the path never holds half a file.
+        let next = exe.with_file_name(".smp-agent.update");
+        std::fs::copy(staging, &next).with_context(|| format!("copying the update next to {}", exe.display()))?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&next, std::fs::Permissions::from_mode(0o755))?;
+        }
+        std::fs::rename(&next, &exe).with_context(|| format!("replacing {}", exe.display()))?;
+        let _ = std::fs::remove_file(staging);
+        log::info!("replaced {} with {to}; restarting into it", exe.display());
+        super::restart_self()
+    }
+
+    /// A confirmed update leaves nothing behind here but its bookkeeping.
+    pub fn clean_up(_state_dir: &Path, state_path: &Path) {
+        let mut state = UpdateState::load(state_path);
+        if state.pending.as_ref().is_some_and(|p| p.confirmed && p.to == AGENT_VERSION) {
+            state.pending = None;
+            let _ = state.save(state_path);
+        }
+    }
+}
+
 use anyhow::{bail, Result};
 
 /// Wrap the secret key for storage. Here: stored as is, in a file only we can read.

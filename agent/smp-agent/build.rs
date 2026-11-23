@@ -34,7 +34,7 @@ fn main() {
     // The server stores it in a 32-character column; Version.toml's own rules.
     assert!(
         !version.is_empty() && version.len() <= 32 && !version.contains(['"', '\\']),
-        "{}: [agent] version {version:?} is not like \"0.1.1\" or \"0.1.1 A\"",
+        "{}: [agent] version {version:?} is not like \"1.0.3\" or \"1.0.3 A\"",
         path.display()
     );
     println!("cargo:rustc-env=SMP_AGENT_VERSION={version}");

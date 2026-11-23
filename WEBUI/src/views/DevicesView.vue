@@ -73,6 +73,8 @@ watch([limit, offset], load)
 onMounted(async () => {
   load()
   loadJoinRequests()
+  // the agent version SMP offers: PCs on another one are about to update themselves
+  if (canWrite.value) download.value = await api.get<AgentDownload>('/agent/download').catch(() => null)
   rooms.value = await api.get<Room[]>('/rooms').catch(() => [])
   document.addEventListener('visibilitychange', onVisibility)
   refresher = window.setInterval(refresh, REFRESH_MS)
@@ -157,6 +159,12 @@ const copied = ref('')
 // what an admin types on the PC: this very server's address (with its port, if any)
 const installCommand = computed(() => `smp-agent.exe install --server ${window.location.host}`)
 const verifyCommand = 'Get-FileHash .\\smp-agent.exe'
+
+/** The agent version SMP offers, if it differs from what `d` runs (it updates itself). */
+function updatingTo(d: Device): string | null {
+  const offered = download.value?.available ? download.value.version : null
+  return offered && d.agent_version && d.agent_version !== offered ? offered : null
+}
 
 async function openDownload() {
   downloadOpen.value = true
@@ -358,7 +366,15 @@ async function showPolicies(d: Device) {
             <span class="badge" :class="deviceStatusClass(d.status)">{{ deviceStatusLabel(d.status) }}</span>
           </td>
           <td><span class="dot" :class="{ on: isOnline(d.last_seen_at) }"></span>{{ fmtRelative(d.last_seen_at) }}</td>
-          <td class="muted small">{{ [d.os_name, d.os_version].filter(Boolean).join(' ') || '–' }}</td>
+          <td class="muted small">
+            {{ [d.os_name, d.os_version].filter(Boolean).join(' ') || '–' }}
+            <template v-if="d.agent_version">
+              <br />{{ t('devices.agent_version', { version: d.agent_version }) }}
+              <span v-if="updatingTo(d)" class="badge info" :title="t('devices.agent_updating_title', { version: updatingTo(d) ?? '' })">
+                {{ t('devices.agent_updating', { version: updatingTo(d) ?? '' }) }}
+              </span>
+            </template>
+          </td>
           <td>
             <div class="actions">
               <button class="ghost small" @click="showPolicies(d)">{{ t('devices.policies') }}</button>
@@ -414,6 +430,9 @@ async function showPolicies(d: Device) {
         <label>{{ t('devices.agent') }}</label>
         <span class="small">
           <span class="mono">{{ fmtFingerprint(edit.agent_id) }}</span> · v{{ edit.agent_version ?? '?' }}
+          <span v-if="updatingTo(edit)" class="badge info" :title="t('devices.agent_updating_title', { version: updatingTo(edit) ?? '' })">
+            {{ t('devices.agent_updating', { version: updatingTo(edit) ?? '' }) }}
+          </span>
           <template v-if="edit.logged_in_user && isOnline(edit.last_seen_at)"> · 👤 {{ edit.logged_in_user }}</template>
         </span>
         <div><button type="button" class="ghost small" @click="resetIdentity(edit)">{{ t('devices.reset_identity') }}</button></div>

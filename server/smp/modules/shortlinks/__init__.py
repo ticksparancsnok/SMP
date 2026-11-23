@@ -24,7 +24,6 @@ class ShortlinksSettings(BaseModel):
 class ShortlinksModule(Module):
     name = "shortlinks"
     title = "Short links"
-    version = "1.0.0"
     description = "Short links with expiry and per-teacher ownership"
 
     permissions = (

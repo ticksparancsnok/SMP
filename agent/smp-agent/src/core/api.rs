@@ -8,19 +8,30 @@
 //! wrapped in an `Arc`): ureq's connection pool and our key are both thread-safe.
 
 use std::fmt;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-use crate::core::identity::Identity;
+use crate::core::identity::{hex, Identity};
 use crate::core::sysinfo::SysInfo;
 use crate::core::tls::{client_config, PinningVerifier};
 
 /// [agent] version of Version.toml in the repository root, compiled in by build.rs.
 pub const AGENT_VERSION: &str = env!("SMP_AGENT_VERSION");
+
+/// Which build of the agent this is; the server offers updates for it (heartbeat).
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub const PLATFORM: &str = "windows-x86_64";
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub const PLATFORM: &str = "linux-x86_64";
+#[cfg(not(any(all(windows, target_arch = "x86_64"), all(target_os = "linux", target_arch = "x86_64"))))]
+pub const PLATFORM: &str = "other";
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -94,6 +105,8 @@ pub struct HeartbeatIn {
     /// The config version we already have; with `wait` the server holds the answer until it changes.
     pub config_version: Option<String>,
     pub wait: bool,
+    /// [`PLATFORM`]: which build the server offers as an update.
+    pub platform: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +194,36 @@ impl Client {
         let body = frame.jpeg.unwrap_or(&[]);
         self.send("PUT", path, "image/jpeg", &headers, body, Duration::from_secs(30))?;
         Ok(())
+    }
+
+    /// Download `path` (a file the server offers, e.g. an agent update) to `dest`, at most
+    /// `max_bytes`. Returns its size and SHA-256 (hex); the caller compares them with
+    /// what the server announced. Plain GET (the file is public), over the same pinned TLS.
+    pub fn download(&self, path: &str, dest: &Path, max_bytes: u64) -> anyhow::Result<(u64, String)> {
+        use anyhow::{bail, Context};
+        let http = self.http.read().unwrap().clone();
+        let resp = match http.get(&format!("{}{}", self.server, path)).timeout(Duration::from_secs(600)).call() {
+            Ok(resp) => resp,
+            Err(ureq::Error::Status(status, resp)) => bail!("the server answered {status} {} for {path}", resp.status_text()),
+            Err(ureq::Error::Transport(t)) => bail!("can't reach the server: {t}"),
+        };
+        let mut file = std::fs::File::create(dest).with_context(|| format!("creating {}", dest.display()))?;
+        let mut reader = resp.into_reader().take(max_bytes + 1);
+        let (mut hasher, mut size, mut buf) = (Sha256::new(), 0u64, vec![0u8; 64 * 1024]);
+        loop {
+            let n = reader.read(&mut buf).context("the download was interrupted")?;
+            if n == 0 {
+                break;
+            }
+            size += n as u64;
+            if size > max_bytes {
+                bail!("the download is larger than the {max_bytes} bytes expected");
+            }
+            hasher.update(&buf[..n]);
+            file.write_all(&buf[..n]).with_context(|| format!("writing {}", dest.display()))?;
+        }
+        file.sync_all().with_context(|| format!("writing {}", dest.display()))?;
+        Ok((size, hex(&hasher.finalize())))
     }
 
     fn post<B: Serialize, R: DeserializeOwned>(&self, path: &str, body: &B, timeout: Duration) -> Result<R, ApiError> {

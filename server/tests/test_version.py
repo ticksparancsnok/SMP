@@ -30,6 +30,40 @@ def test_version_toml_is_valid_and_complete():
         assert version.VERSION_RE.match(value), (section, value)
 
 
+# Built with the release, so they carry its number (Version.toml explains the letters).
+FOLLOW_THE_RELEASE = ("server", "WEBUI", "agent")
+
+
+def test_components_carry_the_release_number():
+    versions = version.load(VERSION_TOML)
+    release = version.VERSION_RE.match(versions["release"]).groups()[:3]
+    for section in FOLLOW_THE_RELEASE:
+        number = version.VERSION_RE.match(versions[section]).groups()[:3]
+        assert number == release, (
+            f'[{section}] is {versions[section]!r} but [release] is {versions["release"]!r}: '
+            "components built with the release carry its number (only the letter counts development)"
+        )
+
+
+def test_status_compares_with_the_release(tmp_path):
+    f = tmp_path / "Version.toml"
+    values = {"server": "1.0.3", "WEBUI": "1.0.3 B", "agent": "1.0.2 C", "Site-blocker": "0.9.0", "release": "1.0.3"}
+    f.write_text("".join(f'[{s}] # comment\nname = "x"\nversion = "{v}"\n\n' for s, v in values.items()))
+    out = subprocess.run(["sh", str(ROOT / "tools" / "version.sh"), "--status", str(f)],
+                         capture_output=True, text=True, check=True).stdout
+    lines = {line.split()[0]: line for line in out.splitlines()}
+    assert "up to date" in lines["server"]
+    assert "ahead" in lines["WEBUI"]
+    assert "behind" in lines["agent"]
+    assert "own versioning" in lines["Site-blocker"]
+
+
+def test_every_module_reports_the_server_version():
+    from smp.modules import all_modules
+
+    assert {m.version for m in all_modules()} == {version.SERVER_VERSION}
+
+
 def test_server_reports_the_server_section():
     server = tomllib.loads(VERSION_TOML.read_text())["server"]["version"]
     assert smp.__version__ == version.SERVER_VERSION == server

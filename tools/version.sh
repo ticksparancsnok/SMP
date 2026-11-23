@@ -6,9 +6,11 @@
 # Reads and compares SMP versions (Version.toml is the only place they're kept).
 #
 #   tools/version.sh <section> [Version.toml]   one component's version
-#                                                e.g. tools/version.sh agent  ->  0.1.1 A
+#                                                e.g. tools/version.sh agent  ->  1.0.3 B
 #   tools/version.sh --compare <a> <b>           prints lt, eq or gt (a compared with b)
 #                                                e.g. --compare "1.0.2 C" 1.0.3  ->  lt
+#   tools/version.sh --status [Version.toml]     every component against [release]:
+#                                                up to date, ahead (in development), behind
 #
 # Sections: server, WEBUI, agent, Site-blocker, release. Versions look like "1.0.2" or
 # "1.0.2 C": numbers compare as numbers, and a revision letter comes after the plain
@@ -21,6 +23,7 @@ set -eu
 usage() {
     echo "usage: $0 <section> [Version.toml]" >&2
     echo "       $0 --compare <version> <version>" >&2
+    echo "       $0 --status [Version.toml]" >&2
     exit 2
 }
 
@@ -51,6 +54,29 @@ if [ "${1:-}" = --compare ]; then
             print (a[4] < $4 ? "lt" : (a[4] > $4 ? "gt" : "eq"))
         }
     '
+    exit 0
+fi
+
+# Components built with the release follow its number; the letter counts development
+# since (see the top of Version.toml). Site-blocker is versioned on its own.
+if [ "${1:-}" = --status ]; then
+    [ $# -le 2 ] || usage
+    file=${2:-$(dirname "$0")/../Version.toml}
+    release=$(sh "$0" release "$file") || exit 1
+    printf '%-13s %-9s %s\n' release "$release" "the release"
+    for s in server WEBUI agent Site-blocker; do
+        v=$(sh "$0" "$s" "$file") || exit 1
+        if [ "$s" = Site-blocker ]; then
+            state="own versioning (not tied to the release)"
+        else
+            case $(sh "$0" --compare "$v" "$release") in
+                eq) state="up to date" ;;
+                gt) state="ahead (in development)" ;;
+                *) state="behind the release" ;;
+            esac
+        fi
+        printf '%-13s %-9s %s\n' "$s" "$v" "$state"
+    done
     exit 0
 fi
 
