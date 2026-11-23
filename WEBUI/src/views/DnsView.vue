@@ -6,7 +6,7 @@
 <script setup lang="ts">
 // Decision order (same in the server and the Go sinkhole): allowlist -> blocklist ->
 // everything else allowed. Public suffixes (com, co.uk, ...) can't go on either list.
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { api, errorText } from '../api/client'
 import type {
   DnsAllowEntry,
@@ -22,12 +22,57 @@ import { t, tOr } from '../i18n'
 import { can } from '../session'
 
 const tab = ref<'blocklist' | 'allowlist'>('blocklist')
-const entries = ref<DnsEntry[]>([])
-const allowlist = ref<DnsAllowlist | null>(null)
+// shallowRef avoids deep-proxying tens of thousands of domain objects
+const entries = shallowRef<DnsEntry[]>([])
+const allowlist = shallowRef<DnsAllowlist | null>(null)
 const status = ref<DnsStatus | null>(null)
 const error = ref('')
 const busy = ref(false)
 const canWrite = can('dns.blocklist.write')
+
+// ---------------------------------------------------------------- pagination & filtering
+const PAGE_SIZES = [10, 50, 100] as const
+const searchQuery = ref('')
+const pageSize = ref<number>(50)
+const currentPage = ref(1)
+
+const filteredEntries = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return entries.value
+  return entries.value.filter(
+    (entry) =>
+      entry.domain.toLowerCase().includes(q) ||
+      (entry.reason && entry.reason.toLowerCase().includes(q)) ||
+      (entry.addedBy && entry.addedBy.toLowerCase().includes(q)),
+  )
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredEntries.value.length / pageSize.value)))
+
+const paginatedEntries = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredEntries.value.slice(start, start + pageSize.value)
+})
+
+const pageRangeLabel = computed(() => {
+  const total = filteredEntries.value.length
+  if (total === 0) return '0 / 0'
+  const start = (currentPage.value - 1) * pageSize.value + 1
+  const end = Math.min(currentPage.value * pageSize.value, total)
+  return `${start.toLocaleString()}–${end.toLocaleString()} / ${total.toLocaleString()}`
+})
+
+// Reset to page 1 when search query or page size changes
+watch([searchQuery, pageSize], () => {
+  currentPage.value = 1
+})
+
+// Clamp currentPage if entries are deleted from the last page
+watch(totalPages, (maxPage) => {
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
+})
 
 // ---------------------------------------------------------------- blocklist entry dialog
 const createOpen = ref(false)
@@ -193,7 +238,16 @@ onMounted(load)
 
   <!-- ------------------------------------------------------------ blocklist -->
   <template v-if="tab === 'blocklist'">
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
+      <input
+        v-model="searchQuery"
+        type="search"
+        placeholder="Filter domains..."
+        style="max-width: 260px"
+      />
+      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
+        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
+      </select>
       <span class="grow"></span>
       <button v-if="canWrite" class="ghost" @click="openImport">{{ t('dns.hosts_import') }}</button>
       <button v-if="canWrite" @click="openCreate">{{ t('dns.manual_block') }}</button>
@@ -211,7 +265,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in entries" :key="entry.id" :class="{ muted: entry.active === false }">
+          <tr v-for="entry in paginatedEntries" :key="entry.id" :class="{ muted: entry.active === false }">
             <td>
               <strong>{{ entry.domain }}</strong>
               <span v-if="entry.includeSubdomains" class="badge" style="margin-left: 6px">{{ t('dns.with_subdomains') }}</span>
@@ -231,11 +285,21 @@ onMounted(load)
               <button v-if="canWrite" class="danger small" @click="removeEntry(entry)">{{ t('common.delete') }}</button>
             </td>
           </tr>
-          <tr v-if="!entries.length">
+          <tr v-if="!paginatedEntries.length">
             <td colspan="5" class="empty">{{ t('dns.empty') }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="filteredEntries.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
+      <span class="muted small">{{ pageRangeLabel }}</span>
+      <span class="grow"></span>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
+      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
     </div>
   </template>
 
