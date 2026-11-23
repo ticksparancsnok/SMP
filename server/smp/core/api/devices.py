@@ -64,7 +64,8 @@ class DeviceOut(ORMModel):
     hostname: str
     display_name: str
     mac: str | None
-    last_ip: str | None
+    last_ip: str | None  # its own address (reported by its agent)
+    observed_ip: str | None = None  # where SMP sees its agent's requests come from (differs behind a NAT)
     room_id: uuid.UUID | None
     status: str
     agent_id: str | None  # the agent key's SHA-256 fingerprint (null: no enrolled agent)
@@ -99,8 +100,8 @@ async def list_devices(
         stmt = stmt.where(Device.room_id == room_id)
     if unassigned:
         stmt = stmt.where(Device.room_id.is_(None))
-    if ip:
-        stmt = stmt.where(Device.last_ip == str(ip))
+    if ip:  # its own address, or the one SMP sees (a NAT router: every PC behind it)
+        stmt = stmt.where(or_(Device.last_ip == str(ip), Device.observed_ip == str(ip)))
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Device.hostname.ilike(like), Device.display_name.ilike(like), Device.mac.ilike(like)))

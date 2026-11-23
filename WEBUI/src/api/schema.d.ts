@@ -1351,6 +1351,8 @@ export interface components {
             mac: string | null;
             /** Last Ip */
             last_ip: string | null;
+            /** Observed Ip */
+            observed_ip?: string | null;
             /** Room Id */
             room_id: string | null;
             /** Status */
@@ -1650,6 +1652,8 @@ export interface components {
             mac: string | null;
             /** Ip */
             ip: string | null;
+            /** Observed Ip */
+            observed_ip?: string | null;
             /** Os Name */
             os_name: string | null;
             /** Os Version */

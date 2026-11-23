@@ -215,7 +215,11 @@ class Device(UUIDPk, Timestamps, OrgScoped, Base):
     hostname: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(255), default="")
     mac: Mapped[str | None] = mapped_column(String(17))  # normalised aa:bb:cc:dd:ee:ff
+    # The device's own address: reported by its agent (the address its system uses to
+    # reach SMP), else the one SMP sees. observed_ip: the address SMP sees the agent's
+    # requests come from; differs from last_ip behind a NAT (e.g. a lab with its own router).
     last_ip: Mapped[str | None] = mapped_column(String(45))
+    observed_ip: Mapped[str | None] = mapped_column(String(45))
     room_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("rooms.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(16), default=DeviceStatus.PENDING)
 

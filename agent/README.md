@@ -120,7 +120,8 @@ Windows the service manager starts it again 5 s later.
 - **Heartbeat:** the agent sends its config version and the server holds the answer
   until something changes (max ~25 s). A teacher opening the Monitoring page reaches
   every PC in the room within a second, with one idle HTTPS request per PC meanwhile.
-  Each heartbeat also reports the current IP, so moving between rooms/VLANs works.
+  Each heartbeat also reports the computer's own IP (the one it uses to reach SMP, so it's
+  right behind a NAT too), so moving between rooms/VLANs works.
 - **Monitoring traffic** (schools often have 100 Mbps): nothing at all unless someone
   has the room open. Then a 480 px JPEG thumbnail every 5 s (15-40 KB; a room of 30
   PCs is about 1-2 Mbit/s), an unchanged screen costs an empty request, and only the

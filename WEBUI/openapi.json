@@ -4618,6 +4618,17 @@
       ],
       "title": "Last Ip"
      },
+     "observed_ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed Ip"
+     },
      "room_id": {
       "anyOf": [
        {
@@ -5454,6 +5465,17 @@
        }
       ],
       "title": "Ip"
+     },
+     "observed_ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed Ip"
      },
      "os_name": {
       "anyOf": [

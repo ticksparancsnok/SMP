@@ -30,8 +30,11 @@ def b64url(b: bytes) -> str:
 
 
 class FakeAgent:
-    def __init__(self, app, ip: str = "10.20.0.5", hostname: str = "LAB1-PC01", mac: str = "aa:bb:cc:00:00:01"):
-        self.app, self.ip, self.hostname, self.mac = app, ip, hostname, mac
+    def __init__(self, app, ip: str = "10.20.0.5", hostname: str = "LAB1-PC01", mac: str = "aa:bb:cc:00:00:01",
+                 address: str | None = None):
+        # ip: where the server sees requests come from. address: what the agent reports as
+        # its own (None: an agent from before it reported one).
+        self.app, self.ip, self.hostname, self.mac, self.address = app, ip, hostname, mac, address
         self.key = ec.generate_private_key(ec.SECP256R1())
         point = self.key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
         self.public_key = b64url(point)
@@ -59,6 +62,7 @@ class FakeAgent:
         return await self.post("/api/v1/agent/join", {
             "public_key": self.public_key, "hostname": self.hostname, "mac": self.mac,
             "os_name": "Windows 11 Pro", "os_version": "10.0.26100", "agent_version": "0.1.0",
+            **({"address": self.address} if self.address else {}),
         })
 
     async def status(self) -> str:
@@ -68,6 +72,7 @@ class FakeAgent:
         r = await self.post("/api/v1/agent/heartbeat", {
             "hostname": self.hostname, "user": user, "agent_version": "0.1.0",
             "config_version": self.config_version, "wait": wait, "platform": platform,
+            **({"address": self.address} if self.address else {}),
         })
         if r.status_code == 200:
             self.config_version = r.json()["config_version"]
@@ -395,3 +400,45 @@ def test_the_offered_build_follows_file_changes(monkeypatch, tmp_path):
     assert second.sha256 != first.sha256 and second.sha256 == hashlib.sha256(b"MZ-two").hexdigest()
     ver.write_text("0.2.0\n")
     assert download.current_build().version == "0.2.0"
+
+
+# --------------------------------------------------------------------------- addresses behind a NAT
+
+
+async def test_agents_report_their_own_address_behind_a_nat(app, admin):
+    """A lab behind its own router: the server sees the router (10.20.0.1) for every PC,
+    the agents report their real addresses (192.168.50.x)."""
+    inner = (await admin.post("/api/v1/rooms", json={"name": "NAT lab", "subnets": ["192.168.50.0/24"]})).json()
+    outer = (await admin.post("/api/v1/rooms", json={"name": "Behind the router", "subnets": ["10.20.0.0/24"]})).json()
+
+    pc = FakeAgent(app, ip="10.20.0.1", hostname="NATLAB-PC01", mac="aa:bb:cc:50:00:01", address="192.168.50.11")
+    await pc.join()
+    (req,) = [r for r in await pending(admin) if r["fingerprint"] == pc.fingerprint]
+    assert (req["ip"], req["observed_ip"]) == ("192.168.50.11", "10.20.0.1")  # what the admin sees
+    device_id = await approve(admin, pc, room_mode="network")
+    device = (await admin.get(f"/api/v1/devices/{device_id}")).json()
+    assert (device["last_ip"], device["observed_ip"], device["room_id"]) == ("192.168.50.11", "10.20.0.1", inner["id"])
+
+    # The PC moves within the lab: its own address follows, the router's stays.
+    pc.address = "192.168.50.42"
+    assert (await pc.heartbeat()).status_code == 200
+    device = (await admin.get(f"/api/v1/devices/{device_id}")).json()
+    assert (device["last_ip"], device["observed_ip"]) == ("192.168.50.42", "10.20.0.1")
+    found = (await admin.get("/api/v1/devices", params={"ip": "192.168.50.42"})).json()["items"]
+    assert [d["id"] for d in found] == [device_id]
+    via_router = (await admin.get("/api/v1/devices", params={"ip": "10.20.0.1"})).json()["items"]
+    assert device_id in [d["id"] for d in via_router]  # every PC behind the router
+
+    # An inner address no room knows: the room comes from the address the server sees.
+    pc.address = "172.30.9.9"
+    await pc.heartbeat()
+    assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["room_id"] == outer["id"]
+
+    # Nonsense is ignored (the seen address is used), and so is an agent that sends none.
+    for bad in ("0.0.0.0", "not-an-ip", "224.0.0.1"):
+        pc.address = bad
+        await pc.heartbeat()
+        assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["last_ip"] == "10.20.0.1", bad
+    pc.address = None
+    await pc.heartbeat()
+    assert (await admin.get(f"/api/v1/devices/{device_id}")).json()["last_ip"] == "10.20.0.1"

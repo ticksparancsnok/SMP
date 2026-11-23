@@ -426,6 +426,9 @@ const en = {
   'devices.join_intro':
     'These computers ask to be managed by SMP. Approve only if the fingerprint matches the one shown on the computer itself.',
   'devices.fingerprint': 'Fingerprint',
+  'devices.via': 'via {ip}',
+  'devices.via_title':
+    'The address SMP sees this computer’s connection come from: it is behind a NAT (e.g. a lab with its own router). Above: its own address, as its agent reports it.',
   'devices.requested': 'Requested',
   'devices.approve': 'Approve',
   'devices.reject': 'Reject',

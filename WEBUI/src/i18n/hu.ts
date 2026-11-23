@@ -418,6 +418,9 @@ const hu: Dictionary = {
   'devices.join_intro':
     'Ezek a gépek kérik, hogy az SMP kezelje őket. Csak akkor hagyd jóvá, ha az ujjlenyomat megegyezik a gépen látottal.',
   'devices.fingerprint': 'Ujjlenyomat',
+  'devices.via': 'ezen át: {ip}',
+  'devices.via_title':
+    'Erről a címről látja az SMP a gép kapcsolatát: a gép NAT mögött van (pl. saját routerrel rendelkező labor). Fölötte: a gép saját címe, ahogy az ügynöke jelenti.',
   'devices.requested': 'Kérés ideje',
   'devices.approve': 'Jóváhagyás',
   'devices.reject': 'Elutasítás',

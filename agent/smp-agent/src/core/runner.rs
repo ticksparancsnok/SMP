@@ -196,6 +196,7 @@ impl Agent {
                 config_version: version.clone(),
                 wait: version.is_some(),
                 platform: PLATFORM,
+                address: presence.address.map(|a| a.to_string()),
             };
             sent += 1;
             let (client, answers_tx, number) = (self.client.clone(), answers_tx.clone(), sent);

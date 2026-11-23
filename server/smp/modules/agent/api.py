@@ -29,6 +29,7 @@ version. See agent/smp-agent/src/capabilities/update.rs.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import time
 import uuid
@@ -123,6 +124,41 @@ def _audit(s: AsyncSession, org_id, action: str, request: Request, target: Any =
     ))
 
 
+# --------------------------------------------------------------------------- addresses
+#
+# Two addresses per agent:
+#   reported  what the agent says its address is: the one its system uses to reach SMP
+#             (agent/smp-agent/src/core/presence.rs). Right also behind a NAT, e.g. a lab
+#             with its own router, where every PC would otherwise look like the router.
+#   observed  where SMP sees the request come from (client_ip: nginx passes it on).
+# The device's IP (Device.last_ip) is the reported one; the observed one is kept too
+# (Device.observed_ip). Limits that must not be dodged (pending join requests per
+# address) use the observed one: a reported address is only the agent's word.
+
+
+def reported_address(value: str | None) -> str | None:
+    """The agent's own address, normalized, or None if missing or not a usable address."""
+    if not value:
+        return None
+    try:
+        addr = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
+    if addr.is_unspecified or addr.is_multicast:
+        return None
+    return str(addr)
+
+
+async def network_room(s: AsyncSession, org_id: uuid.UUID, reported: str | None, observed: str | None) -> Room | None:
+    """The room for a "by network" device: whose subnet holds the agent's own address,
+    else the address SMP sees (a NATted lab can be set up either by its inner subnet or
+    by its router's address; two labs reusing the same inner range: by router address)."""
+    for ip in (reported, observed):
+        if ip and (room := await room_for_ip(s, org_id, ip)) is not None:
+            return room
+    return None
+
+
 # --------------------------------------------------------------------------- join
 
 
@@ -134,6 +170,7 @@ class JoinIn(BaseModel):
     os_version: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, max_length=32)
     org: str | None = None
+    address: str | None = Field(default=None, max_length=64)  # the machine's own IP (see above)
 
 
 class JoinOut(BaseModel):
@@ -174,7 +211,8 @@ async def join(request: Request):
             req = AgentJoinRequest(org_id=org.id, fingerprint=fp, public_key=body.public_key)
             s.add(req)
             _audit(s, org.id, "agent.join.request", request, details={"hostname": body.hostname, "fingerprint": fp})
-        req.hostname, req.mac, req.ip = body.hostname, body.mac, ip
+        req.hostname, req.mac, req.ip = body.hostname, body.mac, ip  # ip: observed (the limit above)
+        req.reported_ip = reported_address(body.address)
         req.os_name, req.os_version, req.agent_version = body.os_name, body.os_version, body.agent_version
         req.expires_at = now + JOIN_TTL
         await s.commit()
@@ -243,6 +281,8 @@ class HeartbeatIn(BaseModel):
     config_version: str | None = None  # the version the agent already has
     wait: bool = False  # long-poll: hold the answer until the config changes
     platform: str | None = Field(default=None, max_length=32)  # e.g. "windows-x86_64": which build updates it
+    # The machine's own IP (the one its system uses to reach SMP); see reported_address().
+    address: str | None = Field(default=None, max_length=64)
 
 
 class HeartbeatOut(BaseModel):
@@ -293,7 +333,8 @@ async def heartbeat(request: Request):
     body: HeartbeatIn = _json(raw, HeartbeatIn)
     mod = _module(request)
     registry, bus = request.app.state.registry, request.app.state.bus
-    ip = client_ip(request)
+    observed = client_ip(request)
+    reported = reported_address(body.address)
     room_changed: tuple[uuid.UUID | None, uuid.UUID | None] | None = None
 
     async with db.sessionmaker()() as s:
@@ -302,13 +343,14 @@ async def heartbeat(request: Request):
             raise _unauthorized("unknown device")
         await _verify(request, device.agent_public_key, raw)
         device.last_seen_at = datetime.now(UTC)
-        device.last_ip = ip
+        device.last_ip = reported or observed  # older agents don't report theirs
+        device.observed_ip = observed
         device.logged_in_user = body.user or None
         for field in ("hostname", "agent_version", "os_name", "os_version"):
             if (value := getattr(body, field)) is not None:
                 setattr(device, field, value)
-        if device.room_mode == "network" and ip:
-            room = await room_for_ip(s, device.org_id, ip)
+        if device.room_mode == "network" and (reported or observed):
+            room = await network_room(s, device.org_id, reported, observed)
             new_room = room.id if room else None
             if new_room != device.room_id:
                 room_changed = (device.room_id, new_room)
@@ -346,7 +388,8 @@ class JoinRequestOut(BaseModel):
     id: uuid.UUID
     hostname: str
     mac: str | None
-    ip: str | None
+    ip: str | None  # the machine's own address (as its agent reports), else observed_ip
+    observed_ip: str | None = None  # where SMP saw the request come from (differs behind a NAT)
     os_name: str | None
     os_version: str | None
     agent_version: str | None
@@ -390,7 +433,8 @@ async def list_join_requests(ctx: Ctx = Depends(require(WRITE))):
             ).order_by((Device.mac == r.mac.lower()).desc())
         match = (await ctx.db.execute(stmt.limit(1))).scalar_one_or_none()
         out.append(JoinRequestOut(
-            id=r.id, hostname=r.hostname, mac=r.mac, ip=r.ip, os_name=r.os_name, os_version=r.os_version,
+            id=r.id, hostname=r.hostname, mac=r.mac, ip=r.reported_ip or r.ip, observed_ip=r.ip,
+            os_name=r.os_name, os_version=r.os_version,
             agent_version=r.agent_version, fingerprint=r.fingerprint, fingerprint_display=crypto.display_fingerprint(r.fingerprint),
             created_at=r.created_at, expires_at=r.expires_at, suggested_device_id=match.id if match else None,
         ))
@@ -418,10 +462,11 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
     device.agent_id, device.agent_public_key = req.fingerprint, req.public_key
     device.status = DeviceStatus.ACTIVE
     device.room_mode = body.room_mode
+    device.last_ip, device.observed_ip = req.reported_ip or req.ip, req.ip
     if body.room_mode == "fixed":
         device.room_id = body.room_id if body.room_id is not None else device.room_id
-    elif req.ip:
-        room = await room_for_ip(ctx.db, ctx.org_id, req.ip)
+    elif req.reported_ip or req.ip:
+        room = await network_room(ctx.db, ctx.org_id, req.reported_ip, req.ip)
         device.room_id = room.id if room else None
     await ctx.db.delete(req)
     await ctx.db.flush()

@@ -24,5 +24,9 @@ class AgentJoinRequest(UUIDPk, Timestamps, OrgScoped, Base):
     os_name: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
     agent_version: Mapped[str | None] = mapped_column(String(32))
+    # ip: the address SMP sees the request come from (the per-address limit on pending
+    # requests uses it: it can't be made up). reported_ip: the machine's own address, as
+    # its agent says (differs behind a NAT); None from agents before 1.0.3.
     ip: Mapped[str | None] = mapped_column(String(45))
+    reported_ip: Mapped[str | None] = mapped_column(String(45))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

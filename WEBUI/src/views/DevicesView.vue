@@ -314,7 +314,12 @@ async function showPolicies(d: Device) {
         <tbody>
           <tr v-for="r in joinPage.rows" :key="r.id">
             <td><strong class="mono">{{ r.hostname }}</strong></td>
-            <td class="mono">{{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span></td>
+            <td class="mono">
+              {{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span>
+              <template v-if="r.observed_ip && r.observed_ip !== r.ip">
+                <br /><span class="muted small" :title="t('devices.via_title')">{{ t('devices.via', { ip: r.observed_ip }) }}</span>
+              </template>
+            </td>
             <td class="muted small">{{ [r.os_name, r.os_version].filter(Boolean).join(' ') || '–' }}</td>
             <td class="mono">{{ r.fingerprint_display }}</td>
             <td class="small">{{ fmtRelative(r.created_at) }}</td>
@@ -361,6 +366,9 @@ async function showPolicies(d: Device) {
           </td>
           <td class="mono">
             {{ d.mac ?? '–' }}<br /><span class="muted">{{ d.last_ip ?? '' }}</span>
+            <template v-if="d.observed_ip && d.observed_ip !== d.last_ip">
+              <br /><span class="muted small" :title="t('devices.via_title')">{{ t('devices.via', { ip: d.observed_ip }) }}</span>
+            </template>
           </td>
           <td>
             <span class="badge" :class="deviceStatusClass(d.status)">{{ deviceStatusLabel(d.status) }}</span>
