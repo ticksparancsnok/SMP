@@ -187,6 +187,9 @@ const en = {
   'code.dns.allow_exists': 'This domain is already on the allowlist.',
   'code.docs.admin_only': 'The API documentation is for administrators only.',
   'code.agent.key_in_use': 'This agent key already belongs to a device.',
+  'code.agent.device_online':
+    '{hostname} is online with its own agent right now. Replace it only if you reinstalled that PC (tick the box).',
+  'code.agent.not_rejected': 'This request wasn’t rejected.',
   'code.classroom.bad_layout': 'Invalid seating plan: every computer must be in this room, each in its own cell.',
   'code.classroom.no_frame': 'No current screen.',
   'code.shortlinks.limit_reached': 'You reached the limit of {max} short links.',
@@ -432,7 +435,15 @@ const en = {
   'devices.requested': 'Requested',
   'devices.approve': 'Approve',
   'devices.reject': 'Reject',
-  'devices.confirm_reject': 'Reject the join request of {hostname}? Its agent can ask again later.',
+  'devices.confirm_reject':
+    'Reject {hostname}? It is remembered: it can’t ask again (not after an IP change or a reinstall either) until you allow it again under “Rejected computers”.',
+  'devices.online_lookalike':
+    '{hostname} is online right now with its own agent. This request may be another machine pretending to be it (same name or MAC). Approve it as that PC only if you just reinstalled it, and compare the fingerprint on its screen.',
+  'devices.replace_online': 'I reinstalled {hostname}: replace its current agent (that PC is cut off until this one takes over)',
+  'devices.rejected_title': 'Rejected computers ({count})',
+  'devices.rejected_intro': 'they can’t ask to join again until you allow them',
+  'devices.rejected_when': 'rejected {when}',
+  'devices.allow_again': 'Allow again',
   'devices.approve_title': 'Approve {hostname}',
   'devices.compare_fingerprint': 'Must be identical to the fingerprint shown on the computer.',
   'devices.approve_as': 'Add as',

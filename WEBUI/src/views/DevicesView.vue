@@ -182,7 +182,13 @@ const fmtSize = (bytes: number | null | undefined) => (bytes ? `${(bytes / 1024 
 const joinRequests = shallowRef<JoinRequest[]>([])
 const joinPage = usePage(joinRequests, { key: 'devices.join_requests' })
 const approving = ref<JoinRequest | null>(null)
-const approveForm = reactive({ as: 'new' as 'new' | 'existing', device_id: '', room_mode: 'fixed' as 'fixed' | 'network', room_id: '' })
+const approveForm = reactive({
+  as: 'new' as 'new' | 'existing',
+  device_id: '',
+  room_mode: 'fixed' as 'fixed' | 'network',
+  room_id: '',
+  replace_online: false,
+})
 const approveError = ref('')
 // The suggested device (same MAC/hostname), preselected in "approve as an existing device".
 const suggested = shallowRef<Device | null>(null)
@@ -191,27 +197,59 @@ const searchDevices = (q: string, limit: number) => api.get<Page<Device>>('/devi
 const deviceLabel = (d: Device) =>
   `${d.hostname}${d.mac ? ` (${d.mac})` : ''}${d.id === approving.value?.suggested_device_id ? ' ★' : ''}`
 
+// Machines an admin rejected: remembered by key and MAC until "allow again".
+const rejected = shallowRef<JoinRequest[]>([])
+
 async function loadJoinRequests() {
   if (!canWrite.value) return
   try {
-    joinRequests.value = await api.get<JoinRequest[]>('/agent/join-requests')
+    ;[joinRequests.value, rejected.value] = await Promise.all([
+      api.get<JoinRequest[]>('/agent/join-requests'),
+      api.get<JoinRequest[]>('/agent/join-requests/rejected'),
+    ])
   } catch (e) {
     error.value = errorText(e)
   }
 }
 
+async function allowAgain(r: JoinRequest) {
+  try {
+    await api.post(`/agent/join-requests/${r.id}/allow`)
+    loadJoinRequests()
+  } catch (e) {
+    error.value = errorText(e)
+  }
+}
+
+// The device chosen in "approve as an existing device", to tell whether its own agent
+// is online right now: then this request is more likely another machine pretending to
+// be it (same hostname/MAC) than a reinstall, and replacing it needs a clear yes.
+const chosen = shallowRef<Device | null>(null)
+watch(
+  () => approveForm.device_id,
+  async (id) => {
+    chosen.value = !id ? null : id === suggested.value?.id ? suggested.value : await api.get<Device>(`/devices/${id}`).catch(() => null)
+    approveForm.replace_online = false
+  },
+)
+const chosenOnline = computed(
+  () => approveForm.as === 'existing' && !!chosen.value?.agent_id && isOnline(chosen.value.last_seen_at),
+)
+
 async function openApprove(r: JoinRequest) {
   approving.value = r
   approveError.value = ''
-  Object.assign(approveForm, {
-    as: r.suggested_device_id ? 'existing' : 'new',
-    device_id: r.suggested_device_id ?? '',
-    room_mode: 'fixed',
-    room_id: '',
-  })
   suggested.value = null
   if (r.suggested_device_id)
     suggested.value = await api.get<Device>(`/devices/${r.suggested_device_id}`).catch(() => null)
+  Object.assign(approveForm, {
+    // Not preselected when that PC is online: approving would cut it off (see above).
+    as: r.suggested_device_id && !r.suggested_device_online ? 'existing' : 'new',
+    device_id: r.suggested_device_id ?? '',
+    room_mode: 'fixed',
+    room_id: '',
+    replace_online: false,
+  })
 }
 
 async function approve() {
@@ -220,6 +258,7 @@ async function approve() {
     device_id: approveForm.as === 'existing' ? approveForm.device_id || null : null,
     room_mode: approveForm.room_mode,
     room_id: approveForm.room_mode === 'fixed' ? approveForm.room_id || null : null,
+    replace_online: chosenOnline.value && approveForm.replace_online,
   }
   try {
     await api.post(`/agent/join-requests/${r.id}/approve`, body)
@@ -335,6 +374,31 @@ async function showPolicies(d: Device) {
       <Pager v-model:offset="joinPage.offset" v-model:limit="joinPage.limit" :total="joinPage.total" />
     </div>
   </div>
+
+  <!-- rejected machines can't ask again (not after an IP change or a reinstall either) -->
+  <details v-if="rejected.length" class="card rejected">
+    <summary>
+      <strong>{{ t('devices.rejected_title', { count: rejected.length }) }}</strong>
+      <span class="muted small"> · {{ t('devices.rejected_intro') }}</span>
+    </summary>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr v-for="r in rejected" :key="r.id">
+            <td><strong class="mono">{{ r.hostname }}</strong></td>
+            <td class="mono">{{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span></td>
+            <td class="mono">{{ r.fingerprint_display }}</td>
+            <td class="small">{{ t('devices.rejected_when', { when: fmtRelative(r.rejected_at) }) }}</td>
+            <td>
+              <div class="actions">
+                <button class="ghost small" @click="allowAgain(r)">{{ t('devices.allow_again') }}</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
 
   <div class="card table-wrap">
     <table>
@@ -476,6 +540,9 @@ async function showPolicies(d: Device) {
         <span class="mono" style="font-size: 20px; letter-spacing: 0.05em">{{ approving.fingerprint_display }}</span>
         <span class="muted small">{{ t('devices.compare_fingerprint') }}</span>
       </div>
+      <div v-if="approving.suggested_device_online" class="alert err">
+        {{ t('devices.online_lookalike', { hostname: suggested?.hostname ?? approving.hostname }) }}
+      </div>
       <div class="field">
         <label>{{ t('devices.approve_as') }}</label>
         <label class="check"><input v-model="approveForm.as" type="radio" value="new" /> {{ t('devices.approve_new') }}</label>
@@ -489,6 +556,10 @@ async function showPolicies(d: Device) {
           required
         />
         <span v-if="approveForm.as === 'existing'" class="muted small">{{ t('devices.approve_existing_hint') }}</span>
+        <label v-if="chosenOnline" class="check replace-online">
+          <input v-model="approveForm.replace_online" type="checkbox" required />
+          {{ t('devices.replace_online', { hostname: chosen?.hostname ?? '' }) }}
+        </label>
       </div>
       <div class="field">
         <label>{{ t('devices.room_mode') }}</label>
@@ -564,6 +635,15 @@ async function showPolicies(d: Device) {
 }
 .sha {
   word-break: break-all;
+}
+.replace-online {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger, #e5484d);
+  border-radius: 8px;
+}
+details.rejected summary {
+  cursor: pointer;
 }
 a.button {
   /* a link that looks like the primary button (main-style.css, button) */

@@ -994,8 +994,32 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Join Requests */
+        /**
+         * List Join Requests
+         * @description Machines waiting for approval.
+         */
         get: operations["list_join_requests_api_v1_agent_join_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join-requests/rejected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Rejected
+         * @description Machines an admin rejected: they can't ask again (also not with a new key from the
+         *     same MAC) until "allow again" or REJECT_TTL after they last tried.
+         */
+        get: operations["list_rejected_api_v1_agent_join_requests_rejected_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1030,8 +1054,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reject */
+        /**
+         * Reject
+         * @description No. The machine is remembered (key and MAC), so it doesn't come straight back
+         *     with a new request, also not after an IP change or a reinstall.
+         */
         post: operations["reject_api_v1_agent_join_requests__request_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/join-requests/{request_id}/allow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allow Again
+         * @description Forget a rejection: the machine's next request shows up as a normal one.
+         */
+        post: operations["allow_again_api_v1_agent_join_requests__request_id__allow_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1223,6 +1271,11 @@ export interface components {
             room_mode: "fixed" | "network";
             /** Room Id */
             room_id?: string | null;
+            /**
+             * Replace Online
+             * @default false
+             */
+            replace_online: boolean;
         };
         /** AssignmentIn */
         AssignmentIn: {
@@ -1631,7 +1684,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "approved" | "unknown";
+            status: "pending" | "approved" | "rejected" | "unknown";
             /** Fingerprint */
             fingerprint: string;
             /** Fingerprint Display */
@@ -1676,6 +1729,13 @@ export interface components {
             expires_at: string;
             /** Suggested Device Id */
             suggested_device_id?: string | null;
+            /**
+             * Suggested Device Online
+             * @default false
+             */
+            suggested_device_online: boolean;
+            /** Rejected At */
+            rejected_at?: string | null;
         };
         /** LayoutModel */
         LayoutModel: {
@@ -4829,6 +4889,26 @@ export interface operations {
             };
         };
     };
+    list_rejected_api_v1_agent_join_requests_rejected_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinRequestOut"][];
+                };
+            };
+        };
+    };
     approve_api_v1_agent_join_requests__request_id__approve_post: {
         parameters: {
             query?: never;
@@ -4867,6 +4947,35 @@ export interface operations {
         };
     };
     reject_api_v1_agent_join_requests__request_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allow_again_api_v1_agent_join_requests__request_id__allow_post: {
         parameters: {
             query?: never;
             header?: never;

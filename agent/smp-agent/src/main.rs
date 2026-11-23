@@ -126,6 +126,9 @@ fn init_logging(command: &Command) {
     }
     let _ = command;
     builder.init();
+    for note in platform::startup_notes() {
+        log::warn!("{note}");  // e.g. a C:\ProgramData\SMP someone else made
+    }
 }
 
 /// The agent itself: capabilities + the join/heartbeat loop, until `stop` is set.
@@ -145,7 +148,11 @@ fn real_main(cli: Cli) -> Result<()> {
             let mut agent = Agent::open(&state_path, Some(&server))?;
             if no_wait {
                 let r = agent.client.join(&core::sysinfo::SysInfo::collect())?;
-                show_fingerprint(&r.fingerprint_display);
+                if r.status == "rejected" {
+                    println!("{REJECTED_NOTE}");
+                } else {
+                    show_fingerprint(&r.fingerprint_display);
+                }
                 return Ok(());
             }
             let mut shown = false;
@@ -178,6 +185,10 @@ fn real_main(cli: Cli) -> Result<()> {
     }
     Ok(())
 }
+
+/// What to tell an admin installing on a machine SMP was told to reject.
+pub const REJECTED_NOTE: &str = "SMP rejected this computer earlier, so no new request appears. \
+An admin can allow it again in SMP: Devices -> Rejected computers -> Allow again.";
 
 pub fn show_fingerprint(fp: &str) {
     println!();

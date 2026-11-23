@@ -181,6 +181,9 @@ const hu: Dictionary = {
   'code.dns.allow_exists': 'Ez a domain már szerepel az engedélylistán.',
   'code.docs.admin_only': 'Az API dokumentáció csak adminisztrátoroknak érhető el.',
   'code.agent.key_in_use': 'Ez az ügynökkulcs már egy géphez tartozik.',
+  'code.agent.device_online':
+    '{hostname} most is elérhető a saját ügynökével. Csak akkor cseréld le, ha újratelepítetted azt a gépet (jelöld be a négyzetet).',
+  'code.agent.not_rejected': 'Ezt a kérést nem utasították el.',
   'code.classroom.bad_layout': 'Érvénytelen ülésrend: minden gépnek ebben a teremben, külön cellában kell lennie.',
   'code.classroom.no_frame': 'Nincs friss képernyőkép.',
   'code.shortlinks.limit_reached': 'Elérted a rövid linkek korlátját ({max}).',
@@ -424,7 +427,15 @@ const hu: Dictionary = {
   'devices.requested': 'Kérés ideje',
   'devices.approve': 'Jóváhagyás',
   'devices.reject': 'Elutasítás',
-  'devices.confirm_reject': 'Elutasítod {hostname} csatlakozási kérését? Az ügynöke később újra kérheti.',
+  'devices.confirm_reject':
+    'Elutasítod: {hostname}? Az SMP megjegyzi: nem kérheti újra (IP-cím-változás vagy újratelepítés után sem), amíg az „Elutasított gépek” között újra nem engedélyezed.',
+  'devices.online_lookalike':
+    '{hostname} most is elérhető a saját ügynökével. Lehet, hogy ez a kérés egy másik gépé, amely annak adja ki magát (azonos név vagy MAC). Csak akkor hagyd jóvá azzal a géppel, ha most telepítetted újra, és vesd össze az ujjlenyomatot a gép képernyőjével.',
+  'devices.replace_online': 'Újratelepítettem: {hostname} jelenlegi ügynökét lecserélem (az a gép kiesik, amíg ez át nem veszi a helyét)',
+  'devices.rejected_title': 'Elutasított gépek ({count})',
+  'devices.rejected_intro': 'nem kérhetnek újra csatlakozást, amíg újra nem engedélyezed őket',
+  'devices.rejected_when': 'elutasítva: {when}',
+  'devices.allow_again': 'Újra engedélyezés',
   'devices.approve_title': '{hostname} jóváhagyása',
   'devices.compare_fingerprint': 'Pontosan egyeznie kell a gépen megjelenő ujjlenyomattal.',
   'devices.approve_as': 'Felvétel',

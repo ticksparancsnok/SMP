@@ -102,6 +102,11 @@ pub fn os_info() -> (String, String) {
     (get("PRETTY_NAME").unwrap_or_else(|| std::env::consts::OS.into()), get("VERSION_ID").unwrap_or_default())
 }
 
+/// Nothing to report here (Windows: platform/state_dir.rs).
+pub fn startup_notes() -> Vec<String> {
+    vec![]
+}
+
 pub fn console_user() -> Option<String> {
     std::env::var("SMP_AGENT_USER").or_else(|_| std::env::var("USER")).ok().filter(|u| !u.is_empty())
 }

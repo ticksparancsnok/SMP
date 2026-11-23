@@ -3668,6 +3668,7 @@
      "agent"
     ],
     "summary": "List Join Requests",
+    "description": "Machines waiting for approval.",
     "operationId": "list_join_requests_api_v1_agent_join_requests_get",
     "responses": {
      "200": {
@@ -3680,6 +3681,32 @@
          },
          "type": "array",
          "title": "Response List Join Requests Api V1 Agent Join Requests Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join-requests/rejected": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "List Rejected",
+    "description": "Machines an admin rejected: they can't ask again (also not with a new key from the\nsame MAC) until \"allow again\" or REJECT_TTL after they last tried.",
+    "operationId": "list_rejected_api_v1_agent_join_requests_rejected_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/JoinRequestOut"
+         },
+         "type": "array",
+         "title": "Response List Rejected Api V1 Agent Join Requests Rejected Get"
         }
        }
       }
@@ -3750,7 +3777,45 @@
      "agent"
     ],
     "summary": "Reject",
+    "description": "No. The machine is remembered (key and MAC), so it doesn't come straight back\nwith a new request, also not after an IP change or a reinstall.",
     "operationId": "reject_api_v1_agent_join_requests__request_id__reject_post",
+    "parameters": [
+     {
+      "name": "request_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Request Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/agent/join-requests/{request_id}/allow": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Allow Again",
+    "description": "Forget a rejection: the machine's next request shows up as a normal one.",
+    "operationId": "allow_again_api_v1_agent_join_requests__request_id__allow_post",
     "parameters": [
      {
       "name": "request_id",
@@ -4241,6 +4306,11 @@
        }
       ],
       "title": "Room Id"
+     },
+     "replace_online": {
+      "type": "boolean",
+      "title": "Replace Online",
+      "default": false
      }
     },
     "type": "object",
@@ -5407,6 +5477,7 @@
       "enum": [
        "pending",
        "approved",
+       "rejected",
        "unknown"
       ],
       "title": "Status"
@@ -5539,6 +5610,23 @@
        }
       ],
       "title": "Suggested Device Id"
+     },
+     "suggested_device_online": {
+      "type": "boolean",
+      "title": "Suggested Device Online",
+      "default": false
+     },
+     "rejected_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rejected At"
      }
     },
     "type": "object",

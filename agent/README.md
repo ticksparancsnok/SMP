@@ -43,6 +43,12 @@ This copies the exe to `C:\Program Files\SMP`, creates the PC's key in
   and logs (then remove the device in SMP too, or reset its identity).
 - Logs: `C:\ProgramData\SMP\logs\agent.log` (service) and `helper.log` (screen/tray).
 - `smp-agent.exe status` (as administrator) shows the server, fingerprint and device id.
+- The folder is `C:\ProgramData\SMP` unless someone else had made a folder with that
+  name before the install (anyone can create folders in ProgramData, and its creator
+  owns it): then `SMP-1` (or the next free name), and `agent.log` says why. The agent
+  only uses a folder owned by SYSTEM/Administrators, so it always finds its own again.
+- A rejected computer isn't listed again (also not after an IP change or a reinstall):
+  SMP -> Devices -> Rejected computers -> Allow again.
 
 What the user sees: an SMP icon in the tray, always while the agent runs. **Grey** =
 the agent runs, nobody views the screen; **colour** = a teacher is viewing it right

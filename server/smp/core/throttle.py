@@ -7,7 +7,10 @@
 Two independent limits, both checked before any password hashing:
 
   * per account: `max_failures` failed logins for one username (from any IP) within
-    FAILURE_MEMORY_SECONDS lock that username for `lockout_seconds`. While locked,
+    FAILURE_MEMORY_SECONDS lock that username for `lockout_seconds`. Every place that
+    checks a password counts here: wrong current passwords in the password change too
+    (an unlocked teacher PC is no way around it; reaching the limit there also ends the
+    account's sessions). While locked,
     every attempt is refused, even with the right password, so rotating source IPs
     (an IPv6 /64 is 2^64 addresses) gains an attacker nothing. Each lockout starts a
     fresh count;
@@ -124,7 +127,8 @@ async def seed_throttle_from_audit(throttle: LoginThrottle, db) -> int:
     rows = (
         await db.execute(
             select(AuditLog.action, AuditLog.ip, AuditLog.actor_name, AuditLog.at)
-            .where(AuditLog.action.in_(("core.auth.login", "core.auth.login_failed")), AuditLog.at >= since)
+            .where(AuditLog.action.in_(("core.auth.login", "core.auth.login_failed", "core.auth.password_change_failed")),
+                   AuditLog.at >= since)
             .order_by(AuditLog.at)
         )
     ).all()
@@ -133,7 +137,7 @@ async def seed_throttle_from_audit(throttle: LoginThrottle, db) -> int:
         ip = ip or "unknown"
         if ago <= 60:
             throttle.record_attempt(ip, seconds_ago=ago)
-        if action == "core.auth.login_failed":
+        if action in ("core.auth.login_failed", "core.auth.password_change_failed"):  # one counter per account
             throttle.record_failure(username or "", seconds_ago=ago)  # replayed in order: lockouts too
         elif action == "core.auth.login":
             throttle.record_success(username or "")
