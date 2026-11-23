@@ -24,15 +24,15 @@
 
 [server] # marks the version of the server core (files located under /server)
 name = "smp-server-core"
-version = "1.0.3 B"
+version = "1.0.3 E"
 
 [WEBUI] # marks the version of the WEB UI (files located under /WEBUI)
 name = "smp-server-WEBUI"
-version = "1.0.3 B"
+version = "1.0.3 E"
 
 [agent] # marks the version of the monitoring agent (files located under /agent)
 name = "smp-monitoring-agent"
-version = "1.0.3 B"
+version = "1.0.3 E"
 
 [Site-blocker] # marks the version of the DNS webblocker (files located under /Site-blocker)
 name = "smp-website-blocker"
