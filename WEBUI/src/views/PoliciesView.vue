@@ -4,7 +4,7 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Assignment, Device, Group, Page, Policy, Room, Schedule, TargetType, User } from '../api/types'
@@ -17,19 +17,109 @@ const route = useRoute()
 const tab = computed(() => (route.query.tab as string) || 'assignments')
 const TABS = ['assignments', 'policies', 'schedules'] as const
 
-const policies = ref<Policy[]>([])
-const schedules = ref<Schedule[]>([])
-const assignments = ref<Assignment[]>([])
-const rooms = ref<Room[]>([])
-const groups = ref<Group[]>([])
-const devices = ref<Device[]>([])
-const users = ref<User[]>([])
+// shallowRef avoids deep-proxying overhead on potentially large datasets
+const policies = shallowRef<Policy[]>([])
+const schedules = shallowRef<Schedule[]>([])
+const assignments = shallowRef<Assignment[]>([])
+const rooms = shallowRef<Room[]>([])
+const groups = shallowRef<Group[]>([])
+const devices = shallowRef<Device[]>([])
+const users = shallowRef<User[]>([])
 const error = ref('')
 
 const canWrite = computed(() => can('core.policies.write'))
 const canAssign = computed(() => canAnywhere('core.policies.assign'))
 // Policy kinds = modules that declare a policy schema (dns, software, classroom, ...).
 const kinds = computed(() => session.modules.filter((m) => m.policy_schema))
+
+// ---------------------------------------------------------------- pagination & filtering
+const PAGE_SIZES = [10, 50, 100] as const
+const searchQuery = ref('')
+const pageSize = ref<number>(50)
+const currentPage = ref(1)
+
+// Reset pagination/search when switching tabs
+watch(tab, () => {
+  searchQuery.value = ''
+  currentPage.value = 1
+})
+
+// Reset to page 1 when search query or page size changes
+watch([searchQuery, pageSize], () => {
+  currentPage.value = 1
+})
+
+const filteredAssignments = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return assignments.value
+  return assignments.value.filter((a) => {
+    const p = policyOf(a.policy_id)
+    return (
+      (p?.name.toLowerCase().includes(q)) ||
+      (p?.kind.toLowerCase().includes(q)) ||
+      (a.label?.toLowerCase().includes(q)) ||
+      (targetName(a).toLowerCase().includes(q))
+    )
+  })
+})
+
+const filteredPolicies = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return policies.value
+  return policies.value.filter((p) =>
+    p.name.toLowerCase().includes(q) ||
+    p.kind.toLowerCase().includes(q) ||
+    (p.description && p.description.toLowerCase().includes(q))
+  )
+})
+
+const filteredSchedules = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return schedules.value
+  return schedules.value.filter((s) =>
+    s.name.toLowerCase().includes(q) ||
+    s.timezone.toLowerCase().includes(q)
+  )
+})
+
+const currentFilteredLength = computed(() => {
+  if (tab.value === 'assignments') return filteredAssignments.value.length
+  if (tab.value === 'policies') return filteredPolicies.value.length
+  return filteredSchedules.value.length
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(currentFilteredLength.value / pageSize.value)))
+
+// Clamp currentPage if entries are deleted/filtered out from the last page
+watch(totalPages, (maxPage) => {
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
+})
+
+const paginatedAssignments = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredAssignments.value.slice(start, start + pageSize.value)
+})
+
+const paginatedPolicies = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredPolicies.value.slice(start, start + pageSize.value)
+})
+
+const paginatedSchedules = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredSchedules.value.slice(start, start + pageSize.value)
+})
+
+const pageRangeLabel = computed(() => {
+  const total = currentFilteredLength.value
+  if (total === 0) return '0 / 0'
+  const start = (currentPage.value - 1) * pageSize.value + 1
+  const end = Math.min(currentPage.value * pageSize.value, total)
+  return `${start.toLocaleString()}–${end.toLocaleString()} / ${total.toLocaleString()}`
+})
+// ---------------------------------------------------------------- end pagination
 
 async function load() {
   try {
@@ -263,7 +353,11 @@ async function saveAssign() {
 
   <!-- ------------------------------------------------------------ assignments -->
   <template v-if="tab === 'assignments'">
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
+      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
+      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
+        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
+      </select>
       <span class="grow"></span>
       <button v-if="canAssign" :disabled="!policies.length" @click="openAssign">{{ t('policies.new_assignment') }}</button>
     </div>
@@ -281,7 +375,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in assignments" :key="a.id">
+          <tr v-for="a in paginatedAssignments" :key="a.id">
             <td>
               <strong>{{ policyOf(a.policy_id)?.name ?? '?' }}</strong>
               <span class="badge" style="margin-left: 6px">{{ policyOf(a.policy_id)?.kind }}</span>
@@ -301,18 +395,31 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!assignments.length">
+          <tr v-if="!paginatedAssignments.length">
             <td colspan="7" class="empty">{{ t('policies.no_assignments') }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div v-if="filteredAssignments.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
+      <span class="muted small">{{ pageRangeLabel }}</span>
+      <span class="grow"></span>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
+      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
     </div>
   </template>
 
   <!-- ------------------------------------------------------------ policies -->
   <template v-if="tab === 'policies'">
     <div v-if="!kinds.length" class="alert ok">{{ t('policies.no_kinds') }}</div>
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
+      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
+      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
+        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
+      </select>
       <span class="grow"></span>
       <button v-if="canWrite" :disabled="!kinds.length" @click="openPolicy(null)">{{ t('policies.new_policy') }}</button>
     </div>
@@ -328,7 +435,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in policies" :key="p.id">
+          <tr v-for="p in paginatedPolicies" :key="p.id">
             <td><strong>{{ p.name }}</strong></td>
             <td><span class="badge">{{ p.kind }}</span></td>
             <td class="muted">{{ p.description }}</td>
@@ -340,17 +447,30 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!policies.length">
+          <tr v-if="!paginatedPolicies.length">
             <td colspan="5" class="empty">{{ t('policies.no_policies') }}</td>
           </tr>
         </tbody>
       </table>
     </div>
+    <div v-if="filteredPolicies.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
+      <span class="muted small">{{ pageRangeLabel }}</span>
+      <span class="grow"></span>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
+      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
+    </div>
   </template>
 
   <!-- ------------------------------------------------------------ schedules -->
   <template v-if="tab === 'schedules'">
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
+      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
+      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
+        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
+      </select>
       <span class="grow"></span>
       <button v-if="canWrite" @click="openSchedule(null)">{{ t('policies.new_schedule') }}</button>
     </div>
@@ -365,7 +485,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in schedules" :key="s.id">
+          <tr v-for="s in paginatedSchedules" :key="s.id">
             <td><strong>{{ s.name }}</strong></td>
             <td class="small">{{ describeWindows(s.windows) }}</td>
             <td class="muted">{{ s.timezone }}</td>
@@ -376,11 +496,20 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!schedules.length">
+          <tr v-if="!paginatedSchedules.length">
             <td colspan="4" class="empty">{{ t('policies.no_schedules') }}</td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div v-if="filteredSchedules.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
+      <span class="muted small">{{ pageRangeLabel }}</span>
+      <span class="grow"></span>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
+      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
+      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
+      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
     </div>
   </template>
 

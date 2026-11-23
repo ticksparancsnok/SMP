@@ -4,7 +4,7 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { AgentDownload, ApproveIn, Device, DeviceStatus, JoinRequest, Page, Room } from '../api/types'
@@ -15,11 +15,14 @@ import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtFingerprint, 
 import { t } from '../i18n'
 import { can } from '../session'
 
-const LIMIT = 100
+const PAGE_SIZES = [10, 50, 100] as const
+const limit = ref<number>(50)
+
 const route = useRoute()
 const router = useRouter()
 
-const devices = ref<Device[]>([])
+// shallowRef avoids deep reactivity overhead on large API responses
+const devices = shallowRef<Device[]>([])
 const total = ref(0)
 const offset = ref(0)
 const rooms = ref<Room[]>([])
@@ -37,7 +40,7 @@ async function load() {
       room_id: roomFilter.value && roomFilter.value !== '__none' ? roomFilter.value : undefined,
       unassigned: roomFilter.value === '__none' ? true : undefined,
       q: q.value,
-      limit: LIMIT,
+      limit: limit.value,
       offset: offset.value,
     })
     devices.value = page.items
@@ -58,6 +61,10 @@ watch(q, () => {
 })
 watch(roomFilter, (v) => {
   router.replace({ query: v ? { room_id: v } : {} })
+  offset.value = 0
+  load()
+})
+watch(limit, () => {
   offset.value = 0
   load()
 })
@@ -164,12 +171,12 @@ async function copy(what: string, text: string) {
 const fmtSize = (bytes: number | null | undefined) => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '')
 
 // ---------------------------------------------------------------- join requests (agents asking to be managed)
-const joinRequests = ref<JoinRequest[]>([])
+const joinRequests = shallowRef<JoinRequest[]>([])
 const approving = ref<JoinRequest | null>(null)
 const approveForm = reactive({ as: 'new' as 'new' | 'existing', device_id: '', room_mode: 'fixed' as 'fixed' | 'network', room_id: '' })
 const approveError = ref('')
 // every device, for "approve as an existing device" (the paged list may not hold it)
-const allDevices = ref<Device[]>([])
+const allDevices = shallowRef<Device[]>([])
 
 async function loadJoinRequests() {
   if (!canWrite.value) return
@@ -269,6 +276,12 @@ async function showPolicies(d: Device) {
       <label>{{ t('common.search') }}</label>
       <input v-model="q" :placeholder="t('devices.search_placeholder')" />
     </div>
+    <div class="field">
+      <label>Per page</label>
+      <select v-model.number="limit">
+        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }}</option>
+      </select>
+    </div>
   </div>
 
   <div v-if="error" class="alert err">{{ error }}</div>
@@ -359,7 +372,7 @@ async function showPolicies(d: Device) {
         </tr>
       </tbody>
     </table>
-    <Pager v-model:offset="offset" :total="total" :limit="LIMIT" />
+    <Pager v-model:offset="offset" :total="total" :limit="limit" />
   </div>
 
   <Modal v-if="open" :title="edit ? t('devices.edit_title', { hostname: edit.hostname }) : t('devices.new_title')" @close="open = false">
