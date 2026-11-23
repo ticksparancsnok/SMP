@@ -3221,7 +3221,7 @@
      "dns"
     ],
     "summary": "Start Import",
-    "description": "Upload a hosts file (raw body). Checking runs in the background; poll the job.",
+    "description": "Upload a hosts file (raw body). Checking runs in the background; poll the job.\nOne import per person: this replaces their unconfirmed one (see imports.py).",
     "operationId": "start_import_api_v1_dns_blocklist_imports_post",
     "responses": {
      "202": {
@@ -6629,6 +6629,15 @@
      "sync_configured": {
       "type": "boolean",
       "title": "Sync Configured"
+     },
+     "block_page_language": {
+      "type": "string",
+      "enum": [
+       "hu",
+       "en"
+      ],
+      "title": "Block Page Language",
+      "default": "hu"
      }
     },
     "type": "object",

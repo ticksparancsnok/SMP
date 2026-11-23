@@ -26,8 +26,13 @@ import (
 	"github.com/miekg/dns"
 )
 
-//go:embed blockpage.html
+// The block page, in Hungarian and English (same wording and layout; keep them in step).
+//
+//go:embed blockpage.html blockpage.en.html
 var blockPage embed.FS
+
+// blockPageFiles: the template for each language (see Blocklist.Language).
+var blockPageFiles = map[string]string{"hu": "blockpage.html", "en": "blockpage.en.html"}
 
 // Version is [Site-blocker] of Version.toml in the SMP repository root (the only place
 // SMP's versions are written), stamped in at build time by the Dockerfile:
@@ -37,7 +42,7 @@ var blockPage embed.FS
 // A plain `go build` leaves "dev".
 var Version = "dev"
 
-var blockPageTemplate = template.Must(template.ParseFS(blockPage, "blockpage.html"))
+var blockPageTemplate = template.Must(template.ParseFS(blockPage, "blockpage.html", "blockpage.en.html"))
 
 type SchoolFilter struct {
 	Next          plugin.Handler
@@ -322,10 +327,16 @@ func (s *SchoolFilter) handleSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid blocklist JSON", http.StatusBadRequest)
 		return
 	}
+	// Checked before anything changes: a bad sync leaves the current lists in place.
+	if payload.BlockPageLanguage != "" && !validLanguage(payload.BlockPageLanguage) {
+		http.Error(w, "blockPageLanguage must be \"hu\" or \"en\"", http.StatusBadRequest)
+		return
+	}
 	if err := s.blocklist.Replace(payload.Entries, payload.Allowlist); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	_ = s.blocklist.SetLanguage(payload.BlockPageLanguage) // checked above; "" = the default
 	if err := s.blocklist.Save(s.blocklistPath); err != nil {
 		http.Error(w, "could not persist blocklist", http.StatusInternalServerError)
 		return
@@ -346,6 +357,8 @@ func (s *SchoolFilter) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"version":   Version,
 		"entries":   s.blocklist.Count(),
 		"allowlist": s.blocklist.AllowCount(),
+		// the block page's default language (blockPageLanguage of the last sync)
+		"blockPageLanguage": s.blocklist.Language(),
 	})
 }
 
@@ -360,8 +373,15 @@ func (s *SchoolFilter) handleBlockPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// The visitor's choice (the page's HU | EN switch: ?lang=), else the school's default.
+	lang := r.URL.Query().Get("lang")
+	if !validLanguage(lang) {
+		lang = s.blocklist.Language()
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := blockPageTemplate.Execute(w, struct {
+	w.Header().Set("Content-Language", lang)
+	w.Header().Set("Cache-Control", "no-store") // it depends on the blocklist and ?lang=
+	if err := blockPageTemplate.ExecuteTemplate(w, blockPageFiles[lang], struct {
 		Domain     string
 		Reason     string
 		AddedBy    string

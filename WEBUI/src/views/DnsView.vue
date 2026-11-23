@@ -18,6 +18,7 @@ import type {
   DnsStatus,
   Page,
 } from '../api/types'
+import LangSwitch from '../components/LangSwitch.vue'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
 import { t, tOr, type Params } from '../i18n'
@@ -84,6 +85,23 @@ async function loadStatus() {
     status.value = await api.get<DnsStatus>('/dns/status')
   } catch (e) {
     error.value = errorText(e)
+  }
+}
+
+// The block page's default language (a DNS module setting, admins only). Saving it
+// re-syncs the sinkhole; visitors can still switch the language on the page itself.
+const canSettings = can('core.settings.write')
+const savingLanguage = ref(false)
+
+async function setBlockPageLanguage(language: 'hu' | 'en') {
+  savingLanguage.value = true
+  try {
+    await api.put('/modules/dns/settings', { block_page_language: language })
+    if (status.value) status.value = { ...status.value, block_page_language: language }
+  } catch (e) {
+    error.value = errorText(e)
+  } finally {
+    savingLanguage.value = false
   }
 }
 
@@ -360,6 +378,18 @@ onMounted(() => {
       · {{ t('dns.entries', { count: status.entries }) }} · {{ t('dns.allow_entries', { count: status.allowlist_entries ?? 0 }) }}
       · {{ status.sinkhole_url }}
     </span>
+    <div class="block-page-lang">
+      <span>{{ t('dns.block_page_language') }}</span>
+      <LangSwitch
+        :model-value="status.block_page_language"
+        :disabled="!canSettings || savingLanguage"
+        :label="t('dns.block_page_language')"
+        @update:model-value="setBlockPageLanguage"
+      />
+      <span class="muted small">
+        {{ canSettings ? t('dns.block_page_language_hint') : t('dns.block_page_language_admins') }}
+      </span>
+    </div>
   </div>
 
   <nav class="tabs">
@@ -577,3 +607,14 @@ onMounted(() => {
     </div>
   </Modal>
 </template>
+<style scoped>
+.block-page-lang {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+</style>

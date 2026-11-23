@@ -23,6 +23,12 @@
 //!
 //! A download or check that fails is retried after 10 minutes (then 20, 40, up to 2 h).
 //! A version that installed but didn't come up waits 6 hours (FAILED_RETRY_AFTER_S).
+//!
+//! TODO(evaluate, issue #17): every check above trusts the SMP server: whoever controls it
+//! can install any code here, as SYSTEM, on every PC (also an older, vulnerable version:
+//! downgrades are accepted). Options: builds signed with a key kept off the server, a
+//! minimum version agents refuse to go below, and on the server an admin approval per
+//! version or a staged rollout (server/smp/modules/agent/api.py, update_offer).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

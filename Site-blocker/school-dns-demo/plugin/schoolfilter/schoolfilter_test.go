@@ -137,3 +137,68 @@ func TestBlockPageStaysPublic(t *testing.T) {
 		}
 	}
 }
+
+// blockPageFor renders the block page of www.blocked.example at path (e.g. "/?lang=en").
+func blockPageFor(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Host = "www.blocked.example"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("block page %s: status %d", path, rec.Code)
+	}
+	return rec.Body.String()
+}
+
+func syncLists(t *testing.T, h http.Handler, extra string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"entries":[{"domain":"blocked.example","includeSubdomains":true,"addedBy":"admin","addedAt":"2026-11-22T00:00:00Z"}]` + extra + `}`
+	req := httptest.NewRequest(http.MethodPost, "/api/blocklist/sync", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestBlockPageLanguage(t *testing.T) {
+	s, h := newTestFilter(t, testToken)
+	if rec := syncLists(t, h, ""); rec.Code != http.StatusOK {
+		t.Fatalf("sync: %d %s", rec.Code, rec.Body.String())
+	}
+	const hu, en = "Ez a webhely blokkolva van", "This website is blocked"
+
+	// Nothing chosen: Hungarian. The visitor's switch (?lang=) wins; nonsense is ignored.
+	for path, want := range map[string]string{"/": hu, "/?lang=en": en, "/page?lang=hu": hu, "/?lang=de": hu} {
+		if page := blockPageFor(t, h, path); !strings.Contains(page, want) {
+			t.Errorf("%s: want %q", path, want)
+		}
+	}
+	if page := blockPageFor(t, h, "/?lang=en"); !strings.Contains(page, "The school's content filter policy") ||
+		!strings.Contains(page, `href="?lang=hu"`) {
+		t.Error("English page: default reason or the switch back to Hungarian missing")
+	}
+
+	// The school's default comes with the sync, and survives a restart.
+	if rec := syncLists(t, h, `,"blockPageLanguage":"en"`); rec.Code != http.StatusOK {
+		t.Fatalf("sync: %d %s", rec.Code, rec.Body.String())
+	}
+	if page := blockPageFor(t, h, "/"); !strings.Contains(page, en) {
+		t.Error("school default English: page not in English")
+	}
+	if page := blockPageFor(t, h, "/?lang=hu"); !strings.Contains(page, hu) {
+		t.Error("the visitor's choice must win over the school default")
+	}
+	reloaded, err := LoadBlocklist(s.blocklistPath)
+	if err != nil || reloaded.Language() != "en" {
+		t.Errorf("after a restart: language %q, err %v", reloaded.Language(), err)
+	}
+
+	// A bad value is refused and changes nothing.
+	if rec := syncLists(t, h, `,"blockPageLanguage":"de"`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad language: status %d, want 400", rec.Code)
+	}
+	if s.blocklist.Language() != "en" {
+		t.Error("a refused sync changed the language")
+	}
+}

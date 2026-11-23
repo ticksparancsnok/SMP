@@ -27,6 +27,7 @@ from smp.core.api import Page
 from smp.core.config import get_settings
 from smp.core.context import Ctx, client_ip, require
 from smp.core.errors import AppError
+from smp.core.models import ModuleSetting
 from smp.core.uploads import read_limited
 from smp.modules.dns import imports
 from smp.modules.dns.domains import (
@@ -121,6 +122,9 @@ class SyncStatusOut(BaseModel):
     allowlist_entries: int = 0
     sinkhole_url: str
     sync_configured: bool
+    # The block page's default language (DNS settings; admins change it on the Site
+    # blocker page, visitors can switch it on the page itself).
+    block_page_language: Literal["hu", "en"] = "hu"
 
 
 def row_to_out(row: DnsBlocklistEntry, allow: dict | None = None) -> EntryOut:
@@ -188,8 +192,17 @@ async def sync_payload(s: AsyncSession, org_id: uuid.UUID) -> SyncPayload:
     Public-suffix blocklist entries (legacy rows) are never sent."""
     row = (await s.execute(_SYNC_SQL, {"org": org_id, "suffixes": list(plain_public_suffixes())})).one()
     n_block, block_json, n_allow, allow_json = row
-    body = b'{"entries":' + block_json.encode() + b',"allowlist":' + allow_json.encode() + b"}"
+    language = (await _dns_settings(s, org_id)).block_page_language  # "hu" | "en": safe to inline
+    body = (b'{"entries":' + block_json.encode() + b',"allowlist":' + allow_json.encode()
+            + b',"blockPageLanguage":"' + language.encode() + b'"}')
     return SyncPayload(body=body, entries=n_block, allowlist=n_allow)
+
+
+async def _dns_settings(s: AsyncSession, org_id: uuid.UUID):
+    from smp.modules.dns import DnsSettings
+
+    row = await s.get(ModuleSetting, (org_id, "dns"))
+    return DnsSettings.model_validate(row.data if row else {})
 
 
 async def push_to_sinkhole(payload: SyncPayload) -> None:
@@ -348,13 +361,19 @@ def _own_job(request: Request, ctx: Ctx, job_id: str) -> imports.ImportJob:
 
 @router.post("/blocklist/imports", response_model=ImportJobOut, status_code=202)
 async def start_import(request: Request, ctx: Ctx = Depends(require(WRITE))):
-    """Upload a hosts file (raw body). Checking runs in the background; poll the job."""
+    """Upload a hosts file (raw body). Checking runs in the background; poll the job.
+    One import per person: this replaces their unconfirmed one (see imports.py)."""
     content = await read_limited(request, imports.MAX_IMPORT_BYTES)
     job = imports.ImportJob(org_id=ctx.org_id, owner_id=ctx.principal.id, owner_name=ctx.principal.name,
                             file_bytes=len(content))
-    if not _jobs(request).add(job):
-        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "dns.too_many_imports",
-                       "too many imports at once; finish or cancel one first")
+    match _jobs(request).add(job):
+        case "dns.import_in_progress":
+            raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "dns.import_in_progress",
+                           "your previous import is still being checked or saved; wait until it's finished")
+        case "dns.too_many_imports":
+            raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "dns.too_many_imports",
+                           "too many imports at once in this school; try again in a few minutes",
+                           max=imports.MAX_JOBS_PER_ORG)
     _jobs(request).run(imports.check(job, content))
     return _job_out(job)
 
@@ -496,4 +515,5 @@ async def sync_status(ctx: Ctx = Depends(require(READ))):
         allowlist_entries=allowed or 0,
         sinkhole_url=settings.dns_sinkhole_url,
         sync_configured=sync_configured,
+        block_page_language=(await _dns_settings(ctx.db, ctx.org_id)).block_page_language,
     )

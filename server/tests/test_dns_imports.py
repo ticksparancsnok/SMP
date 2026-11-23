@@ -136,11 +136,38 @@ async def test_limits_and_cancelling(admin, synced, monkeypatch):
     assert r.status_code == 404  # cancelled: gone
     assert (await admin.get("/api/v1/dns/blocklist", params={"limit": 1})).json()["total"] == 0
 
-    monkeypatch.setattr(imports, "MAX_JOBS_PER_ORG", 2)
-    await upload(admin, hosts_file(1))
-    await upload(admin, hosts_file(1))
+
+async def test_one_import_per_person_and_a_few_per_school(app, admin, synced, monkeypatch):
+    """Each held import keeps its whole domain list in memory (imports.py)."""
+    from smp.modules.dns import imports
+
+    # A new upload replaces the person's unconfirmed preview...
+    first = await upload(admin, hosts_file(2))
+    second = await upload(admin, hosts_file(3))
+    assert (await admin.get(f"/api/v1/dns/blocklist/imports/{first['id']}")).status_code == 404
+    assert second["new"] == 3
+
+    # ...but not one that is still being checked: that one must finish first.
+    held = asyncio.Event()
+
+    async def slow_check(job, content):
+        await held.wait()
+
+    monkeypatch.setattr(imports, "check", slow_check)
     r = await admin.post("/api/v1/dns/blocklist/imports", content=hosts_file(1), headers=HDR)
-    assert r.status_code == 429 and r.json()["code"] == "dns.too_many_imports"
+    assert r.status_code == 202 and r.json()["state"] == "checking"
+    r = await admin.post("/api/v1/dns/blocklist/imports", content=hosts_file(1), headers=HDR)
+    assert r.status_code == 429 and r.json()["code"] == "dns.import_in_progress"
+
+    # The school as a whole: at most MAX_JOBS_PER_ORG imports holding domains.
+    monkeypatch.setattr(imports, "MAX_JOBS_PER_ORG", 2)
+    async with login_as(app, admin, "dns.imp.a", [{"role": "teacher"}]) as a, \
+               login_as(app, admin, "dns.imp.b", [{"role": "teacher"}]) as b:
+        assert (await a.post("/api/v1/dns/blocklist/imports", content=hosts_file(1), headers=HDR)).status_code == 202
+        r = await b.post("/api/v1/dns/blocklist/imports", content=hosts_file(1), headers=HDR)
+        assert r.status_code == 429 and r.json()["code"] == "dns.too_many_imports" and r.json()["params"] == {"max": 2}
+    held.set()
+    app.state.registry.get("dns").imports._jobs.clear()  # the fake checks never finish their jobs
 
 
 async def test_a_sinkhole_that_is_down_doesnt_lose_the_import(admin, monkeypatch):
@@ -177,3 +204,20 @@ async def test_big_lists_stay_light(admin, synced):
     assert check == {"domain": "x.y.games.example", "blocked": True, "blocked_by": "games.example", "allowed_by": None}
     assert (await admin.get("/api/v1/dns/check", params={"domain": "t17.example"})).json()["blocked"] is True
     assert (await admin.get("/api/v1/dns/check", params={"domain": "nothing.example"})).json()["blocked"] is False
+
+
+async def test_block_page_language_setting_goes_to_the_sinkhole(app, admin, synced):
+    status = (await admin.get("/api/v1/dns/status")).json()
+    assert status["block_page_language"] == "hu"  # nothing chosen: Hungarian
+
+    r = await admin.put("/api/v1/modules/dns/settings", json={"block_page_language": "en"})
+    assert r.status_code == 200, r.text
+    await app.state.bus.drain()  # the re-sync runs as an event handler, right after the save
+    assert synced and synced[-1]["blockPageLanguage"] == "en"
+    assert (await admin.get("/api/v1/dns/status")).json()["block_page_language"] == "en"
+
+    assert (await admin.put("/api/v1/modules/dns/settings", json={"block_page_language": "de"})).status_code == 422
+    async with login_as(app, admin, "dns.lang.t", [{"role": "teacher"}]) as teacher:
+        # teachers see it on the Site blocker page, but it's a school setting (admins)
+        assert (await teacher.get("/api/v1/dns/status")).json()["block_page_language"] == "en"
+        assert (await teacher.put("/api/v1/modules/dns/settings", json={"block_page_language": "hu"})).status_code == 403

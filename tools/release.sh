@@ -92,6 +92,11 @@ smp_plan() {
     done
     if [ ${#known[@]} -gt 0 ]; then
         while read -r h p; do current[$p]=$h; done < <(cd "$target" && printf '%s\0' "${known[@]}" | sort -zu | xargs -0 sha256sum --)
+        # A file that exists but couldn't be read would otherwise look absent ("added"),
+        # and be overwritten without being backed up first.
+        for p in "${known[@]}"; do
+            [ -n "${current[$p]:-}" ] || { echo "can't read $target/$p (check its owner and permissions)" >&2; return 1; }
+        done
     fi
 
     for p in "${!new_hash[@]}"; do
@@ -111,26 +116,30 @@ smp_plan() {
 }
 
 smp_apply() {
+    # Every step returns 1 on failure: callers test the result (`if ! smp_apply`, `||`),
+    # and in that position bash ignores `set -e` inside the function, so a failed copy
+    # (e.g. a full disk) would otherwise go unnoticed and the upgrade carry on.
     local new=$1 target=$2 plan=$3 backup=${4:-} p
     if [ -n "$backup" ]; then
-        mkdir -p "$backup"
+        mkdir -p "$backup" || return 1
         while IFS= read -r p; do
-            mkdir -p "$backup/$(dirname "$p")"
-            cp -p -- "$target/$p" "$backup/$p"
+            mkdir -p "$backup/$(dirname "$p")" && cp -p -- "$target/$p" "$backup/$p" \
+                || { echo "couldn't back up $p" >&2; return 1; }
         done < <(cat "$plan/changed" "$plan/removed")
         local l
-        for l in added changed removed modified; do cp "$plan/$l" "$backup/$l-files.txt"; done
-        [ ! -f "$target/$SMP_MANIFEST" ] || cp -p "$target/$SMP_MANIFEST" "$backup/"
+        for l in added changed removed modified; do cp "$plan/$l" "$backup/$l-files.txt" || return 1; done
+        [ ! -f "$target/$SMP_MANIFEST" ] || cp -p "$target/$SMP_MANIFEST" "$backup/" || return 1
     fi
     # Copy next to the old file, then rename over it: a script that is running right now
     # (upgrade.sh, install.sh) keeps reading its old copy instead of a half-written one.
     while IFS= read -r p; do
-        mkdir -p "$target/$(dirname "$p")"
-        cp -p -- "$new/$p" "$target/$p.smp-new" && mv -f -- "$target/$p.smp-new" "$target/$p"
+        mkdir -p "$target/$(dirname "$p")" && cp -p -- "$new/$p" "$target/$p.smp-new" \
+            && mv -f -- "$target/$p.smp-new" "$target/$p" \
+            || { rm -f -- "$target/$p.smp-new"; echo "couldn't write $p" >&2; return 1; }
     done < <(cat "$plan/added" "$plan/changed")
     local d
     while IFS= read -r p; do
-        rm -f -- "$target/$p"
+        rm -f -- "$target/$p" || { echo "couldn't remove $p" >&2; return 1; }
         d=$(dirname "$p")  # and the folders that became empty, inside TARGET only
         while [ "$d" != . ] && rmdir -- "$target/$d" 2>/dev/null; do d=$(dirname "$d"); done
     done <"$plan/removed"
@@ -146,11 +155,12 @@ smp_restore_files() {
         [ -f "$backup/$p" ] || { echo "$backup/$p is missing" >&2; return 1; }
     done < <(cat "$backup/changed-files.txt" "$backup/removed-files.txt")
     while IFS= read -r p; do
-        mkdir -p "$target/$(dirname "$p")"
-        cp -p -- "$backup/$p" "$target/$p.smp-new" && mv -f -- "$target/$p.smp-new" "$target/$p"
+        mkdir -p "$target/$(dirname "$p")" && cp -p -- "$backup/$p" "$target/$p.smp-new" \
+            && mv -f -- "$target/$p.smp-new" "$target/$p" \
+            || { rm -f -- "$target/$p.smp-new"; echo "couldn't put back $p" >&2; return 1; }
     done < <(cat "$backup/changed-files.txt" "$backup/removed-files.txt")
     while IFS= read -r p; do
-        rm -f -- "$target/$p"
+        rm -f -- "$target/$p" || { echo "couldn't remove $p" >&2; return 1; }
         d=$(dirname "$p")
         while [ "$d" != . ] && rmdir -- "$target/$d" 2>/dev/null; do d=$(dirname "$d"); done
     done <"$backup/added-files.txt"

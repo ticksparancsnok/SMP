@@ -789,6 +789,7 @@ export interface paths {
         /**
          * Start Import
          * @description Upload a hosts file (raw body). Checking runs in the background; poll the job.
+         *     One import per person: this replaces their unconfirmed one (see imports.py).
          */
         post: operations["start_import_api_v1_dns_blocklist_imports_post"];
         delete?: never;
@@ -2115,6 +2116,12 @@ export interface components {
             sinkhole_url: string;
             /** Sync Configured */
             sync_configured: boolean;
+            /**
+             * Block Page Language
+             * @default hu
+             * @enum {string}
+             */
+            block_page_language: "hu" | "en";
         };
         /**
          * TargetType

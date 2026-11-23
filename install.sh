@@ -66,14 +66,19 @@ add_name() {  # add_name LIST NAME -> LIST with NAME appended once (comma separa
 # these (keep the AGPL attribution, see NOTICE).
 SMP_REPO_URL=https://github.com/ticksparancsnok/SMP
 SMP_DEFAULT_REF=main
+# Re-run where SMP is installed and a newer version exists: nothing is rebuilt, the
+# admin is sent to ./upgrade.sh. Its own status, so scripts can tell it from a failure (1).
+EXIT_NEWER_AVAILABLE=3
 
 usage() {
     cat <<EOF
 Usage: install.sh [options]
 
 Installs SMP into a folder: downloads the newest version, sets it up, builds and starts it.
-Run again where SMP is installed, it checks the configuration and rebuilds; newer versions
-are installed with ./upgrade.sh.
+Run again where SMP is installed, it first checks GitHub for a newer version: if there is
+one it stops (exit status $EXIT_NEWER_AVAILABLE, nothing rebuilt) and points to ./upgrade.sh;
+otherwise it checks the configuration and rebuilds. Scripts that only want a rebuild,
+without the check: ./install.sh --local.
 
   --dir DIR            install into DIR (default: the folder this script is in)
   --ref REF            a branch or tag of $SMP_REPO_URL (default: $SMP_DEFAULT_REF)
@@ -177,7 +182,7 @@ if [ $local_files = no ]; then
                 say "SMP $offered is available."
                 say "  ./upgrade.sh          installs it (shows what changes first, keeps the replaced files)"
                 say "  ./install.sh --local  rebuilds the installed $installed as it is"
-                exit 1
+                exit "$EXIT_NEWER_AVAILABLE"
             fi
             say "that is the newest one ($offered); rebuilding what is installed"
         else

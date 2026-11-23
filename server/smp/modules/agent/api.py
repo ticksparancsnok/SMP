@@ -254,6 +254,10 @@ class HeartbeatOut(BaseModel):
 
 async def update_offer(s: AsyncSession, org_id: uuid.UUID, platform: str | None) -> dict[str, Any] | None:
     """The agent build this server offers for `platform`, if the school wants automatic updates."""
+    # TODO(evaluate, issue #17): whatever this returns, every PC installs and runs as
+    # SYSTEM within minutes; a compromised server can push anything. Options: offer a new
+    # version only after an admin approved it (audited), or to a test room/group first
+    # (staged rollout); on the agent: signed builds, a minimum version.
     from smp.modules.agent import AgentSettings
 
     row = await s.get(ModuleSetting, (org_id, "agent"))

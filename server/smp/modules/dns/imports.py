@@ -49,7 +49,11 @@ from smp.modules.dns.models import DnsAllowlistEntry, DnsBlocklistEntry
 MAX_IMPORT_BYTES = 50 * 1024 * 1024  # nginx allows 64 MB; the biggest common lists are ~10 MB
 CHUNK = 10_000
 KEEP_FOR_S = 30 * 60
-MAX_JOBS_PER_ORG = 5
+# Memory: a job holds its whole domain list (a 50 MB file is ~2 million domains, a few
+# hundred MB as Python strings) from upload until it's done or forgotten. So each person
+# has one import at a time (a new upload replaces their unconfirmed preview), and a
+# school at most MAX_JOBS_PER_ORG that hold domains. Finished/failed jobs hold none.
+MAX_JOBS_PER_ORG = 3
 
 States = ("checking", "ready", "saving", "syncing", "done", "failed")
 
@@ -86,8 +90,13 @@ class ImportJob:
     def busy(self) -> bool:
         return self.state in ("checking", "saving", "syncing")
 
+    @property
+    def holds_domains(self) -> bool:
+        return self.state not in ("done", "failed")
+
     def fail(self, code: str, detail: str, **params: Any) -> None:
         self.state, self.error = "failed", {"code": code, "detail": detail, "params": params}
+        self.new, self.existing, self.skipped = [], [], []  # nothing to preview or save any more
 
 
 class ImportJobs:
@@ -101,13 +110,19 @@ class ImportJobs:
             if not job.busy and now - job.touched > KEEP_FOR_S:
                 del self._jobs[job_id]
 
-    def add(self, job: ImportJob) -> bool:
-        """False if the school already has MAX_JOBS_PER_ORG imports going."""
+    def add(self, job: ImportJob) -> str | None:
+        """Register a new upload; returns why it can't start (an error code), or None.
+        The owner's earlier import is replaced unless it's still being checked or saved."""
         self._forget_old()
-        if sum(1 for j in self._jobs.values() if j.org_id == job.org_id) >= MAX_JOBS_PER_ORG:
-            return False
+        mine = [j for j in self._jobs.values() if j.org_id == job.org_id and j.owner_id == job.owner_id]
+        if any(j.busy for j in mine):
+            return "dns.import_in_progress"
+        for old in mine:
+            del self._jobs[old.id]  # an unconfirmed preview (or a finished one): replaced
+        if sum(1 for j in self._jobs.values() if j.org_id == job.org_id and j.holds_domains) >= MAX_JOBS_PER_ORG:
+            return "dns.too_many_imports"
         self._jobs[job.id] = job
-        return True
+        return None
 
     def get(self, job_id: str, org_id: uuid.UUID, owner_id: uuid.UUID) -> ImportJob | None:
         job = self._jobs.get(job_id)
