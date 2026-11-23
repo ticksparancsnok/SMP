@@ -103,7 +103,7 @@ not-an-ip both.example
     assert parse_hosts(content.encode()) == [
         "example.com",
         "ads.example",
-        "localhost.localdomain",  # two labels, so syntactically a domain (harmless to block)
+        # localhost.localdomain: two labels, but the machine's own name, not a site
         "one.test",
         "two.test",
         "under_score.example",

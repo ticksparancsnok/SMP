@@ -94,15 +94,18 @@ async def _dns_teacher(app, admin, monkeypatch, name):
     """A teacher client; the sinkhole sync is captured instead of sent (no Go service in tests)."""
     sent: list[dict] = []
 
-    async def fake_sync(ctx):
+    async def fake_sync(org_id):
+        import json
+
+        from smp.core import db
         from smp.modules.dns import api
 
-        sent.append({
-            "entries": [r.domain for r in await api._blocklist(ctx) if not api.is_public_suffix(r.domain)],
-            "allowlist": [r.domain for r in await api._allowlist(ctx)],
-        })
+        async with db.sessionmaker()() as s:
+            payload = json.loads((await api.sync_payload(s, org_id)).body)
+        sent.append({"entries": [e["domain"] for e in payload["entries"]],
+                     "allowlist": [e["domain"] for e in payload["allowlist"]]})
 
-    monkeypatch.setattr("smp.modules.dns.api.sync_sinkhole", fake_sync)
+    monkeypatch.setattr("smp.modules.dns.api.sync_org", fake_sync)
     return login_as(app, admin, name, [{"role": "teacher"}]), sent
 
 
@@ -189,14 +192,18 @@ async def test_hosts_import_skips_allowlisted_and_malformed(app, admin, monkeypa
     async with teacher as t:
         await t.post("/api/v1/dns/allowlist", json={"domain": "school.example"})
         await t.post("/api/v1/dns/blocklist", json={"domain": "tracker.example"})
-        hdr = {"content-type": "text/plain"}
-        pre = (await t.post("/api/v1/dns/blocklist/import-preview", content=hosts, headers=hdr)).json()
-        assert pre["domains"] == ["ads.example", "tracker.example"]
-        assert pre["skipped"] == ["co.uk", "cdn.school.example"]
-        r = await t.post("/api/v1/dns/blocklist/import", content=hosts, headers=hdr)
-        assert r.status_code == 201 and r.json()["unique_count"] == 1  # tracker.example already there
+        from tests.test_dns_imports import domains_of, run_import, upload
+
+        job = await upload(t, hosts)
+        assert (job["new"], job["existing"], job["skipped"]) == (1, 1, 2)
+        assert await domains_of(t, job, "new") == ["ads.example"]
+        assert await domains_of(t, job, "existing") == ["tracker.example"]
+        assert await domains_of(t, job, "skipped") == ["co.uk", "cdn.school.example"]
+        done = await run_import(t, job)
+        assert done["added"] == 1  # tracker.example was already there
         assert sorted(e["domain"] for e in (await t.get("/api/v1/dns/blocklist")).json()["items"]) == ["ads.example", "tracker.example"]
-        r = await t.post("/api/v1/dns/blocklist/import", content=b"0.0.0.0 co.uk\n127.0.0.1 localhost\n", headers=hdr)
+        nothing = await upload(t, b"0.0.0.0 co.uk\n127.0.0.1 localhost\n")
+        r = await t.post(f"/api/v1/dns/blocklist/imports/{nothing['id']}/confirm")
         assert r.status_code == 422 and r.json()["code"] == "dns.no_valid_domains"
 
 

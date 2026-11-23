@@ -11,13 +11,14 @@ from tests.conftest import login_as
 
 
 async def test_blocklist_is_paged_and_searched_on_the_server(admin, monkeypatch):
-    async def no_sync(ctx):  # no Go sinkhole in tests
+    from tests.test_dns_imports import run_import, upload
+
+    async def no_sync(org_id):  # no Go sinkhole in tests
         return None
 
-    monkeypatch.setattr("smp.modules.dns.api.sync_sinkhole", no_sync)
+    monkeypatch.setattr("smp.modules.dns.api.sync_org", no_sync)
     hosts = "".join(f"0.0.0.0 site{i:03d}.example\n" for i in range(120)).encode()
-    r = await admin.post("/api/v1/dns/blocklist/import", content=hosts, headers={"content-type": "text/plain"})
-    assert r.status_code == 201, r.text
+    assert (await run_import(admin, await upload(admin, hosts)))["added"] == 120
     r = await admin.post("/api/v1/dns/blocklist", json={"domain": "games.test", "reason": "Gaming during lessons"})
     assert r.status_code == 201, r.text
 

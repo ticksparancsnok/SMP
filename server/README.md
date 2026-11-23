@@ -64,8 +64,11 @@ The `dns` module provides control-plane blocklist management under:
 GET    /api/v1/dns/blocklist?q=…&limit=…&offset=…   one page: {items, total}
 POST   /api/v1/dns/blocklist
 DELETE /api/v1/dns/blocklist/{entry_id}
-POST   /api/v1/dns/blocklist/import-preview
-POST   /api/v1/dns/blocklist/import
+POST   /api/v1/dns/blocklist/imports                 hosts file (raw body, max 50 MB) -> job, 202
+GET    /api/v1/dns/blocklist/imports/{id}            state, progress, counts (poll it)
+GET    /api/v1/dns/blocklist/imports/{id}/domains    ?kind=new|existing|skipped: preview, paged
+POST   /api/v1/dns/blocklist/imports/{id}/confirm    add the new domains (in the background)
+DELETE /api/v1/dns/blocklist/imports/{id}            forget it (not while saving)
 GET    /api/v1/dns/allowlist
 POST   /api/v1/dns/allowlist
 DELETE /api/v1/dns/allowlist/{entry_id}
@@ -76,6 +79,14 @@ GET    /api/v1/dns/status
 Manual entries set `addedBy` server-side from the authenticated principal. Hosts
 imports set `addedBy` to `imported by: <username>`. Clients cannot send or
 override `addedBy`.
+
+Imports are background jobs (`smp/modules/dns/imports.py`), so a big list (StevenBlack's
+hosts file: 76k domains) never stalls the rest of SMP: checking runs in a worker thread,
+saving COPYs the domains into a temporary table and adds them with one
+`INSERT ... ON CONFLICT DO NOTHING`, and the job reports its progress for the UI. Jobs
+live in the server process's memory and belong to the user who started them. With 76k
+domains already listed, adding or deleting one entry still re-sends the whole list, but
+Postgres builds that JSON itself, so it costs the event loop nothing.
 
 After a successful database transaction, the API sends the complete blocklist to
 the Go sinkhole:

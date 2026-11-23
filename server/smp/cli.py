@@ -181,7 +181,7 @@ async def _dns_sync(args) -> None:
         await push_to_sinkhole(payload)
     except httpx.HTTPError as e:
         sys.exit(f"dns-sync: the DNS sinkhole at {url} didn't take the lists ({type(e).__name__}: {e})")
-    print(f"dns-sync: {len(payload['entries'])} blocked and {len(payload['allowlist'])} allowed domain(s) sent to {url}")
+    print(f"dns-sync: {payload.entries} blocked and {payload.allowlist} allowed domain(s) sent to {url}")
 
 
 def _preflight_problems() -> list[tuple[str, str]]:

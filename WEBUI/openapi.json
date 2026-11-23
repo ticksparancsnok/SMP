@@ -7,7 +7,7 @@
    "name": "AGPL-3.0-or-later",
    "identifier": "AGPL-3.0-or-later"
   },
-  "version": "1.0.3 A"
+  "version": "1.0.3 B"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -3215,20 +3215,21 @@
     }
    }
   },
-  "/api/v1/dns/blocklist/import-preview": {
+  "/api/v1/dns/blocklist/imports": {
    "post": {
     "tags": [
      "dns"
     ],
-    "summary": "Preview Import",
-    "operationId": "preview_import_api_v1_dns_blocklist_import_preview_post",
+    "summary": "Start Import",
+    "description": "Upload a hosts file (raw body). Checking runs in the background; poll the job.",
+    "operationId": "start_import_api_v1_dns_blocklist_imports_post",
     "responses": {
-     "200": {
+     "202": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HostsPreviewOut"
+         "$ref": "#/components/schemas/ImportJobOut"
         }
        }
       }
@@ -3236,20 +3237,198 @@
     }
    }
   },
-  "/api/v1/dns/blocklist/import": {
-   "post": {
+  "/api/v1/dns/blocklist/imports/{job_id}": {
+   "get": {
     "tags": [
      "dns"
     ],
-    "summary": "Import Hosts",
-    "operationId": "import_hosts_api_v1_dns_blocklist_import_post",
+    "summary": "Import Status",
+    "operationId": "import_status_api_v1_dns_blocklist_imports__job_id__get",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
     "responses": {
-     "201": {
+     "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HostsPreviewOut"
+         "$ref": "#/components/schemas/ImportJobOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Cancel Import",
+    "operationId": "cancel_import_api_v1_dns_blocklist_imports__job_id__delete",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/imports/{job_id}/domains": {
+   "get": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Import Domains",
+    "description": "One page of the preview: what the import adds, what's already listed, what's skipped.",
+    "operationId": "import_domains_api_v1_dns_blocklist_imports__job_id__domains_get",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "new",
+        "existing",
+        "skipped"
+       ],
+       "type": "string",
+       "default": "new",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 1000,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Page_str_"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/dns/blocklist/imports/{job_id}/confirm": {
+   "post": {
+    "tags": [
+     "dns"
+    ],
+    "summary": "Confirm Import",
+    "description": "Add the new domains (in the background; poll the job).",
+    "operationId": "confirm_import_api_v1_dns_blocklist_imports__job_id__confirm_post",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportJobOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
       }
@@ -5020,34 +5199,29 @@
     ],
     "title": "HeartbeatOut"
    },
-   "HostsPreviewOut": {
+   "ImportErrorOut": {
     "properties": {
-     "domains": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Domains"
+     "code": {
+      "type": "string",
+      "title": "Code"
      },
-     "unique_count": {
-      "type": "integer",
-      "title": "Unique Count"
+     "detail": {
+      "type": "string",
+      "title": "Detail"
      },
-     "skipped": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Skipped",
-      "default": []
+     "params": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Params",
+      "default": {}
      }
     },
     "type": "object",
     "required": [
-     "domains",
-     "unique_count"
+     "code",
+     "detail"
     ],
-    "title": "HostsPreviewOut"
+    "title": "ImportErrorOut"
    },
    "ImportIssue": {
     "properties": {
@@ -5086,6 +5260,89 @@
      "code"
     ],
     "title": "ImportIssue"
+   },
+   "ImportJobOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "checking",
+       "ready",
+       "saving",
+       "syncing",
+       "done",
+       "failed"
+      ],
+      "title": "State"
+     },
+     "progress": {
+      "type": "number",
+      "title": "Progress"
+     },
+     "file_bytes": {
+      "type": "integer",
+      "title": "File Bytes"
+     },
+     "new": {
+      "type": "integer",
+      "title": "New"
+     },
+     "existing": {
+      "type": "integer",
+      "title": "Existing"
+     },
+     "skipped": {
+      "type": "integer",
+      "title": "Skipped"
+     },
+     "added": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Added"
+     },
+     "sync_ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sync Ok"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ImportErrorOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "state",
+     "progress",
+     "file_bytes",
+     "new",
+     "existing",
+     "skipped"
+    ],
+    "title": "ImportJobOut"
    },
    "ImportResult": {
     "properties": {
@@ -5705,6 +5962,27 @@
      "total"
     ],
     "title": "Page[UserOut]"
+   },
+   "Page_str_": {
+    "properties": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     }
+    },
+    "type": "object",
+    "required": [
+     "items",
+     "total"
+    ],
+    "title": "Page[str]"
    },
    "PasswordChangeIn": {
     "properties": {

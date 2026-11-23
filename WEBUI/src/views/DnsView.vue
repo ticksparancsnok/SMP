@@ -6,7 +6,7 @@
 <script setup lang="ts">
 // Decision order (same in the server and the Go sinkhole): allowlist -> blocklist ->
 // everything else allowed. Public suffixes (com, co.uk, ...) can't go on either list.
-import { onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { api, ApiError, errorText } from '../api/client'
 import type {
   DnsAllowEntry,
@@ -14,13 +14,13 @@ import type {
   DnsAllowlist,
   DnsEntry,
   DnsEntryIn,
-  DnsHostsPreview,
+  DnsImportJob,
   DnsStatus,
   Page,
 } from '../api/types'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
-import { t, tOr } from '../i18n'
+import { t, tOr, type Params } from '../i18n'
 import { usePage, usePageSize } from '../paging'
 import { can } from '../session'
 
@@ -28,7 +28,6 @@ const tab = ref<'blocklist' | 'allowlist'>('blocklist')
 const allowlist = shallowRef<DnsAllowlist | null>(null)
 const status = ref<DnsStatus | null>(null)
 const error = ref('')
-const busy = ref(false)
 const canWrite = can('dns.blocklist.write')
 
 /** The change was saved but the sinkhole could not be told: the lists did change. */
@@ -120,13 +119,147 @@ const allowError = ref('')
 const allowForm = reactive({ domain: '', includeSubdomains: true, reason: '' })
 
 // ---------------------------------------------------------------- hosts import
+// A job on the server (imports.py): upload (progress from the browser) -> checking ->
+// ready (preview, paged from the server: the browser never holds 100k domains) ->
+// saving -> syncing -> done. The site stays usable meanwhile; so does this page.
 const importOpen = ref(false)
-const importFile = ref<File | null>(null)
-const preview = ref<DnsHostsPreview | null>(null)
+const importJob = ref<DnsImportJob | null>(null)
+const uploading = ref<number | null>(null) // 0..1 while the file goes up
 const importError = ref('')
-// A hosts file can list 100k+ domains: page the preview chips too.
-const previewPage = usePage(() => preview.value?.domains ?? [], { key: 'dns.import_preview', resetOn: [preview] })
-const skippedPage = usePage(() => preview.value?.skipped ?? [], { key: 'dns.import_skipped', resetOn: [preview] })
+type PreviewKind = 'new' | 'existing' | 'skipped'
+const previewKind = ref<PreviewKind>('new')
+const previewRows = ref<string[]>([])
+const previewTotal = ref(0)
+const previewOffset = ref(0)
+const previewLimit = usePageSize('dns.import_preview')
+let poller: number | undefined
+
+const PHASES = ['uploading', 'checking', 'saving', 'syncing'] as const
+/** What the progress bar shows: the step, and how far it is (null: can't tell). */
+const importStep = computed(() => {
+  const job = importJob.value
+  const phase = uploading.value !== null ? 'uploading' : job && PHASES.find((p) => p === job.state)
+  if (!phase) return null
+  const fraction = phase === 'uploading' ? uploading.value : phase === 'syncing' ? null : (job?.progress ?? 0)
+  return { step: PHASES.indexOf(phase) + 1, phase, fraction }
+})
+
+function stopPolling() {
+  window.clearInterval(poller)
+  poller = undefined
+}
+
+function poll() {
+  stopPolling()
+  poller = window.setInterval(async () => {
+    const job = importJob.value
+    if (!job) return stopPolling()
+    try {
+      importJob.value = await api.get<DnsImportJob>(`/dns/blocklist/imports/${job.id}`)
+    } catch (e) {
+      importError.value = errorText(e)
+      return stopPolling()
+    }
+    const now = importJob.value
+    if (now.state === 'ready') {
+      stopPolling()
+      previewKind.value = 'new'
+      await loadPreview()
+    } else if (now.state === 'done') {
+      stopPolling()
+      count('entries', now.added ?? 0)
+      await loadBlocklist()
+    } else if (now.state === 'failed') {
+      stopPolling()
+      importError.value = now.error ? tOr(`code.${now.error.code}`, now.error.detail, (now.error.params ?? {}) as Params) : ''
+    }
+  }, 400)
+}
+
+async function loadPreview() {
+  const job = importJob.value
+  if (!job) return
+  try {
+    const page = await api.get<Page<string>>(`/dns/blocklist/imports/${job.id}/domains`, {
+      kind: previewKind.value,
+      limit: previewLimit.value,
+      offset: previewOffset.value,
+    })
+    previewRows.value = page.items
+    previewTotal.value = page.total
+  } catch (e) {
+    importError.value = errorText(e)
+  }
+}
+watch([previewLimit, previewOffset], loadPreview)
+function showPreview(kind: PreviewKind) {
+  previewKind.value = kind
+  if (previewOffset.value) previewOffset.value = 0 // the watcher loads it
+  else loadPreview()
+}
+
+/** A job nobody needs any more (another file chosen, dialog closed before importing). */
+function forget(job: DnsImportJob | null) {
+  if (job && !['saving', 'syncing'].includes(job.state)) api.del(`/dns/blocklist/imports/${job.id}`).catch(() => {})
+}
+
+function openImport() {
+  importJob.value = null
+  uploading.value = null
+  importError.value = ''
+  previewRows.value = []
+  importOpen.value = true
+}
+
+function closeImport() {
+  importOpen.value = false
+  const job = importJob.value
+  // Saving goes on on the server; keep polling so the list refreshes when it's done.
+  if (job && ['saving', 'syncing'].includes(job.state)) return
+  stopPolling()
+  forget(job)
+  importJob.value = null
+}
+
+async function chooseFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  forget(importJob.value)
+  stopPolling()
+  importJob.value = null
+  importError.value = ''
+  previewRows.value = []
+  uploading.value = 0
+  try {
+    importJob.value = await api.uploadWithProgress<DnsImportJob>(
+      '/dns/blocklist/imports',
+      file,
+      file.type || 'text/plain',
+      (sent) => (uploading.value = sent),
+    )
+    poll()
+  } catch (e) {
+    importError.value = errorText(e)
+  } finally {
+    uploading.value = null
+    input.value = '' // the same file can be chosen again
+  }
+}
+
+async function confirmImport() {
+  const job = importJob.value
+  if (!job) return
+  importError.value = ''
+  try {
+    importJob.value = await api.post<DnsImportJob>(`/dns/blocklist/imports/${job.id}/confirm`)
+    poll()
+  } catch (e) {
+    importError.value = errorText(e)
+  }
+}
+
+onBeforeUnmount(stopPolling)
 
 function openCreate() {
   Object.assign(form, { domain: '', includeSubdomains: true, reason: '', confidence: '' })
@@ -204,45 +337,6 @@ async function removeAllow(entry: DnsAllowEntry) {
   await loadBlocklist()
 }
 
-function openImport() {
-  importFile.value = preview.value = null
-  importError.value = ''
-  importOpen.value = true
-}
-
-async function previewImport(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0] ?? null
-  importFile.value = file
-  preview.value = null
-  importError.value = ''
-  if (!file) return
-  busy.value = true
-  try {
-    preview.value = await api.upload<DnsHostsPreview>('/dns/blocklist/import-preview', file, file.type || 'text/plain')
-  } catch (e) {
-    importError.value = errorText(e)
-  } finally {
-    busy.value = false
-  }
-}
-
-async function confirmImport() {
-  if (!importFile.value) return
-  busy.value = true
-  importError.value = ''
-  try {
-    const result = await api.upload<DnsHostsPreview>('/dns/blocklist/import', importFile.value, 'text/plain')
-    importOpen.value = false
-    count('entries', result.unique_count) // the newly added ones
-  } catch (e) {
-    importError.value = errorText(e)
-    if (!savedAnyway(e)) return
-    await loadStatus() // imported, but we don't know how many were new
-  } finally {
-    busy.value = false
-  }
-  await loadBlocklist()
-}
 
 onMounted(() => {
   loadBlocklist()
@@ -419,34 +513,66 @@ onMounted(() => {
     </form>
   </Modal>
 
-  <Modal v-if="importOpen" :title="t('dns.import_title')" @close="importOpen = false">
+  <Modal v-if="importOpen" :title="t('dns.import_title')" @close="closeImport">
     <div class="stack">
       <div v-if="importError" class="alert err">{{ importError }}</div>
       <div class="field">
         <label>{{ t('dns.hosts_file') }}</label>
-        <input type="file" accept=".txt,text/plain" :disabled="busy" @change="previewImport" />
+        <input
+          type="file"
+          accept=".txt,text/plain"
+          :disabled="uploading !== null || ['checking', 'saving', 'syncing'].includes(importJob?.state ?? '')"
+          @change="chooseFile"
+        />
       </div>
-      <div v-if="preview" class="alert ok">
-        {{ t('dns.import_found', { count: preview.unique_count }) }}
-        <template v-if="preview.skipped?.length">{{ t('dns.import_skipped', { count: preview.skipped.length }) }}</template>
+
+      <div v-if="importStep" class="field">
+        <label>
+          {{ t('dns.import_step', { step: importStep.step, what: t(`dns.import_phase.${importStep.phase}`) }) }}
+          <template v-if="importStep.fraction !== null"> · {{ Math.round(importStep.fraction * 100) }}%</template>
+        </label>
+        <progress class="import-progress" max="1" :value="importStep.fraction ?? undefined"></progress>
+        <p v-if="importStep.phase === 'saving' || importStep.phase === 'syncing'" class="muted small">
+          {{ t('dns.import_background') }}
+        </p>
       </div>
-      <details v-if="preview?.domains.length">
-        <summary>{{ t('dns.import_preview') }}</summary>
-        <div class="chips" style="margin-top: 8px">
-          <span v-for="domain in previewPage.rows" :key="domain" class="badge mono">{{ domain }}</span>
+
+      <template v-if="importJob?.state === 'ready'">
+        <div class="alert" :class="importJob.new ? 'ok' : 'warn'">
+          {{ t('dns.import_summary', { new: importJob.new, existing: importJob.existing, skipped: importJob.skipped }) }}
+          <template v-if="!importJob.new"> {{ t('dns.import_nothing_new') }}</template>
         </div>
-        <Pager v-model:offset="previewPage.offset" v-model:limit="previewPage.limit" :total="previewPage.total" />
-      </details>
-      <details v-if="preview?.skipped?.length">
-        <summary>{{ t('dns.import_skipped_list') }}</summary>
-        <div class="chips" style="margin-top: 8px">
-          <span v-for="domain in skippedPage.rows" :key="domain" class="badge mono">{{ domain }}</span>
+        <div class="actions">
+          <button
+            v-for="kind in ['new', 'existing', 'skipped'] as const"
+            :key="kind"
+            type="button"
+            class="small"
+            :class="previewKind === kind ? '' : 'ghost'"
+            :disabled="!importJob[kind]"
+            @click="showPreview(kind)"
+          >
+            {{ t(`dns.import_kind.${kind}`, { count: importJob[kind] }) }}
+          </button>
         </div>
-        <Pager v-model:offset="skippedPage.offset" v-model:limit="skippedPage.limit" :total="skippedPage.total" />
-      </details>
+        <div v-if="previewRows.length" class="chips">
+          <span v-for="domain in previewRows" :key="domain" class="badge mono">{{ domain }}</span>
+        </div>
+        <Pager v-if="previewTotal > previewLimit" v-model:offset="previewOffset" v-model:limit="previewLimit" :total="previewTotal" />
+      </template>
+
+      <template v-if="importJob?.state === 'done'">
+        <div class="alert ok">{{ t('dns.import_done', { added: importJob.added ?? 0 }) }}</div>
+        <div v-if="importJob.sync_ok === false" class="alert warn">{{ t('code.dns.sync_failed') }}</div>
+      </template>
+
       <div class="modal-foot">
-        <button type="button" class="ghost" @click="importOpen = false">{{ t('common.cancel') }}</button>
-        <button :disabled="!preview || !preview.domains.length || busy" @click="confirmImport">{{ t('common.import') }}</button>
+        <button type="button" class="ghost" @click="closeImport">
+          {{ importJob?.state === 'done' ? t('common.close') : t('common.cancel') }}
+        </button>
+        <button v-if="importJob?.state === 'ready'" :disabled="!importJob.new" @click="confirmImport">
+          {{ t('dns.import_confirm', { count: importJob.new }) }}
+        </button>
       </div>
     </div>
   </Modal>

@@ -777,7 +777,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dns/blocklist/import-preview": {
+    "/api/v1/dns/blocklist/imports": {
         parameters: {
             query?: never;
             header?: never;
@@ -786,15 +786,56 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview Import */
-        post: operations["preview_import_api_v1_dns_blocklist_import_preview_post"];
+        /**
+         * Start Import
+         * @description Upload a hosts file (raw body). Checking runs in the background; poll the job.
+         */
+        post: operations["start_import_api_v1_dns_blocklist_imports_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dns/blocklist/import": {
+    "/api/v1/dns/blocklist/imports/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Import Status */
+        get: operations["import_status_api_v1_dns_blocklist_imports__job_id__get"];
+        put?: never;
+        post?: never;
+        /** Cancel Import */
+        delete: operations["cancel_import_api_v1_dns_blocklist_imports__job_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/blocklist/imports/{job_id}/domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Domains
+         * @description One page of the preview: what the import adds, what's already listed, what's skipped.
+         */
+        get: operations["import_domains_api_v1_dns_blocklist_imports__job_id__domains_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dns/blocklist/imports/{job_id}/confirm": {
         parameters: {
             query?: never;
             header?: never;
@@ -803,8 +844,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import Hosts */
-        post: operations["import_hosts_api_v1_dns_blocklist_import_post"];
+        /**
+         * Confirm Import
+         * @description Add the new domains (in the background; poll the job).
+         */
+        post: operations["confirm_import_api_v1_dns_blocklist_imports__job_id__confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1498,17 +1542,19 @@ export interface components {
             /** Server Time */
             server_time: string;
         };
-        /** HostsPreviewOut */
-        HostsPreviewOut: {
-            /** Domains */
-            domains: string[];
-            /** Unique Count */
-            unique_count: number;
+        /** ImportErrorOut */
+        ImportErrorOut: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
             /**
-             * Skipped
-             * @default []
+             * Params
+             * @default {}
              */
-            skipped: string[];
+            params: {
+                [key: string]: unknown;
+            };
         };
         /** ImportIssue */
         ImportIssue: {
@@ -1525,6 +1571,31 @@ export interface components {
             params: {
                 [key: string]: string | number;
             };
+        };
+        /** ImportJobOut */
+        ImportJobOut: {
+            /** Id */
+            id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "checking" | "ready" | "saving" | "syncing" | "done" | "failed";
+            /** Progress */
+            progress: number;
+            /** File Bytes */
+            file_bytes: number;
+            /** New */
+            new: number;
+            /** Existing */
+            existing: number;
+            /** Skipped */
+            skipped: number;
+            /** Added */
+            added?: number | null;
+            /** Sync Ok */
+            sync_ok?: boolean | null;
+            error?: components["schemas"]["ImportErrorOut"] | null;
         };
         /** ImportResult */
         ImportResult: {
@@ -1766,6 +1837,13 @@ export interface components {
         Page_UserOut_: {
             /** Items */
             items: components["schemas"]["UserOut"][];
+            /** Total */
+            total: number;
+        };
+        /** Page[str] */
+        Page_str_: {
+            /** Items */
+            items: string[];
             /** Total */
             total: number;
         };
@@ -4379,11 +4457,33 @@ export interface operations {
             };
         };
     };
-    preview_import_api_v1_dns_blocklist_import_preview_post: {
+    start_import_api_v1_dns_blocklist_imports_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobOut"];
+                };
+            };
+        };
+    };
+    import_status_api_v1_dns_blocklist_imports__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -4394,27 +4494,111 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HostsPreviewOut"];
+                    "application/json": components["schemas"]["ImportJobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    import_hosts_api_v1_dns_blocklist_import_post: {
+    cancel_import_api_v1_dns_blocklist_imports__job_id__delete: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                job_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            201: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HostsPreviewOut"];
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_domains_api_v1_dns_blocklist_imports__job_id__domains_get: {
+        parameters: {
+            query?: {
+                kind?: "new" | "existing" | "skipped";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_str_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_import_api_v1_dns_blocklist_imports__job_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

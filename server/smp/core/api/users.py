@@ -30,6 +30,7 @@ from smp.core.passwords import password_problem
 from smp.core.policy import emit_policy_changed, remove_assignments_for
 from smp.core.security import hash_password_async, require_secret_key
 from smp.core.tokens import delete_tokens_of
+from smp.core.uploads import read_limited
 from smp.core.xlsx_users import (
     DATETIME_FORMATS,
     FILE_NAMES,
@@ -293,19 +294,6 @@ async def _set_groups(ctx: Ctx, user: User, wanted: set[uuid.UUID]) -> tuple[set
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
 
 
-async def _read_limited(request: Request, limit: int) -> bytes:
-    """Read the body but stop as soon as it exceeds `limit`, also for chunked uploads
-    that have no Content-Length (otherwise the whole stream is buffered first)."""
-    if int(request.headers.get("content-length") or 0) > limit:
-        raise AppError(status.HTTP_413_CONTENT_TOO_LARGE, "upload.too_large", "file too large (max 5 MB)", max_mb=5)
-    buf = bytearray()
-    async for chunk in request.stream():
-        buf += chunk
-        if len(buf) > limit:
-            raise AppError(status.HTTP_413_CONTENT_TOO_LARGE, "upload.too_large", "file too large (max 5 MB)", max_mb=5)
-    return bytes(buf)
-
-
 def _xlsx(data: bytes, filename: str) -> Response:
     return Response(data, media_type=XLSX_MIME, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
@@ -424,7 +412,7 @@ async def import_users(
     row rejects the whole file (422, detail = ImportResult). With dry_run=true nothing
     is written: use it to preview."""
     require_secret_key()  # fail before the preview, not after
-    data = await _read_limited(request, MAX_IMPORT_BYTES)
+    data = await read_limited(request, MAX_IMPORT_BYTES)
 
     parsed = read_users(data)
     if parsed.errors:

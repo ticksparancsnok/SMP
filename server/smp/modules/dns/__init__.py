@@ -38,6 +38,11 @@ class DnsModule(Module):
         EventSubject("dns.domain.unclassified", "An unknown domain is waiting to be classified"),
     )
 
+    def __init__(self) -> None:
+        from smp.modules.dns.imports import ImportJobs
+
+        self.imports = ImportJobs()  # hosts-file imports in progress (imports.py)
+
     def router(self):
         from smp.modules.dns.api import router
 

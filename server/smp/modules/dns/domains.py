@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import cache
 from typing import Protocol
 
@@ -79,6 +79,13 @@ def is_public_suffix(domain: str) -> bool:
     return bool(r.suffix) and not r.domain and not r.subdomain
 
 
+@cache
+def plain_public_suffixes() -> tuple[str, ...]:
+    """The suffixes themselves (com, co.uk, ...), without the list's wildcard and exception
+    rules: what a legacy blocklist row could be (the sync leaves those out in SQL)."""
+    return tuple(sorted(t for t in _extractor().tlds if not t.startswith(("*", "!"))))
+
+
 def public_suffix_count() -> int:
     return len(_extractor().tlds)
 
@@ -120,15 +127,25 @@ def by_domain(entries: Iterable[_Entry]) -> dict[str, _Entry]:
     return {e.domain: e for e in entries}
 
 
-def parse_hosts(content: bytes) -> list[str]:
+# Names hosts files list for the machine itself (StevenBlack's header has them), not sites.
+_HOSTS_SYSTEM_NAMES = frozenset({"localhost.localdomain", "localhost6.localdomain6", "ip6-localhost.localdomain"})
+
+
+def parse_hosts(content: bytes, progress: Callable[[int, int], None] | None = None) -> list[str]:
     """Domains to block from a hosts file (e.g. StevenBlack's), in file order, without
     duplicates. Only lines mapping a domain to a sink address count: 0.0.0.0 or
     127.0.0.1 (the usual "block" targets), or any normal unicast address. Comments,
-    the file's own system entries (localhost, ::1, fe80::/ff02:: names, broadcasthost)
-    and malformed names are skipped."""
+    the file's own system entries (localhost, localhost.localdomain, ::1, fe80::/ff02::
+    names, broadcasthost) and malformed names are skipped.
+
+    `progress(lines_done, lines_total)` is called every few thousand lines (imports run
+    this in a worker thread and show how far it got)."""
     found: list[str] = []
     seen: set[str] = set()
-    for raw_line in content.decode("utf-8", errors="replace").splitlines():
+    lines = content.decode("utf-8", errors="replace").splitlines()
+    for number, raw_line in enumerate(lines):
+        if progress is not None and number % 5000 == 0:
+            progress(number, len(lines))
         line = raw_line.split("#", 1)[0].strip()
         if not line:
             continue
@@ -145,7 +162,9 @@ def parse_hosts(content: bytes) -> list[str]:
             continue
         for token in tokens[1:]:
             domain = normalize_domain(token)
-            if domain and domain not in seen:
+            if domain and domain not in seen and domain not in _HOSTS_SYSTEM_NAMES:
                 seen.add(domain)
                 found.append(domain)
+    if progress is not None:
+        progress(len(lines), len(lines))
     return found

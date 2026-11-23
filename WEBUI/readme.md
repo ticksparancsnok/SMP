@@ -67,8 +67,10 @@ is allowed. Public suffixes (com, hu, co.uk, …) are built in and can't go on e
 list. Users with `dns.blocklist.write` can:
 
 - add or delete blocklist and allowlist entries,
-- preview a hosts-file import (allowlisted domains and public suffixes are skipped),
-- confirm the import.
+- import a hosts file: it is uploaded once with a progress bar, checked on the server
+  (progress again), previewed as new / already listed / skipped (allowlisted domains and
+  public suffixes), paged from the server, then confirmed; saving and sending the list to
+  the sinkhole show their progress too, and finish on the server if the dialog is closed.
 
 Blocklist entries the allowlist overrides are shown as "not applied".
 
@@ -79,6 +81,6 @@ authenticated principal:
 - API-token or service call: `token:<token name>` if no user principal exists,
 - hosts import: `imported by: <username>`.
 
-The API client sends raw file contents to the DNS preview/import endpoints;
-the FastAPI handler performs normalization, loopback/system filtering and
-deduplication.
+The upload goes through `api.uploadWithProgress()` (XMLHttpRequest: fetch can't report
+upload progress) as the raw file; the server does the normalization, loopback/system
+filtering and deduplication.
