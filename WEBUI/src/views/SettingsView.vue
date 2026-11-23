@@ -4,12 +4,14 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { api, errorText } from '../api/client'
 import type { Token, TokenCreated } from '../api/types'
+import Pager from '../components/Pager.vue'
 import SchemaForm from '../components/SchemaForm.vue'
 import { fmtDate, fmtRelative, fromLocalInput, moduleTitle } from '../format'
 import { t, tOr } from '../i18n'
+import { usePage } from '../paging'
 import { can, session } from '../session'
 
 const canWrite = computed(() => can('core.settings.write'))
@@ -41,7 +43,8 @@ async function saveSettings(name: string) {
 }
 
 // ---------------------------------------------------------------- API tokens
-const tokens = ref<Token[]>([])
+const tokens = shallowRef<Token[]>([])
+const tokenPage = usePage(tokens, { key: 'tokens' })
 const tokenForm = reactive({ name: '', permissions: [] as string[], expires_at: '' })
 const tokenError = ref('')
 const created = ref<TokenCreated | null>(null)
@@ -121,7 +124,7 @@ async function revoke(token: Token) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="tok in tokens" :key="tok.id">
+          <tr v-for="tok in tokenPage.rows" :key="tok.id">
             <td>
               <strong>{{ tok.name }}</strong><br /><span class="mono muted small">{{ tok.prefix }}…</span>
             </td>
@@ -141,6 +144,7 @@ async function revoke(token: Token) {
           </tr>
         </tbody>
       </table>
+      <Pager v-model:offset="tokenPage.offset" v-model:limit="tokenPage.limit" :total="tokenPage.total" />
     </div>
 
     <form class="stack" style="margin-top: 16px" @submit.prevent="createToken">

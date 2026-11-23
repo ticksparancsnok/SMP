@@ -52,6 +52,7 @@ const en = {
 
   // ------------------------------------------------------------ app shell & navigation
   'app.menu': 'Menu',
+  'app.versions': 'Server {server} · web UI {ui}',
   'nav.section.overview': 'Overview',
   'nav.section.account': 'Account',
   'nav.section.admin': 'Administration',
@@ -257,6 +258,11 @@ const en = {
   // ------------------------------------------------------------ pager
   'pager.prev': '‹ Previous',
   'pager.next': 'Next ›',
+  'pager.first': 'First page',
+  'pager.last': 'Last page',
+  'pager.per_page': 'Per page',
+  'picker.search': 'Type to search…',
+  'picker.more': 'Showing {shown} of {total} – type to narrow the list',
 
   // ------------------------------------------------------------ one-time password display
   'otp.issued_before': 'One-time password for',
@@ -460,6 +466,7 @@ const en = {
   'policies.windows': 'Time windows',
   'policies.timezone': 'Time zone',
   'policies.no_schedules': 'No schedules.',
+  'policies.filter_placeholder': 'Filter…',
   'policies.edit_policy': 'Edit policy',
   'policies.new_policy_title': 'New policy',
   'policies.kind': 'Type (module)',
@@ -497,7 +504,6 @@ const en = {
   'audit.details': 'Details',
   'audit.open': 'open',
   'audit.empty': 'No entries.',
-  'audit.more': 'Load more',
 
   // ------------------------------------------------------------ settings & tokens
   'settings.subtitle': 'Per-module settings and the API tokens of services (e.g. the DNS server).',
@@ -563,6 +569,7 @@ const en = {
   'dns.confidence': 'Confidence',
   'dns.with_subdomains': 'with subdomains',
   'dns.empty': 'No blocklist entries.',
+  'dns.filter_placeholder': 'Filter: domain, reason, added by',
   'dns.manual_title': 'Block a domain manually',
   'dns.include_subdomains': 'Also block subdomains',
   'dns.reason_placeholder': 'Distracting during lessons',

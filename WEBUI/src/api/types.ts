@@ -10,6 +10,7 @@ import type { components } from './schema'
 type S = components['schemas']
 
 export type Me = S['MeOut']
+export type PreferencesPatch = S['PreferencesPatch']
 export type User = S['UserOut']
 export type UserCreate = S['UserCreate']
 export type RoleIn = S['RoleIn']

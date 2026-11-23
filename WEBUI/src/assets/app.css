@@ -166,12 +166,29 @@ a.card-link:hover {
   padding: 6px 10px;
 }
 
+/* Language switch on the sign-in / password-change card: its own row, right-aligned,
+   so it stays put whatever the language does to the text below. */
+.auth-lang {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .pager {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
+  font-size: 13px;
+}
+.pager > .grow {
+  flex: 1;
+}
+.pager select {
+  width: auto;
+  margin-left: 4px;
+  padding: 2px 6px;
   font-size: 13px;
 }
 

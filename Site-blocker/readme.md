@@ -116,13 +116,20 @@ In IntelliJ, use **Deployment → Upload to Debian**. Make sure the `plugin` and
 cd ~/school-dns-demo
 go mod tidy
 go test ./...
-go build .
+go build -ldflags "-X 'school-dns-demo/plugin/schoolfilter.Version=$(sh ../tools/version.sh Site-blocker ../Version.toml)'" .
 export DNS_SYNC_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ./school-dns-demo
 ```
 
 Without `DNS_SYNC_TOKEN` the `/api/blocklist/*` endpoints are disabled (`503`),
 but DNS filtering and the block page still work.
+
+The version (`[Site-blocker]` in the repository's `Version.toml`, the only place SMP's
+versions are written) is stamped in by the `-ldflags` above; it appears in the startup
+log and in `/api/blocklist/status`. That `go build` line expects `Version.toml` and
+`tools/version.sh` one directory up (upload them too); a plain `go build .` works as
+well and reports `dev`. The Docker image does this itself (its build context is the
+repository root).
 
 The last command keeps running until you stop it, for example with `Ctrl+C`.
 Check the features from a separate terminal.

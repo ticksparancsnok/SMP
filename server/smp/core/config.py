@@ -64,11 +64,18 @@ class Settings(BaseSettings):
     # Key rotation: put the old key(s) here (comma separated) while switching to a new
     # SMP_SECRET_KEY, run `smp reencrypt-otps`, then remove them.
     secret_key_previous: str = ""
+    # Encrypts database backups (`smp backup`, upgrade.sh); random, made by install.sh.
+    # Only needed where backups are made or restored, not by the running server. Keep a
+    # copy away from the server (e.g. a password manager): without it no backup opens.
+    backup_key: str = ""
+    backup_key_file: str = ""
 
     @model_validator(mode="after")
     def _read_key_file(self):
         if self.secret_key_file and not self.secret_key:
             self.secret_key = Path(self.secret_key_file).read_text().strip()
+        if self.backup_key_file and not self.backup_key:
+            self.backup_key = Path(self.backup_key_file).read_text().strip()
         return self
 
     def previous_keys(self) -> list[str]:
@@ -82,6 +89,16 @@ class Settings(BaseSettings):
             return f"SMP_SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters"
         if len(set(self.secret_key)) < 10:
             return "SMP_SECRET_KEY looks like a placeholder (too few distinct characters); generate a random one"
+        return None
+
+    def backup_key_problem(self) -> str | None:
+        """Why the configured backup key is unusable, or None if it's fine."""
+        if not self.backup_key:
+            return "SMP_BACKUP_KEY (or SMP_BACKUP_KEY_FILE) is not set"
+        if len(self.backup_key) < MIN_SECRET_KEY_LENGTH:
+            return f"SMP_BACKUP_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters"
+        if len(set(self.backup_key)) < 10:
+            return "SMP_BACKUP_KEY looks like a placeholder (too few distinct characters); generate a random one"
         return None
 
     def effective_hash_concurrency(self) -> int:

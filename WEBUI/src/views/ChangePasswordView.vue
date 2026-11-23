@@ -53,10 +53,9 @@ async function signOut() {
 <template>
   <div class="auth">
     <form class="card stack" @submit.prevent="submit">
-      <div class="spread" style="align-items: flex-start">
-        <h1>{{ t('pwchange.title') }}</h1>
-        <LangSwitch />
-      </div>
+      <!-- own row: the title's length differs per language and would move it -->
+      <div class="auth-lang"><LangSwitch /></div>
+      <h1>{{ t('pwchange.title') }}</h1>
       <p class="muted" style="margin: 0">
         {{ t('pwchange.intro', { name: session.me?.display_name || session.me?.username || '' }) }}
       </p>

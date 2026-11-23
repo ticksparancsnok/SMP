@@ -9,8 +9,11 @@ import { RouterLink, useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Assignment, Device, Group, Page, Policy, Room, Schedule, TargetType, User } from '../api/types'
 import Modal from '../components/Modal.vue'
+import Pager from '../components/Pager.vue'
+import RemotePicker from '../components/RemotePicker.vue'
 import { DAY_INDEXES, dayLabel, describeWindows, fmtDate, fromLocalInput, moduleTitle, TARGET_TYPES, targetTypeLabel } from '../format'
 import { t } from '../i18n'
+import { usePage } from '../paging'
 import { can, canAnywhere, session } from '../session'
 
 const route = useRoute()
@@ -21,10 +24,11 @@ const TABS = ['assignments', 'policies', 'schedules'] as const
 const policies = shallowRef<Policy[]>([])
 const schedules = shallowRef<Schedule[]>([])
 const assignments = shallowRef<Assignment[]>([])
+// Rooms and groups (small lists) are only needed by the assignment dialog: loaded when
+// it first opens. Devices and users are searched on the server there (RemotePicker).
 const rooms = shallowRef<Room[]>([])
 const groups = shallowRef<Group[]>([])
-const devices = shallowRef<Device[]>([])
-const users = shallowRef<User[]>([])
+let targetsLoaded = false
 const error = ref('')
 
 const canWrite = computed(() => can('core.policies.write'))
@@ -32,21 +36,12 @@ const canAssign = computed(() => canAnywhere('core.policies.assign'))
 // Policy kinds = modules that declare a policy schema (dns, software, classroom, ...).
 const kinds = computed(() => session.modules.filter((m) => m.policy_schema))
 
-// ---------------------------------------------------------------- pagination & filtering
-const PAGE_SIZES = [10, 50, 100] as const
+// ---------------------------------------------------------------- filtering & paging
 const searchQuery = ref('')
-const pageSize = ref<number>(50)
-const currentPage = ref(1)
 
-// Reset pagination/search when switching tabs
+// Each tab has its own filter text; start the new tab unfiltered.
 watch(tab, () => {
   searchQuery.value = ''
-  currentPage.value = 1
-})
-
-// Reset to page 1 when search query or page size changes
-watch([searchQuery, pageSize], () => {
-  currentPage.value = 1
 })
 
 const filteredAssignments = computed(() => {
@@ -82,88 +77,49 @@ const filteredSchedules = computed(() => {
   )
 })
 
-const currentFilteredLength = computed(() => {
-  if (tab.value === 'assignments') return filteredAssignments.value.length
-  if (tab.value === 'policies') return filteredPolicies.value.length
-  return filteredSchedules.value.length
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(currentFilteredLength.value / pageSize.value)))
-
-// Clamp currentPage if entries are deleted/filtered out from the last page
-watch(totalPages, (maxPage) => {
-  if (currentPage.value > maxPage) {
-    currentPage.value = maxPage
-  }
-})
-
-const paginatedAssignments = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredAssignments.value.slice(start, start + pageSize.value)
-})
-
-const paginatedPolicies = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredPolicies.value.slice(start, start + pageSize.value)
-})
-
-const paginatedSchedules = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredSchedules.value.slice(start, start + pageSize.value)
-})
-
-const pageRangeLabel = computed(() => {
-  const total = currentFilteredLength.value
-  if (total === 0) return '0 / 0'
-  const start = (currentPage.value - 1) * pageSize.value + 1
-  const end = Math.min(currentPage.value * pageSize.value, total)
-  return `${start.toLocaleString()}–${end.toLocaleString()} / ${total.toLocaleString()}`
-})
+// Only the visible page of each tab is rendered.
+const assignmentPage = usePage(filteredAssignments, { key: 'policies.assignments', resetOn: [searchQuery] })
+const policyPage = usePage(filteredPolicies, { key: 'policies.policies', resetOn: [searchQuery] })
+const schedulePage = usePage(filteredSchedules, { key: 'policies.schedules', resetOn: [searchQuery] })
 // ---------------------------------------------------------------- end pagination
+
+let assignmentsLoaded = false
 
 async function load() {
   try {
-    ;[policies.value, schedules.value, assignments.value] = await Promise.all([
+    ;[policies.value, schedules.value] = await Promise.all([
       api.get<Policy[]>('/policies'),
       api.get<Schedule[]>('/schedules'),
-      api.get<Assignment[]>('/policy-assignments'),
     ])
     error.value = ''
   } catch (e) {
     error.value = errorText(e)
   }
+  // Assignments: only once their tab has been shown (then kept fresh).
+  if (assignmentsLoaded || tab.value === 'assignments') await loadAssignments()
 }
 
-onMounted(async () => {
-  await load()
-  // Lookup lists for target names; each is optional depending on permissions.
-  const opt = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback)
-  ;[rooms.value, groups.value] = await Promise.all([
-    opt(api.get<Room[]>('/rooms'), []),
-    can('core.groups.read') ? opt(api.get<Group[]>('/groups'), []) : [],
-  ])
-  devices.value = (await opt(api.get<Page<Device>>('/devices', { limit: 2000 }), { items: [], total: 0 })).items
-  if (can('core.users.read')) users.value = (await opt(api.get<Page<User>>('/users', { limit: 1000 }), { items: [], total: 0 })).items
-})
-
-function targetName(a: Assignment): string {
-  const id = a.target_id
-  switch (a.target_type) {
-    case 'org':
-      return targetTypeLabel('org')
-    case 'room':
-      return rooms.value.find((x) => x.id === id)?.name ?? id ?? ''
-    case 'group':
-      return groups.value.find((x) => x.id === id)?.name ?? id ?? ''
-    case 'device':
-      return devices.value.find((x) => x.id === id)?.hostname ?? id ?? ''
-    case 'user':
-      return users.value.find((x) => x.id === id)?.username ?? id ?? ''
+async function loadAssignments() {
+  try {
+    assignments.value = await api.get<Assignment[]>('/policy-assignments')
+    assignmentsLoaded = true
+  } catch (e) {
+    error.value = errorText(e)
   }
-  return id ?? ''
 }
-const policyOf = (id: string) => policies.value.find((p) => p.id === id)
-const scheduleName = (id: string | null | undefined) => schedules.value.find((s) => s.id === id)?.name
+watch(tab, (v) => v === 'assignments' && !assignmentsLoaded && loadAssignments())
+
+onMounted(load)
+
+/** Target names come with the assignments (server-side, limited to what we may read). */
+function targetName(a: Assignment): string {
+  if (a.target_type === 'org') return targetTypeLabel('org')
+  return a.target_name ?? a.target_id ?? ''
+}
+const policyById = computed(() => new Map(policies.value.map((p) => [p.id, p])))
+const scheduleById = computed(() => new Map(schedules.value.map((s) => [s.id, s])))
+const policyOf = (id: string) => policyById.value.get(id)
+const scheduleName = (id: string | null | undefined) => (id ? scheduleById.value.get(id)?.name : undefined)
 
 function isActiveNow(a: Assignment): boolean {
   const now = Date.now()
@@ -267,19 +223,32 @@ const aForm = reactive({
 })
 const aError = ref('')
 
+// Rooms and groups: a plain select. Devices and users can number in the thousands:
+// RemotePicker searches them on the server (also limited to what we may read there).
 const targetOptions = computed<{ id: string; name: string }[]>(() => {
   switch (aForm.target_type) {
     case 'room':
       return rooms.value.map((r) => ({ id: r.id, name: r.name }))
     case 'group':
       return groups.value.map((g) => ({ id: g.id, name: g.name }))
-    case 'device':
-      return devices.value.map((d) => ({ id: d.id, name: d.hostname }))
-    case 'user':
-      return users.value.map((u) => ({ id: u.id, name: `${u.display_name} (${u.username})` }))
   }
   return []
 })
+const searchDevices = (q: string, limit: number) => api.get<Page<Device>>('/devices', { q, limit })
+const deviceLabel = (d: Device) => (d.display_name ? `${d.hostname} – ${d.display_name}` : d.hostname)
+const searchUsers = (q: string, limit: number) => api.get<Page<User>>('/users', { q, limit })
+const userLabel = (u: User) => (u.display_name && u.display_name !== u.username ? `${u.display_name} (${u.username})` : u.username)
+
+async function loadTargets() {
+  if (targetsLoaded) return
+  // Each is optional depending on permissions.
+  const opt = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback)
+  ;[rooms.value, groups.value] = await Promise.all([
+    opt(api.get<Room[]>('/rooms'), []),
+    can('core.groups.read') ? opt(api.get<Group[]>('/groups'), []) : [],
+  ])
+  targetsLoaded = true
+}
 
 /** Clear the target, or pick it when there is only one choice (e.g. a teacher with one room). */
 function resetTarget() {
@@ -290,7 +259,8 @@ function resetTarget() {
 // would otherwise keep a device id under target_type "room".
 watch(() => aForm.target_type, resetTarget)
 
-function openAssign() {
+async function openAssign() {
+  await loadTargets()
   Object.assign(aForm, {
     policy_id: policies.value[0]?.id ?? '',
     target_type: can('core.policies.assign') ? 'org' : 'room',
@@ -354,10 +324,7 @@ async function saveAssign() {
   <!-- ------------------------------------------------------------ assignments -->
   <template v-if="tab === 'assignments'">
     <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
-      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
-      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
-      </select>
+      <input v-model="searchQuery" type="search" :placeholder="t('policies.filter_placeholder')" style="max-width: 260px" />
       <span class="grow"></span>
       <button v-if="canAssign" :disabled="!policies.length" @click="openAssign">{{ t('policies.new_assignment') }}</button>
     </div>
@@ -375,7 +342,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in paginatedAssignments" :key="a.id">
+          <tr v-for="a in assignmentPage.rows" :key="a.id">
             <td>
               <strong>{{ policyOf(a.policy_id)?.name ?? '?' }}</strong>
               <span class="badge" style="margin-left: 6px">{{ policyOf(a.policy_id)?.kind }}</span>
@@ -395,20 +362,12 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!paginatedAssignments.length">
+          <tr v-if="!assignmentPage.rows.length">
             <td colspan="7" class="empty">{{ t('policies.no_assignments') }}</td>
           </tr>
         </tbody>
       </table>
-    </div>
-    <div v-if="filteredAssignments.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
-      <span class="muted small">{{ pageRangeLabel }}</span>
-      <span class="grow"></span>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
-      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
+      <Pager v-model:offset="assignmentPage.offset" v-model:limit="assignmentPage.limit" :total="assignmentPage.total" />
     </div>
   </template>
 
@@ -416,10 +375,7 @@ async function saveAssign() {
   <template v-if="tab === 'policies'">
     <div v-if="!kinds.length" class="alert ok">{{ t('policies.no_kinds') }}</div>
     <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
-      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
-      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
-      </select>
+      <input v-model="searchQuery" type="search" :placeholder="t('policies.filter_placeholder')" style="max-width: 260px" />
       <span class="grow"></span>
       <button v-if="canWrite" :disabled="!kinds.length" @click="openPolicy(null)">{{ t('policies.new_policy') }}</button>
     </div>
@@ -435,7 +391,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in paginatedPolicies" :key="p.id">
+          <tr v-for="p in policyPage.rows" :key="p.id">
             <td><strong>{{ p.name }}</strong></td>
             <td><span class="badge">{{ p.kind }}</span></td>
             <td class="muted">{{ p.description }}</td>
@@ -447,30 +403,19 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!paginatedPolicies.length">
+          <tr v-if="!policyPage.rows.length">
             <td colspan="5" class="empty">{{ t('policies.no_policies') }}</td>
           </tr>
         </tbody>
       </table>
-    </div>
-    <div v-if="filteredPolicies.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
-      <span class="muted small">{{ pageRangeLabel }}</span>
-      <span class="grow"></span>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
-      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
+      <Pager v-model:offset="policyPage.offset" v-model:limit="policyPage.limit" :total="policyPage.total" />
     </div>
   </template>
 
   <!-- ------------------------------------------------------------ schedules -->
   <template v-if="tab === 'schedules'">
     <div class="toolbar" style="flex-wrap: wrap; gap: 8px">
-      <input v-model="searchQuery" type="search" placeholder="Filter..." style="max-width: 260px" />
-      <select v-model.number="pageSize" aria-label="Rows per page" style="width: auto">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }} / page</option>
-      </select>
+      <input v-model="searchQuery" type="search" :placeholder="t('policies.filter_placeholder')" style="max-width: 260px" />
       <span class="grow"></span>
       <button v-if="canWrite" @click="openSchedule(null)">{{ t('policies.new_schedule') }}</button>
     </div>
@@ -485,7 +430,7 @@ async function saveAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in paginatedSchedules" :key="s.id">
+          <tr v-for="s in schedulePage.rows" :key="s.id">
             <td><strong>{{ s.name }}</strong></td>
             <td class="small">{{ describeWindows(s.windows) }}</td>
             <td class="muted">{{ s.timezone }}</td>
@@ -496,20 +441,12 @@ async function saveAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="!paginatedSchedules.length">
+          <tr v-if="!schedulePage.rows.length">
             <td colspan="4" class="empty">{{ t('policies.no_schedules') }}</td>
           </tr>
         </tbody>
       </table>
-    </div>
-    <div v-if="filteredSchedules.length > 0" class="toolbar" style="margin-top: 12px; align-items: center; gap: 8px">
-      <span class="muted small">{{ pageRangeLabel }}</span>
-      <span class="grow"></span>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage = 1">«</button>
-      <button type="button" class="ghost small" :disabled="currentPage <= 1" @click="currentPage--">‹</button>
-      <span class="small">{{ currentPage }} / {{ totalPages }}</span>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage++">›</button>
-      <button type="button" class="ghost small" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">»</button>
+      <Pager v-model:offset="schedulePage.offset" v-model:limit="schedulePage.limit" :total="schedulePage.total" />
     </div>
   </template>
 
@@ -608,7 +545,23 @@ async function saveAssign() {
         </div>
         <div v-if="aForm.target_type !== 'org'" class="field">
           <label>{{ t('policies.target') }}</label>
-          <select v-model="aForm.target_id" required>
+          <RemotePicker
+            v-if="aForm.target_type === 'device'"
+            :key="'device'"
+            v-model="aForm.target_id"
+            :search="searchDevices"
+            :label="deviceLabel"
+            required
+          />
+          <RemotePicker
+            v-else-if="aForm.target_type === 'user'"
+            :key="'user'"
+            v-model="aForm.target_id"
+            :search="searchUsers"
+            :label="userLabel"
+            required
+          />
+          <select v-else v-model="aForm.target_id" required>
             <option value="" disabled>{{ t('policies.choose') }}</option>
             <option v-for="o in targetOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
           </select>

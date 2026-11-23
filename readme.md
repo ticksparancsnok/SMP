@@ -9,20 +9,35 @@ One platform for managing school computers: DNS-based site blocking with automat
 - `docs/writing-a-module.md`: how to add a service module (backend + UI page)
 - `docs/security.md`: operator checklist (secret key, reverse proxy, rate limits) and security review decisions
 
-Quick start (needs Docker with the compose plugin):
+Quick start (needs Docker with the compose plugin, and curl or wget):
 
 ```sh
-./install.sh
+mkdir -p /opt/smp && cd /opt/smp
+curl -fsSLO https://raw.githubusercontent.com/ticksparancsnok/SMP/main/install.sh
+bash install.sh
 ```
 
-The installer creates `.env` with random secrets, works out SMP's addresses (it
-asks for extra names such as `smp.iskola.hu`), builds and starts the containers,
-waits until everything is up, and on first setup asks for the school name and the
-administrator's username. It ends by printing the administrator's **one-time
+The installer downloads the newest SMP (the `main` branch on GitHub; `--ref` picks a
+branch or tag, `--download-url` a modified SMP from your own server, `--help` lists
+the options) into its folder, creates `.env` with random secrets, works out SMP's
+addresses (it asks for extra names such as `smp.iskola.hu`), builds and starts the
+containers, waits until everything is up, and on first setup asks for the school name
+and the administrator's username. It ends by printing the administrator's **one-time
 password**: sign in at https://localhost (or the LAN address it lists) with it, and
-SMP asks you to choose your own. Run `./install.sh` again after updating SMP: it rebuilds, migrates and leaves
-your data and admin alone. Keep a backup of `.env`; without it the database can't be
-opened.
+SMP asks you to choose your own. Keep a backup of `.env`; without it the database can't
+be opened.
+
+**Updating:** `./upgrade.sh` in the same folder. It downloads the newest version and, if
+it's newer than the installed one (`[release]` in `Version.toml`), shows what changes,
+backs up the database (encrypted with `SMP_BACKUP_KEY` from `.env`) and the files it
+replaces into `backups/`, replaces the files and rebuilds. Your data, `.env` and the HTTPS
+certificate are kept, and SMP keeps running while the new version builds.
+If the new version doesn't build or start, it goes back to the previous one by itself;
+`./upgrade.sh --rollback` goes back later, files and database. Only the newest backup is
+kept.
+`./install.sh` again only checks the configuration and rebuilds what's installed. In a
+git checkout (development) `./install.sh` uses the checkout's files as they are, and
+`./upgrade.sh` refuses: update with git.
 
 If the server doesn't come up, `docker compose logs server` starts with a plain
 explanation (e.g. a database password that no longer matches the existing database).

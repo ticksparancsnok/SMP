@@ -19,7 +19,8 @@ use crate::core::identity::Identity;
 use crate::core::sysinfo::SysInfo;
 use crate::core::tls::{client_config, PinningVerifier};
 
-pub const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// [agent] version of Version.toml in the repository root, compiled in by build.rs.
+pub const AGENT_VERSION: &str = env!("SMP_AGENT_VERSION");
 
 #[derive(Debug)]
 pub enum ApiError {

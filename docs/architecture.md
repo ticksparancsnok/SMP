@@ -11,6 +11,19 @@
 
 Rule: the data plane (DNS, agent, and later the screen relay if Python can't keep up) runs as separate programs that talk to the control plane with API tokens (DNS) or signed requests (agent). Anything that is mostly "store, check permissions, audit" is a Python module.
 
+### Versions (`Version.toml`)
+
+Every version number lives in `Version.toml` in the repository root, one section per component (`[server]`, `[WEBUI]`, `[agent]`, `[Site-blocker]`) plus `[release]` for SMP as a whole. To bump a version, edit that file only. The format is `"1.0.2"` or `"1.0.2 C"` (an optional revision letter).
+
+| Component | Reads it | Where it shows |
+|---|---|---|
+| server | `smp/version.py` at startup (`SMP_VERSION_FILE`, else the nearest `Version.toml` above the package; the image sets `/app/Version.toml`) | API docs, `/healthz`, the core module's version (sidebar), the pip metadata (`pyproject.toml` is `dynamic`, `1.0.2 C` becomes `1.0.2+c`) |
+| web UI | `vite.config.ts` at build time, as `__SMP_WEBUI_VERSION__` | sidebar tooltip, next to the server's |
+| agent | `smp-agent/build.rs` at build time, as `SMP_AGENT_VERSION` (`Cargo.toml` has no version) | `smp-agent --version`, heartbeats (Devices), `smp-agent.version` beside the download |
+| DNS sinkhole | its Dockerfile, via `go build -ldflags -X` | startup log, `/api/blocklist/status` |
+
+Shell scripts and Docker stages read it with `tools/version.sh <section>`. The non-Python readers are line based, so each `version = "..."` stays on one line. `server/tests/test_version.py` checks the format, checks that `tools/version.sh` matches a real TOML parser, and fails if a component gets its own version back.
+
 ## Shared domain model (`server/smp/core/models.py`)
 
 Every module speaks in these terms. Don't create a module-private "computer" or "classroom" table; reference `devices` / `rooms`.
@@ -124,7 +137,9 @@ See [writing-a-module.md](writing-a-module.md). Modules are compiled in (listed 
 
 ## Deployment
 
-`./install.sh` sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). It also cross-compiles the Windows agent (stage `agent`) and serves it at `/downloads/smp-agent.exe` (public: the exe holds no secrets) with its SHA-256 on the Devices page, so every install hands out the agent matching its own version and nothing comes from outside the school's server. On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
+`install.sh` downloads SMP into its folder (main branch on GitHub, or `--ref` / `--download-url`; not in a git checkout, whose files it uses as they are), hands over to the installer that came with it (`--local`), sets up `.env`, runs `docker compose up -d --build` (nginx, Postgres, the server, the DNS sinkhole) and, on first setup, `smp bootstrap --otp` with the school name and admin username it asks for. The server image builds the web UI too, so UI and API share one origin (no CORS, the session cookie just works). It also cross-compiles the Windows agent (stage `agent`) and serves it at `/downloads/smp-agent.exe` (public: the exe holds no secrets) with its SHA-256 on the Devices page, so every install hands out the agent matching its own version and nothing comes from outside the school's server. On every start the container runs `smp preflight` (secret key usable? database login works? if not, it prints what's wrong and how to fix it instead of a traceback, and waits 30 s before exiting so the restart loop stays slow and readable), then `smp migrate`, then the server.
+
+**Upgrades** (`upgrade.sh`): downloads SMP the same way (`install.sh --fetch`), compares `[release]` (`tools/version.sh --compare`: numbers, then the revision letter), lists what changes, then replaces the files with `tools/release.sh` from the *new* release and runs its `install.sh --local`. The install folder's `.smp-manifest` (SHA-256 of every file the installed release brought) tells removed files apart from the school's own, and hand-edited files from untouched ones; every replaced or removed file is kept in `backups/<time>-from-<version>/`. `.env`, `nginx/certs/` and `backups/` are never written, whatever a release contains: the PC agents pin the self-signed certificate (`agent/smp-agent/src/core/tls.rs`), so a new one would cut off every installed agent. Images are built while the old containers keep running; `docker compose up` then swaps them, so DNS (the school's only resolver) and the agents (they retry, backing off to 60 s) are interrupted for seconds, not for the build. Files are written next to the old ones and renamed into place, so a running `upgrade.sh` keeps reading its own old copy. Before the files change, the database is backed up encrypted (`database.smpbackup`, `SMP_BACKUP_KEY`; details in [security.md](security.md)); `upgrade.sh --rollback` puts the files back, builds the old version while the current one runs, then stops the server and restores the database. A failed upgrade does the same by itself, importing the database only if the new version had already migrated it (`db-revision` in the backup vs. `alembic_version`). After a successful upgrade only the newest backup is kept.
 
 **nginx** (`nginx/`, an image built on `nginx:1.30.7-alpine`) is the only web entry point:
 

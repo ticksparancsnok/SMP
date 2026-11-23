@@ -76,6 +76,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Preferences
+         * @description Save the signed-in user's own UI settings (not audited: they change nothing
+         *     for anyone else). API tokens have no account to store them on.
+         */
+        patch: operations["update_preferences_api_v1_auth_preferences_patch"];
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -724,7 +745,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Blocklist */
+        /**
+         * List Blocklist
+         * @description One page of the blocklist, by domain. The list can hold 100k+ imported domains,
+         *     so it is never sent whole (the sinkhole gets it through sync_payload()).
+         */
         get: operations["list_blocklist_api_v1_dns_blocklist_get"];
         put?: never;
         /** Create Entry */
@@ -1216,6 +1241,8 @@ export interface components {
             label: string;
             /** Created By */
             created_by: string | null;
+            /** Target Name */
+            target_name?: string | null;
         };
         /** AuditOut */
         AuditOut: {
@@ -1702,6 +1729,12 @@ export interface components {
              * @default false
              */
             must_change_password: boolean;
+            /**
+             * @default {
+             *       "page_size": {}
+             *     }
+             */
+            preferences: components["schemas"]["PreferencesOut"];
         };
         /** MemberOut */
         MemberOut: {
@@ -1719,6 +1752,13 @@ export interface components {
         Page_DeviceOut_: {
             /** Items */
             items: components["schemas"]["DeviceOut"][];
+            /** Total */
+            total: number;
+        };
+        /** Page[EntryOut] */
+        Page_EntryOut_: {
+            /** Items */
+            items: components["schemas"]["EntryOut"][];
             /** Total */
             total: number;
         };
@@ -1800,6 +1840,37 @@ export interface components {
             data?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * PreferencesOut
+         * @description A user's own UI settings, stored on their account (users.preferences).
+         */
+        PreferencesOut: {
+            /**
+             * Page Size
+             * @default {}
+             */
+            page_size: {
+                [key: string]: 10 | 50 | 100 | 500;
+            };
+            /** Locale */
+            locale?: ("hu" | "en") | null;
+        };
+        /**
+         * PreferencesPatch
+         * @description Merged into the stored preferences: only the fields sent change. A null page size
+         *     removes that list's choice; "locale": null forgets the language.
+         */
+        PreferencesPatch: {
+            /**
+             * Page Size
+             * @default {}
+             */
+            page_size: {
+                [key: string]: (10 | 50 | 100 | 500) | null;
+            };
+            /** Locale */
+            locale?: ("hu" | "en") | null;
         };
         /**
          * Role
@@ -2366,6 +2437,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_preferences_api_v1_auth_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesOut"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -4181,7 +4285,12 @@ export interface operations {
     };
     list_blocklist_api_v1_dns_blocklist_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description substring of the domain, reason or added-by */
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4194,7 +4303,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntryOut"][];
+                    "application/json": components["schemas"]["Page_EntryOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -11,12 +11,13 @@ import type { AgentDownload, ApproveIn, Device, DeviceStatus, JoinRequest, Page,
 import { copyText } from '../clipboard'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
+import RemotePicker from '../components/RemotePicker.vue'
 import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtFingerprint, fmtRelative, isOnline } from '../format'
 import { t } from '../i18n'
+import { usePage, usePageSize } from '../paging'
 import { can } from '../session'
 
-const PAGE_SIZES = [10, 50, 100] as const
-const limit = ref<number>(50)
+const limit = usePageSize('devices')
 
 const route = useRoute()
 const router = useRouter()
@@ -51,24 +52,23 @@ async function load() {
   }
 }
 
+/** Back to the first page after a filter change; the [limit, offset] watcher loads it. */
+function firstPage() {
+  if (offset.value) offset.value = 0
+  else load()
+}
+
 let debounce: number | undefined
 watch(q, () => {
   window.clearTimeout(debounce)
-  debounce = window.setTimeout(() => {
-    offset.value = 0
-    load()
-  }, 250)
+  debounce = window.setTimeout(firstPage, 250)
 })
 watch(roomFilter, (v) => {
   router.replace({ query: v ? { room_id: v } : {} })
-  offset.value = 0
-  load()
+  firstPage()
 })
-watch(limit, () => {
-  offset.value = 0
-  load()
-})
-watch(offset, load)
+// One watcher, so a page-size change (which also moves the offset) loads once.
+watch([limit, offset], load)
 
 onMounted(async () => {
   load()
@@ -172,11 +172,16 @@ const fmtSize = (bytes: number | null | undefined) => (bytes ? `${(bytes / 1024 
 
 // ---------------------------------------------------------------- join requests (agents asking to be managed)
 const joinRequests = shallowRef<JoinRequest[]>([])
+const joinPage = usePage(joinRequests, { key: 'devices.join_requests' })
 const approving = ref<JoinRequest | null>(null)
 const approveForm = reactive({ as: 'new' as 'new' | 'existing', device_id: '', room_mode: 'fixed' as 'fixed' | 'network', room_id: '' })
 const approveError = ref('')
-// every device, for "approve as an existing device" (the paged list may not hold it)
-const allDevices = shallowRef<Device[]>([])
+// The suggested device (same MAC/hostname), preselected in "approve as an existing device".
+const suggested = shallowRef<Device | null>(null)
+/** Matches for the device picker: searched on the server, never the whole fleet. */
+const searchDevices = (q: string, limit: number) => api.get<Page<Device>>('/devices', { q, limit })
+const deviceLabel = (d: Device) =>
+  `${d.hostname}${d.mac ? ` (${d.mac})` : ''}${d.id === approving.value?.suggested_device_id ? ' ★' : ''}`
 
 async function loadJoinRequests() {
   if (!canWrite.value) return
@@ -196,7 +201,9 @@ async function openApprove(r: JoinRequest) {
     room_mode: 'fixed',
     room_id: '',
   })
-  allDevices.value = (await api.get<Page<Device>>('/devices', { limit: 2000 }).catch(() => ({ items: [], total: 0 }))).items
+  suggested.value = null
+  if (r.suggested_device_id)
+    suggested.value = await api.get<Device>(`/devices/${r.suggested_device_id}`).catch(() => null)
 }
 
 async function approve() {
@@ -276,12 +283,6 @@ async function showPolicies(d: Device) {
       <label>{{ t('common.search') }}</label>
       <input v-model="q" :placeholder="t('devices.search_placeholder')" />
     </div>
-    <div class="field">
-      <label>Per page</label>
-      <select v-model.number="limit">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }}</option>
-      </select>
-    </div>
   </div>
 
   <div v-if="error" class="alert err">{{ error }}</div>
@@ -303,7 +304,7 @@ async function showPolicies(d: Device) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in joinRequests" :key="r.id">
+          <tr v-for="r in joinPage.rows" :key="r.id">
             <td><strong class="mono">{{ r.hostname }}</strong></td>
             <td class="mono">{{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span></td>
             <td class="muted small">{{ [r.os_name, r.os_version].filter(Boolean).join(' ') || '–' }}</td>
@@ -318,6 +319,7 @@ async function showPolicies(d: Device) {
           </tr>
         </tbody>
       </table>
+      <Pager v-model:offset="joinPage.offset" v-model:limit="joinPage.limit" :total="joinPage.total" />
     </div>
   </div>
 
@@ -372,7 +374,7 @@ async function showPolicies(d: Device) {
         </tr>
       </tbody>
     </table>
-    <Pager v-model:offset="offset" :total="total" :limit="limit" />
+    <Pager v-model:offset="offset" v-model:limit="limit" :total="total" />
   </div>
 
   <Modal v-if="open" :title="edit ? t('devices.edit_title', { hostname: edit.hostname }) : t('devices.new_title')" @close="open = false">
@@ -451,12 +453,14 @@ async function showPolicies(d: Device) {
         <label>{{ t('devices.approve_as') }}</label>
         <label class="check"><input v-model="approveForm.as" type="radio" value="new" /> {{ t('devices.approve_new') }}</label>
         <label class="check"><input v-model="approveForm.as" type="radio" value="existing" /> {{ t('devices.approve_existing') }}</label>
-        <select v-if="approveForm.as === 'existing'" v-model="approveForm.device_id" required>
-          <option value="" disabled>{{ t('policies.choose') }}</option>
-          <option v-for="d in allDevices" :key="d.id" :value="d.id">
-            {{ d.hostname }}{{ d.mac ? ` (${d.mac})` : '' }}{{ d.id === approving.suggested_device_id ? ' ★' : '' }}
-          </option>
-        </select>
+        <RemotePicker
+          v-if="approveForm.as === 'existing'"
+          v-model="approveForm.device_id"
+          :search="searchDevices"
+          :label="deviceLabel"
+          :initial="suggested"
+          required
+        />
         <span v-if="approveForm.as === 'existing'" class="muted small">{{ t('devices.approve_existing_hint') }}</span>
       </div>
       <div class="field">

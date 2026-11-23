@@ -77,8 +77,9 @@ services:
 
   dns-sinkhole:
     build:
-      context: ./Site-blocker/school-dns-demo
-      dockerfile: Dockerfile
+      # the repository root, like the server's: the image needs Version.toml
+      context: .
+      dockerfile: Site-blocker/school-dns-demo/Dockerfile
     environment:
       # Shared secret for every /api/blocklist/* endpoint; the server sends it as a
       # Bearer token. Without a token the API is disabled rather than open.

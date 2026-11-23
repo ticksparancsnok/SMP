@@ -43,8 +43,14 @@ T = TypeVar("T")
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # The only endpoints a user may call until they replace an admin-set password.
-# (/auth/logout doesn't go through get_principal at all.)
-_ALLOWED_DURING_PASSWORD_CHANGE = {"/api/v1/auth/me", "/api/v1/auth/password", "/api/v1/modules"}
+# (/auth/logout doesn't go through get_principal at all.) /auth/preferences only stores
+# the user's own UI settings: the language switch is on the password-change screen too.
+_ALLOWED_DURING_PASSWORD_CHANGE = {
+    "/api/v1/auth/me",
+    "/api/v1/auth/password",
+    "/api/v1/auth/preferences",
+    "/api/v1/modules",
+}
 _TOUCH_INTERVAL = timedelta(minutes=1)
 
 

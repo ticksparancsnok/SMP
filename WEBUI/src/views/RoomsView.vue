@@ -4,15 +4,18 @@
   Attribution required in modified versions: see NOTICE
 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, errorText } from '../api/client'
 import type { Room } from '../api/types'
 import Modal from '../components/Modal.vue'
+import Pager from '../components/Pager.vue'
 import { t } from '../i18n'
+import { usePage } from '../paging'
 import { can } from '../session'
 
-const rooms = ref<Room[]>([])
+const rooms = shallowRef<Room[]>([])
+const roomPage = usePage(rooms, { key: 'rooms' })
 const error = ref('')
 const canWrite = computed(() => can('core.rooms.write'))
 
@@ -94,7 +97,7 @@ async function remove(r: Room) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="r in rooms" :key="r.id">
+        <tr v-for="r in roomPage.rows" :key="r.id">
           <td><strong>{{ r.name }}</strong></td>
           <td>{{ r.building }}</td>
           <td><div class="chips">
@@ -116,6 +119,7 @@ async function remove(r: Room) {
         </tr>
       </tbody>
     </table>
+    <Pager v-model:offset="roomPage.offset" v-model:limit="roomPage.limit" :total="roomPage.total" />
   </div>
 
   <Modal v-if="open" :title="edit ? t('rooms.edit_title') : t('rooms.new_title')" @close="open = false">

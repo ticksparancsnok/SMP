@@ -4,12 +4,23 @@
 # Build context is the repository root (see docker-compose.yml):
 #   docker build -f server/Dockerfile .
 
+# ---- versions: each build stage gets only its own section of Version.toml, so a stage is
+# rebuilt when its own version changes, not on every release (the agent takes minutes)
+FROM python:3.13-slim AS versions
+COPY Version.toml tools/version.sh /v/
+RUN for s in WEBUI agent; do \
+        v=$(sh /v/version.sh "$s" /v/Version.toml) || exit 1; \
+        printf '[%s]\nversion = "%s"\n' "$s" "$v" > "/v/$s.toml"; \
+    done
+
 # ---- web UI
 FROM node:24-alpine AS ui
 WORKDIR /ui
 COPY WEBUI/package.json WEBUI/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY WEBUI/ ./
+# vite.config.ts compiles in [WEBUI] of ../Version.toml (here: /Version.toml)
+COPY --from=versions /v/WEBUI.toml /Version.toml
 RUN npm run build
 
 # ---- Windows agent (Rust, cross-compiled here; SMP offers it at /downloads/smp-agent.exe)
@@ -29,13 +40,17 @@ COPY agent/smp-agent/Cargo.toml ./smp-agent/
 RUN mkdir smp-agent/src && echo 'fn main() {}' > smp-agent/src/main.rs \
  && cargo build --release --locked --target x86_64-pc-windows-gnu \
  && rm -r smp-agent/src
-# 2) The agent itself
+# 2) The agent itself. Its version is [agent] of Version.toml: build.rs reads
+#    ../../Version.toml (here: /Version.toml, only the [agent] section), and the Devices
+#    page shows the same value from smp-agent.version.
 COPY agent/smp-agent ./smp-agent
+COPY --from=versions /v/agent.toml /Version.toml
+COPY tools/version.sh /
 RUN touch smp-agent/src/main.rs \
  && cargo build --release --locked --target x86_64-pc-windows-gnu \
  && mkdir /out \
  && cp target/x86_64-pc-windows-gnu/release/smp-agent.exe /out/ \
- && sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1 > /out/smp-agent.version
+ && sh /version.sh agent /Version.toml > /out/smp-agent.version
 
 # ---- server
 FROM python:3.13-slim
@@ -43,8 +58,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 
-COPY server/pyproject.toml ./
+COPY server/pyproject.toml Version.toml ./
 COPY server/smp ./smp
+# smp/version.py reads [server] (and the others) from here, when installing and at runtime
+ENV SMP_VERSION_FILE=/app/Version.toml
 RUN pip install --quiet . && useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 smp
 COPY --from=ui /ui/dist /app/ui
 COPY --from=agent /out /app/downloads

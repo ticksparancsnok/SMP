@@ -39,6 +39,7 @@ smp/
     models.py       shared domain model (read this first)
     context.py      Ctx, Principal, require(): what every handler uses
     module.py       Module contract + registry
+  version.py        versions from ../Version.toml (the only place they're written)
     policy.py       schedule evaluation, policy resolution, IP -> device/room
     events.py       event bus (NATS-style subjects)
     identity.py     identity provider interface (local now; ldap/google later)
@@ -50,7 +51,7 @@ smp/
     agent/          PC agents: join requests, approval, signed heartbeats (long poll)
     classroom/      monitoring: who watches which room, screen frames (memory only), seating plans
   migrations/       Alembic (one history for all modules)
-  cli.py            smp preflight | status | migrate | bootstrap | dns-sync | create-token | reencrypt-otps | openapi | serve
+  cli.py            smp preflight | status | migrate | bootstrap | dns-sync | create-token | reencrypt-otps | backup | openapi | serve
 ```
 
 See `../docs/architecture.md` and `../docs/writing-a-module.md`.
@@ -60,7 +61,7 @@ See `../docs/architecture.md` and `../docs/writing-a-module.md`.
 The `dns` module provides control-plane blocklist management under:
 
 ```text
-GET    /api/v1/dns/blocklist
+GET    /api/v1/dns/blocklist?q=…&limit=…&offset=…   one page: {items, total}
 POST   /api/v1/dns/blocklist
 DELETE /api/v1/dns/blocklist/{entry_id}
 POST   /api/v1/dns/blocklist/import-preview
@@ -113,6 +114,8 @@ smp migrate
 
 | Variable | Default | |
 |---|---|---|
+| `SMP_VERSION_FILE` | the nearest `Version.toml` above the package | where the versions are read from (`smp/version.py`); the Docker image sets `/app/Version.toml` |
+| `SMP_BACKUP_KEY` / `SMP_BACKUP_KEY_FILE` | none | only for `smp backup` (database backups of `upgrade.sh`); see `docs/security.md` |
 | `SMP_DATABASE_URL` | `postgresql+asyncpg://smp:smp@localhost:5432/smp` | |
 | `SMP_DEFAULT_ORG` | `default` | org slug used when login names none |
 | `SMP_COOKIE_SECURE` | `true` | set `false` only for http dev |

@@ -102,6 +102,9 @@ class User(UUIDPk, Timestamps, OrgScoped, Base):
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The user's own UI settings (e.g. rows per page per list), so they follow the
+    # account to any browser. Shape: PreferencesOut in smp/core/api/auth.py.
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
 
     roles: Mapped[list["RoleAssignment"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"

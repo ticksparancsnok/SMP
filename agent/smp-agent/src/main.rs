@@ -34,7 +34,7 @@ Free software under the GNU Affero General Public License v3 or later; source co
 the address above. This software is based in part on the work of the Independent JPEG Group.";
 
 #[derive(Parser)]
-#[command(name = "smp-agent", version, about = "SMP device agent", after_help = LEGAL)]
+#[command(name = "smp-agent", version = crate::core::api::AGENT_VERSION, about = "SMP device agent", after_help = LEGAL)]
 struct Cli {
     /// Where the agent keeps its identity (default: the system location)
     #[arg(long, global = true)]

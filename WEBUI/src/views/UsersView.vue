@@ -14,9 +14,10 @@ import Pager from '../components/Pager.vue'
 import UserDialog from '../components/UserDialog.vue'
 import { fmtDate, fmtRelative, roleLabel, ROLES } from '../format'
 import { locale, t } from '../i18n'
+import { usePageSize } from '../paging'
 import { can, canAnywhere, session } from '../session'
 
-const LIMIT = 50
+const limit = usePageSize('users')
 const users = ref<User[]>([])
 const total = ref(0)
 const offset = ref(0)
@@ -76,8 +77,7 @@ function downloadSample() {
 }
 
 function imported() {
-  offset.value = 0
-  load()
+  firstPage()
   if (can('core.groups.read')) api.get<Group[]>('/groups').then((g) => (groups.value = g)).catch(() => {})
 }
 
@@ -89,7 +89,7 @@ async function load() {
       q: q.value,
       role: role.value,
       group_id: groupFilter.value,
-      limit: LIMIT,
+      limit: limit.value,
       offset: offset.value,
     })
     users.value = page.items
@@ -100,15 +100,19 @@ async function load() {
   }
 }
 
+/** Back to the first page after a filter change; the [limit, offset] watcher loads it. */
+function firstPage() {
+  if (offset.value) offset.value = 0
+  else load()
+}
+
 let debounce: number | undefined
 watch([q, role, groupFilter], () => {
   window.clearTimeout(debounce)
-  debounce = window.setTimeout(() => {
-    offset.value = 0
-    load()
-  }, 250)
+  debounce = window.setTimeout(firstPage, 250)
 })
-watch(offset, load)
+// One watcher, so a page-size change (which also moves the offset) loads once.
+watch([limit, offset], load)
 
 onMounted(async () => {
   load()
@@ -256,7 +260,7 @@ function saved() {
         </tr>
       </tbody>
     </table>
-    <Pager v-model:offset="offset" :total="total" :limit="LIMIT" />
+    <Pager v-model:offset="offset" v-model:limit="limit" :total="total" />
   </div>
 
   <Modal v-if="issued" :title="t('users.new_otp')" @close="issued = null">
