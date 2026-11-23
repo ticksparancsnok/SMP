@@ -64,10 +64,10 @@ class FakeAgent:
     async def status(self) -> str:
         return (await self.post("/api/v1/agent/join/status", {})).json()["status"]
 
-    async def heartbeat(self, user: str | None = "diak01", wait: bool = False) -> httpx.Response:
+    async def heartbeat(self, user: str | None = "diak01", wait: bool = False, platform: str | None = None) -> httpx.Response:
         r = await self.post("/api/v1/agent/heartbeat", {
             "hostname": self.hostname, "user": user, "agent_version": "0.1.0",
-            "config_version": self.config_version, "wait": wait,
+            "config_version": self.config_version, "wait": wait, "platform": platform,
         })
         if r.status_code == 200:
             self.config_version = r.json()["config_version"]
@@ -263,8 +263,8 @@ async def test_heartbeat_long_poll(app, admin, monkeypatch):
     marker = {"value": 1}
     real = __import__("smp.modules.agent.api", fromlist=["agent_config"]).agent_config
 
-    async def config_with_marker(registry, s, device):
-        config, _ = await real(registry, s, device)
+    async def config_with_marker(registry, s, device, platform=None):
+        config, _ = await real(registry, s, device, platform)
         config["test"] = dict(marker)
         version = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
         return config, version
@@ -332,3 +332,66 @@ async def test_agent_download(app, admin, monkeypatch, tmp_path):
     async with login_as(app, admin, "teacher.dl", [{"role": "teacher"}]) as t:
         assert (await t.get("/api/v1/agent/download")).status_code == 403  # the info is for device admins
     await anyone.aclose()
+
+
+async def test_heartbeat_offers_the_build_for_the_agents_platform(app, admin, monkeypatch, tmp_path):
+    monkeypatch.setattr(get_settings(), "agent_download_dir", str(tmp_path))
+    agent = FakeAgent(app, hostname="UPD-PC01", mac="aa:bb:cc:00:00:51")
+    await agent.join()
+    await approve(admin, agent)
+    # no build yet: nothing offered
+    assert "update" not in (await agent.heartbeat()).json()["config"]["agent"]
+
+    exe, elf = b"MZ" + b"\x90" * 100, b"\x7fELF" + b"\x00" * 100
+    (tmp_path / "smp-agent.exe").write_bytes(exe)
+    (tmp_path / "smp-agent.version").write_text("0.2.0 A\n")
+    r = (await agent.heartbeat()).json()  # Windows is the default platform
+    assert r["config"]["agent"]["update"] == {"version": "0.2.0 A", "size": len(exe), "sha256": hashlib.sha256(exe).hexdigest(),
+                                              "url": "/downloads/smp-agent.exe", "spread_s": 300}
+    before = r["config_version"]
+    assert "update" not in (await agent.heartbeat(platform="linux-x86_64")).json()["config"]["agent"]  # no Linux build
+
+    (tmp_path / "smp-agent-linux-x86_64").write_bytes(elf)
+    (tmp_path / "smp-agent-linux-x86_64.version").write_text("0.2.0 A\n")
+    offer = (await agent.heartbeat(platform="linux-x86_64")).json()["config"]["agent"]["update"]
+    assert offer["url"] == "/downloads/smp-agent-linux-x86_64" and offer["sha256"] == hashlib.sha256(elf).hexdigest()
+    anyone = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    got = await anyone.get(offer["url"])
+    assert got.status_code == 200 and got.content == elf
+    assert (await anyone.get("/downloads/not-an-agent")).status_code == 404
+    await anyone.aclose()
+    assert "update" not in (await agent.heartbeat(platform="plan9-mips")).json()["config"]["agent"]
+
+    # turned off by the school: no offer, and the config (hash) changes so waiting agents hear it
+    r = await admin.put("/api/v1/modules/agent/settings", json={"auto_update": False, "update_spread_s": 0})
+    assert r.status_code == 200, r.text
+    off = (await agent.heartbeat()).json()
+    assert "update" not in off["config"]["agent"] and off["config_version"] != before
+    await admin.put("/api/v1/modules/agent/settings", json={"auto_update": True, "update_spread_s": 0})
+    assert (await agent.heartbeat()).json()["config"]["agent"]["update"]["spread_s"] == 0
+
+
+async def test_update_settings_are_validated(admin):
+    r = await admin.put("/api/v1/modules/agent/settings", json={"auto_update": True, "update_spread_s": 99999})
+    assert r.status_code == 422
+
+
+def test_the_offered_build_follows_file_changes(monkeypatch, tmp_path):
+    """Replacing the file with one of the same size and modification time (copies keep it,
+    sometimes only to the second), or changing only the .version file, is noticed."""
+    import os
+
+    from smp.modules.agent import download
+
+    monkeypatch.setattr(get_settings(), "agent_download_dir", str(tmp_path))
+    exe, ver = tmp_path / "smp-agent.exe", tmp_path / "smp-agent.version"
+    exe.write_bytes(b"MZ-one")
+    ver.write_text("0.1.0\n")
+    os.utime(exe, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
+    first = download.current_build()
+    exe.write_bytes(b"MZ-two")  # same size
+    os.utime(exe, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))  # same mtime
+    second = download.current_build()
+    assert second.sha256 != first.sha256 and second.sha256 == hashlib.sha256(b"MZ-two").hexdigest()
+    ver.write_text("0.2.0\n")
+    assert download.current_build().version == "0.2.0"

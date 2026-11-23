@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel
 
+from smp.version import SERVER_VERSION
+
 if TYPE_CHECKING:
     from fastapi import APIRouter
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,7 +102,8 @@ class Widget(BaseModel):
 class Module:
     name: ClassVar[str]
     title: ClassVar[str]
-    version: ClassVar[str] = "0.1.0"
+    # Modules are built with the server, so they all report its version ([server] in Version.toml).
+    version: ClassVar[str] = SERVER_VERSION
     description: ClassVar[str] = ""
     permissions: ClassVar[Sequence[Permission]] = ()
     ui_routes: ClassVar[Sequence[UiRoute]] = ()

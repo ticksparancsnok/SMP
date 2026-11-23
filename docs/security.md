@@ -1,6 +1,6 @@
-# Security notes (v1.0.2)
+# Security notes (v1.0.3)
 
-How SMP's core protects accounts, what operators must configure, and the decisions taken on the two security reviews. Read with [architecture.md](architecture.md).
+How SMP's core protects accounts, what operators must configure, and the decisions taken on the security reviews and releases. Read with [architecture.md](architecture.md).
 
 ## Operator checklist
 
@@ -71,16 +71,29 @@ If a key is lost or leaked, rotate it and issue new one-time passwords to accoun
 - **Sessions:** random 256-bit tokens; only their SHA-256 is stored. Cookies are HttpOnly and `SameSite=Strict`, with an Origin check on state-changing requests. A password change ends all sessions.
 - **Audit:** append-only (enforced by a database trigger). Logins, failures, resets and exports are all logged. Secrets (passwords, OTPs) never appear in it. If a failed-login audit row can't be written, it goes to the server log instead.
 
-## How the PC agents are protected (v1.0.2)
+## How the PC agents are protected (v1.0.3)
 - **Identity:** each PC's own ECDSA P-256 key, made on install. No shared secret or enrollment code exists that could leak; the server stores only public keys.
 - **Joining needs a human:** a join request does nothing until an admin approves it after comparing the fingerprint shown on the PC. Pending requests expire after 7 days and are capped (20 per IP, 500 in total). A key that already belongs to a device can't be approved for another one.
 - **Every request is signed** (method, path, time, body hash); requests more than 5 minutes off are refused, and a signature is accepted only once. Unknown, rejected and reset keys all get the same 401.
 - **The server's certificate:** OS-trusted, or the one pinned on first contact. A machine pretending to be SMP later (DNS/ARP spoofing) is refused. Trust on first use means the first contact happens at install time, when an admin is at the PC.
 - **On the PC:** the key file is readable only by SYSTEM and administrators and encrypted with DPAPI for that Windows installation (a copied file or disk image doesn't work elsewhere). The exe lives in `C:\Program Files\SMP` (admin-only), because the service runs it as SYSTEM. The screen helper runs as SYSTEM too, so students can't stop it or feed it fake screens; its pipe accepts only SYSTEM/admins and only the process the service started.
 - **Monitoring privacy:** screens are sent only while a teacher with `classroom.screens.view` for that room has the page open (20 s keep-alive), full-size only for the PC they enlarged; frames are kept in memory only (latest per PC), dropped when nobody watches, never stored. Who watched which room, whom they enlarged, and when they stopped are audited. The tray icon on the PC is always visible and turns colourful while the screen is viewed. A `classroom` policy with `enabled: false` (e.g. outside lesson times) turns monitoring off for a room.
+- **Automatic updates:** an agent only installs what its own SMP server offers in the heartbeat config, downloaded from that server over the same (pinned or OS-trusted) TLS connection, after checking size and SHA-256 against the offer and that the file runs and reports the offered version. The file lands in `C:\Program Files\SMP` (administrators only). What this means: **whoever controls the SMP server can run code on every PC as SYSTEM**, so the server is as sensitive as the PCs' administrator accounts (it always could change what they do; now also what they are). There is no separate code signing yet: the exe is built on each school's server, so a signing key would have to live there too. Schools that want to roll out agent versions themselves switch automatic updates off (Settings -> Device agents) and install by hand.
 - **Known limits:** an administrator of the PC can read the key (they own the machine anyway; a TPM-held key is planned). One server process holds viewer state.
 
 ## Review decisions
+
+### v1.0.3: installing, upgrading, backups, agent updates
+Security-relevant changes of this release and the decisions behind them.
+
+| Change | Decision |
+|---|---|
+| `install.sh` / `upgrade.sh` download SMP from GitHub (or `--download-url`) | **Accepted:** HTTPS to GitHub; `--sha256` pins an expected download. Releases aren't signed yet. A release can never write `.env`, `nginx/certs/` or `backups/` (`tools/release.sh`), and its paths are checked (no `..`, no symbolic links). |
+| Upgrades back up the whole database next to `.env` | **Encrypted** with its own `SMP_BACKUP_KEY` (streamed AES-256-GCM, see "Database backups"); `chmod 600` in a `700` folder; only the newest upgrade backup is kept. Protects backups copied off the server, not the server itself. |
+| A failed upgrade could leave the school half on the new version | **Fixed:** it goes back by itself (files, and the database if the new version had already migrated it); `./upgrade.sh --rollback` goes back later. The certificate the PCs pinned is never touched, and `upgrade.sh` warns if it changed anyway. |
+| PC agents now install the agent their SMP server offers | **Accepted, by design:** whoever controls the SMP server can run code on the PCs as SYSTEM. Size, SHA-256 and a `--version` run are checked before installing; a version that doesn't come up is undone (Windows). Schools can switch it off (Settings -> Device agents). |
+| Agents could stay disconnected after the server was away (issue #10) | **Fixed:** a heartbeat without an answer after 60 s counts as an error, network errors reset the connection pool, retries back off to at most 30 s, and a watchdog restarts the agent after 15 minutes without contact. |
+| The offered agent build was cached by file size + modification time, which copies can keep | **Fixed:** the cache also uses the inode and change time, and the `.version` file. |
 
 ### Third review: attack run (v1.0.1)
 Each finding was first reproduced with a working exploit against a test database.

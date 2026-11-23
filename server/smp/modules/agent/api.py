@@ -18,6 +18,12 @@ For admins (core.devices.write):
 
 For anyone (no sign-in), outside /api:
     GET  /downloads/smp-agent.exe             the Windows agent (see download.py)
+
+Automatic updates: the heartbeat config's "agent" section carries "update" (version,
+size, SHA-256, download path of the build for the agent's platform) unless the school
+turned them off (agent settings). The agent installs it when the version differs
+from its own: the server is the source of truth, also after it went back to an older
+version. See agent/smp-agent/src/capabilities/update.rs.
 """
 
 from __future__ import annotations
@@ -42,7 +48,7 @@ from smp.core.config import get_settings
 from smp.core.context import Ctx, client_ip, require
 from smp.core.errors import AppError
 from smp.core.events import Event
-from smp.core.models import AuditLog, Device, DeviceStatus, Organization, Room
+from smp.core.models import AuditLog, Device, DeviceStatus, ModuleSetting, Organization, Room
 from smp.core.policy import emit_policy_changed, room_for_ip
 from smp.modules.agent import crypto, download
 from smp.modules.agent.models import AgentJoinRequest
@@ -236,6 +242,7 @@ class HeartbeatIn(BaseModel):
     user: str | None = Field(default=None, max_length=256)  # console session user, None = nobody
     config_version: str | None = None  # the version the agent already has
     wait: bool = False  # long-poll: hold the answer until the config changes
+    platform: str | None = Field(default=None, max_length=32)  # e.g. "windows-x86_64": which build updates it
 
 
 class HeartbeatOut(BaseModel):
@@ -245,9 +252,26 @@ class HeartbeatOut(BaseModel):
     server_time: str
 
 
-async def agent_config(registry, s: AsyncSession, device: Device) -> tuple[dict[str, Any], str]:
+async def update_offer(s: AsyncSession, org_id: uuid.UUID, platform: str | None) -> dict[str, Any] | None:
+    """The agent build this server offers for `platform`, if the school wants automatic updates."""
+    from smp.modules.agent import AgentSettings
+
+    row = await s.get(ModuleSetting, (org_id, "agent"))
+    settings = AgentSettings.model_validate(row.data if row else {})
+    if not settings.auto_update:
+        return None
+    build = await run_in_threadpool(download.current_build, platform)
+    if build is None or build.version is None:
+        return None
+    return {"version": build.version, "size": build.size, "sha256": build.sha256, "url": build.url,
+            "spread_s": settings.update_spread_s}
+
+
+async def agent_config(registry, s: AsyncSession, device: Device, platform: str | None = None) -> tuple[dict[str, Any], str]:
     """Every module's section of this device's config, and its version (a hash)."""
     config: dict[str, Any] = {"agent": {"heartbeat_wait_s": get_settings().agent_longpoll_seconds}}
+    if (offer := await update_offer(s, device.org_id, platform)) is not None:
+        config["agent"]["update"] = offer
     for m in registry:
         if (section := await m.agent_config(s, device)) is not None:
             config[m.name] = section
@@ -286,7 +310,7 @@ async def heartbeat(request: Request):
                 room_changed = (device.room_id, new_room)
                 device.room_id = new_room
         gen = mod.hub.generation
-        config, version = await agent_config(registry, s, device)
+        config, version = await agent_config(registry, s, device, body.platform)
         device_id, org_id = device.id, device.org_id
         await s.commit()
 
@@ -306,7 +330,7 @@ async def heartbeat(request: Request):
             device = await s.get(Device, device_id)
             if device is None or device.agent_id != fp:
                 raise _unauthorized("unknown device")  # deleted or reset while waiting
-            config, version = await agent_config(registry, s, device)
+            config, version = await agent_config(registry, s, device, body.platform)
 
     return HeartbeatOut(device_id=str(device_id), config=config, config_version=version, server_time=_server_time())
 
@@ -426,14 +450,15 @@ async def download_info(ctx: Ctx = Depends(require(WRITE))):
                         sha256=build.sha256)
 
 
-@public.get(download.URL_PATH, include_in_schema=False)
-async def download_agent():
-    """The Windows agent. Public on purpose: see download.py."""
-    build = await run_in_threadpool(download.current_build)
+@public.get("/downloads/{file_name}", include_in_schema=False)
+async def download_agent(file_name: str):
+    """The agent (/downloads/smp-agent.exe for Windows). Public on purpose: see download.py."""
+    platform = download.platform_for_file(file_name)
+    build = await run_in_threadpool(download.current_build, platform.name) if platform else None
     if build is None:
         raise AppError(status.HTTP_404_NOT_FOUND, "agent.no_download",
                        "this SMP server has no agent build (the Docker image builds it)")
-    return FileResponse(build.path, media_type="application/vnd.microsoft.portable-executable", filename=download.EXE_NAME,
+    return FileResponse(build.path, media_type=build.platform.media_type, filename=build.platform.file,
                         headers={"Cache-Control": "no-cache", "X-Checksum-SHA256": build.sha256})
 
 

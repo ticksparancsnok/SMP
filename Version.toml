@@ -9,23 +9,30 @@
 #   [Site-blocker]  Site-blocker/.../Dockerfile      -> sinkhole log + /api/blocklist/status
 #   [release]       the SMP release as a whole (install.sh / upgrade.sh)
 #
+# Which number: [server], [WEBUI] and [agent] carry the release's MAJOR.MINOR.PATCH (the
+# release's build: "1.0.3" in release 1.0.3). During development their revision letter
+# counts up (A, B, C, ...) to show the progress since that release, so a component
+# compares as up to date (= [release]), ahead (a letter: in development) or behind;
+# `tools/version.sh --status` shows it. [Site-blocker] is versioned on its own (the DNS
+# filter has its own maintainer). server/tests/test_version.py checks the shared number.
+#
 # Format: "MAJOR.MINOR.PATCH" with an optional revision letter after one space
-# ("1.0.2", "1.0.2 C"); at most 32 characters. Keep each value on one line as
+# ("1.0.3", "1.0.3 B"); at most 32 characters. Keep each value on one line as
 # `version = "..."`: besides Python's TOML parser, the agent's build.rs, vite.config.ts
 # and tools/version.sh read this file line by line. server/tests/test_version.py checks
 # the format and that tools/version.sh agrees with a real TOML parser.
 
 [server] # marks the version of the server core (files located under /server)
 name = "smp-server-core"
-version = "1.0.3 A"
+version = "1.0.3 B"
 
 [WEBUI] # marks the version of the WEB UI (files located under /WEBUI)
 name = "smp-server-WEBUI"
-version = "1.0.3 A"
+version = "1.0.3 B"
 
 [agent] # marks the version of the monitoring agent (files located under /agent)
 name = "smp-monitoring-agent"
-version = "0.1.1 A"
+version = "1.0.3 B"
 
 [Site-blocker] # marks the version of the DNS webblocker (files located under /Site-blocker)
 name = "smp-website-blocker"

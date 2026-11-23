@@ -437,6 +437,10 @@ const en = {
   'devices.room_network_badge': 'by network',
   'devices.room_network_title': 'The room follows the subnet the device is on',
   'devices.agent': 'Agent',
+  'devices.agent_version': 'agent {version}',
+  'devices.agent_updating': '→ {version}',
+  'devices.agent_updating_title':
+    'SMP offers agent {version}: this computer installs it by itself within a few minutes (Settings → Device agents).',
   'devices.reset_identity': 'Reset agent identity',
   'devices.confirm_reset_identity':
     'Reset the agent identity of {hostname}? Its agent stops working until it asks to join again and you approve it.',
@@ -523,6 +527,12 @@ const en = {
   'settings.classroom.detail_interval_s': 'Enlarged screen interval (seconds)',
   'settings.classroom.jpeg_quality': 'JPEG quality',
   'settings.classroom.jpeg_quality.help': 'Lower: less traffic, blurrier text.',
+  'settings.agent.auto_update': 'Update agents automatically',
+  'settings.agent.auto_update.help':
+    'The computers install the agent version this SMP offers by themselves (it comes with SMP updates). Off: install new versions by hand.',
+  'settings.agent.update_spread_s': 'Spread updates over (seconds)',
+  'settings.agent.update_spread_s.help':
+    'Each computer waits a random time up to this long before downloading, so a whole school doesn\'t download at once.',
   'tokens.title': 'API tokens',
   'tokens.intro_before': 'Services (DNS server, scripts) identify themselves with these:',
   'tokens.intro_after': 'Grant only the permissions they need.',

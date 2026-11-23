@@ -19,3 +19,10 @@ pub use win::*;
 /// How the Windows service and its session helper talk (plain Rust, tested on Linux).
 #[cfg(any(windows, test))]
 pub mod helper_protocol;
+
+/// This program's path as it was started. main() asks first thing: an update renames
+/// the running file later, and the path the OS reports may then change with it.
+pub fn exe_path() -> std::path::PathBuf {
+    static EXE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    EXE.get_or_init(|| std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("smp-agent"))).clone()
+}

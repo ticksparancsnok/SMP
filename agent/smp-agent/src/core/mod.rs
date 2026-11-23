@@ -11,3 +11,5 @@ pub mod runner;
 pub mod state;
 pub mod sysinfo;
 pub mod tls;
+pub mod update;
+pub mod watchdog;

@@ -8,7 +8,6 @@ through exactly the same machinery as everyone else's."""
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from smp import __version__
 from smp.core.api import auth, devices, groups, platform, policies, rooms, users
 from smp.core.dashboard import core_widgets
 from smp.core.module import EventSubject, Module, Permission, UiRoute, Widget
@@ -28,7 +27,6 @@ class CoreSettings(BaseModel):
 class CoreModule(Module):
     name = "core"
     title = "Core"
-    version = __version__
     description = "Users, groups, rooms, devices, policies, audit"
 
     permissions = (

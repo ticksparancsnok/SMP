@@ -75,7 +75,10 @@ PC then shows up in **Devices → Waiting for approval** with a fingerprint; app
 if the fingerprint matches what the PC printed, and put it in a room (fixed, or
 "by network" for laptops that move between rooms/VLANs). Teachers then see the room's
 screens on the **Monitoring** page, while the page is open; the PCs show an SMP tray
-icon all the time, in colour while their screen is being viewed.
+icon all the time, in colour while their screen is being viewed. After that first
+install the agents update themselves to the version SMP offers (it comes with every SMP
+update; **Settings → Device agents** can switch it off), and reconnect by themselves
+when SMP was away. See [agent/README.md](agent/README.md).
 
 ## License
 

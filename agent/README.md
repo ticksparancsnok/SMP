@@ -19,11 +19,9 @@ https://<smp address>/downloads/smp-agent.exe
 No sign-in is needed, so you can download it right on the PC (the exe holds no
 secrets; a PC does nothing until an admin approves it). In SMP, **Devices -> Agent for
 Windows** shows the same link, the version, the SHA-256 checksum and the install
-command with this server's address filled in. After updating SMP (`./upgrade.sh`),
-download it again and run `install` on the PCs to upgrade them (automatic updates are
-planned: issue SMP#12). Until then, PCs keep running their agent and stay connected:
-the upgrade keeps the database (their approved keys) and the HTTPS certificate they
-pinned.
+command with this server's address filled in. That's needed once per PC: after that the
+agent updates itself (below), also when SMP is updated with `./upgrade.sh` (the upgrade
+keeps the database with the PCs' approved keys and the HTTPS certificate they pinned).
 
 ## Installing on a PC (Windows 10/11)
 
@@ -59,6 +57,44 @@ taskbar instead of the hidden "^" area:
   cleanup" (`NoAutoTrayNotify`), so the taskbar shows all tray icons, from the next
   logon. If the school's own policy already sets it, SMP leaves it alone; `uninstall`
   removes it only if SMP set it.
+
+## Updates
+
+Installed agents update themselves to the version their SMP server offers: `[agent]` in
+SMP's `Version.toml`, built into the server image with every SMP update. Nobody has to
+visit the PCs again after the first `install`.
+
+- **When:** the heartbeat config tells the agent which version the server has for its
+  platform (with size and SHA-256). If that differs from its own version (newer, or older
+  after SMP itself went back a version: the server decides), the agent waits a random
+  time up to *update_spread_s* (default 5 minutes, so a whole school doesn't download at
+  once), then updates. Admins can switch updates off: **Settings -> Device agents**.
+- **Checks before anything changes:** downloaded from the same server over the same
+  pinned TLS connection; size and SHA-256 must match the offer; the new exe must start
+  and answer `--version` with exactly the offered version.
+- **Windows:** the running exe can't be overwritten, but it can be renamed. The agent
+  moves itself to `smp-agent.old.exe`, puts the new exe in its place and starts a
+  watcher (`smp-agent.old.exe update-watch`) outside the service, which restarts the
+  service with the new exe (tray icon and helper included). The new version confirms
+  once it reached the server; if it doesn't within 3 minutes, the watcher puts the old
+  exe back, starts it again, and that version isn't tried for 6 hours (or until the
+  server offers another one). `C:\ProgramData\SMP\logs\update.log` has the watcher's
+  side. Each service start also re-applies the service settings (recovery actions), so
+  a newer agent brings its own service configuration along.
+- **Devices page:** shows each PC's agent version, with "-> version" while it differs
+  from the offered one.
+- **Linux** (development, test PCs): the agent replaces its binary and restarts itself in
+  the same process, without a watcher.
+
+## Staying connected (issue #10)
+
+The agent retries every failed request (after 1, 2, 4, ... up to 30 s), gives up on a
+heartbeat that doesn't answer within 60 s instead of waiting for it, drops pooled
+connections after network errors (a restarted server leaves them dead), and looks up
+the server's name at most every 30 s while it doesn't resolve (often SMP itself is the
+school's DNS). On top of that, a watchdog restarts the agent if nothing reached the
+server for 15 minutes (`SMP_AGENT_WATCHDOG_SECONDS` changes it, e.g. for tests); on
+Windows the service manager starts it again 5 s later.
 
 ## How it works
 

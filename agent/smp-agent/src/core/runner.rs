@@ -12,27 +12,42 @@
 //! second whether someone logged on/off or the network address changed, and if so
 //! reports it right away with a new heartbeat (the waiting one is left to finish on
 //! its own thread; its answer is ignored).
+//!
+//! Getting back after the server was away (issue #10): every error is retried (after
+//! 1, 2, 4, ... up to 30 s), a heartbeat that doesn't answer in time counts as an error
+//! instead of being waited for, network errors drop the pooled connections (they may be
+//! dead), and the watchdog (watchdog.rs) restarts the process if nothing gets through
+//! for 15 minutes anyway.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 
-use crate::core::api::{ApiError, Client, HeartbeatIn, HeartbeatOut, AGENT_VERSION};
+use crate::core::api::{ApiError, Client, HeartbeatIn, HeartbeatOut, AGENT_VERSION, PLATFORM};
 use crate::core::capability::Registry;
 use crate::core::identity::Identity;
 use crate::core::state::State;
 use crate::core::presence::{Presence, PresenceProbe};
 use crate::core::sysinfo::SysInfo;
+use crate::core::update;
+use crate::core::watchdog::Contact;
+
+/// Retries after errors wait 1, 2, 4, ... seconds, at most this long.
+const MAX_RETRY_DELAY_S: u64 = 30;
+/// A heartbeat's answer is given up on after this (its own timeout is 40 s).
+const ANSWER_DEADLINE: Duration = Duration::from_secs(60);
 
 pub struct Agent {
     /// Shared with the capabilities (they upload too, e.g. screen frames).
     pub client: Arc<Client>,
     pub state: State,
     state_path: PathBuf,
+    /// When the server last answered (the watchdog reads it).
+    pub contact: Contact,
 }
 
 impl Agent {
@@ -63,7 +78,7 @@ impl Agent {
             }
         };
         let client = Arc::new(Client::new(&state.server, state.identity()?, state.server_cert_sha256.clone()));
-        Ok(Self { client, state, state_path: state_path.to_path_buf() })
+        Ok(Self { client, state, state_path: state_path.to_path_buf(), contact: Contact::new() })
     }
 
     /// After a successful request: pin the server's certificate (first contact), or
@@ -84,6 +99,11 @@ impl Agent {
         }
     }
 
+    /// Where agent.json is: update.json goes next to it.
+    pub fn state_dir(&self) -> PathBuf {
+        self.state_path.parent().map(Path::to_path_buf).unwrap_or_default()
+    }
+
     fn save_device_id(&mut self, device_id: &str) {
         if self.state.device_id.as_deref() != Some(device_id) {
             self.state.device_id = Some(device_id.to_string());
@@ -99,7 +119,11 @@ impl Agent {
         let mut asked = false;
         let mut delay = 5;
         while !stop.load(Ordering::Relaxed) {
-            match self.client.join_status() {
+            let status = self.client.join_status();
+            if status.is_ok() {
+                self.contact.touch();
+            }
+            match status {
                 Ok(s) if s.status == "approved" => {
                     self.remember_certificate();
                     return Ok(true);
@@ -128,7 +152,10 @@ impl Agent {
                 }
                 Err(e) => {
                     log::warn!("{e}");
-                    delay = (delay * 2).min(60);
+                    if matches!(e, ApiError::Transport(_)) {
+                        self.client.reset_connections();
+                    }
+                    delay = (delay * 2).min(MAX_RETRY_DELAY_S);
                 }
             }
             sleep_unless(stop, delay);
@@ -141,7 +168,8 @@ impl Agent {
         log::info!("smp-agent {AGENT_VERSION}, capabilities: {:?}", registry.names());
         let mut version: Option<String> = None; // the config we're running with
         let mut approved = false; // checked with the server since this run started
-        let mut delay = 1; // retry delay after network errors, doubles up to 60 s
+        let mut delay = 1; // retry delay after errors, doubles up to MAX_RETRY_DELAY_S
+        let mut confirmed = false; // a pending update to this version is confirmed once per run
         let mut probe = PresenceProbe::new(&self.state.server);
         // Heartbeats run on their own threads and send (number, answer) back here.
         let (answers_tx, answers) = mpsc::channel::<(u64, Result<HeartbeatOut, ApiError>)>();
@@ -167,6 +195,7 @@ impl Agent {
                 user: presence.user.clone(),
                 config_version: version.clone(),
                 wait: version.is_some(),
+                platform: PLATFORM,
             };
             sent += 1;
             let (client, answers_tx, number) = (self.client.clone(), answers_tx.clone(), sent);
@@ -178,8 +207,13 @@ impl Agent {
             };
             match answer {
                 Ok(resp) => {
+                    self.contact.touch();
                     self.remember_certificate();
                     self.save_device_id(&resp.device_id);
+                    if !confirmed {
+                        update::confirm(&self.state_dir()); // we got through: an update to us worked
+                        confirmed = true;
+                    }
                     if version.as_deref() != Some(resp.config_version.as_str()) {
                         log::info!("config {}: {}", resp.config_version, resp.config);
                         registry.apply(&resp.config);
@@ -195,9 +229,13 @@ impl Agent {
                 }
                 Err(e) => {
                     log::warn!("{e}; retrying in {delay} s");
+                    if matches!(e, ApiError::Transport(_)) {
+                        // pooled connections may be dead (server restarted, network changed)
+                        self.client.reset_connections();
+                    }
                     // ...or as soon as the network comes back with a (new) address
                     sleep_until_change(&self.client, stop, delay, &mut probe, &presence);
-                    delay = (delay * 2).min(60);
+                    delay = (delay * 2).min(MAX_RETRY_DELAY_S);
                 }
             }
         }
@@ -207,7 +245,10 @@ impl Agent {
 }
 
 /// The answer to heartbeat number `number`, or None when we should stop or when the
-/// user / network address changed meanwhile (then a new heartbeat reports it).
+/// user / network address changed meanwhile (then a new heartbeat reports it). A
+/// heartbeat that hasn't answered within ANSWER_DEADLINE is an error: its thread may
+/// hang on something the HTTP timeout doesn't cover (e.g. a name lookup), and waiting
+/// for it forever is how an agent would never reconnect.
 fn wait_for_answer(
     client: &Client,
     answers: &Receiver<(u64, Result<HeartbeatOut, ApiError>)>,
@@ -216,6 +257,7 @@ fn wait_for_answer(
     probe: &mut PresenceProbe,
     presence: &Presence,
 ) -> Option<Result<HeartbeatOut, ApiError>> {
+    let started = Instant::now();
     loop {
         match answers.recv_timeout(Duration::from_secs(1)) {
             Ok((n, answer)) if n == number => return Some(answer),
@@ -223,6 +265,11 @@ fn wait_for_answer(
             Err(_) => {
                 if stop.load(Ordering::Relaxed) {
                     return None;
+                }
+                if started.elapsed() > ANSWER_DEADLINE {
+                    return Some(Err(ApiError::Transport(format!(
+                        "no answer within {} s", ANSWER_DEADLINE.as_secs()
+                    ))));
                 }
                 let now = probe.sample();
                 if now != *presence {
