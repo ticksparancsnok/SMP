@@ -9,7 +9,6 @@ The whole install/upgrade (containers, database) isn't run here; see the PR note
 
 import hashlib
 import os
-import re
 import shutil
 import subprocess
 import tarfile
@@ -352,52 +351,3 @@ def test_version_diff_lists_every_component_that_changed(tmp_path):
     broken.write_text("[server]\nversion = \"1.0.3\"\n")  # sections missing
     r = subprocess.run(["sh", str(VERSION_SH), "--diff", str(installed), str(broken)], capture_output=True, text=True)
     assert r.returncode != 0  # upgrade.sh stops with a message instead of guessing
-
-
-STATUS_SH = ROOT / "tools" / "smp-status.sh"
-
-
-def run_status(tmp_path: Path, *args: str) -> tuple[subprocess.CompletedProcess, str]:
-    """tools/smp-status.sh with a fake `docker` that only records what it was asked."""
-    calls = tmp_path / "docker-calls"
-    fake = tmp_path / "bin" / "docker"
-    fake.parent.mkdir(exist_ok=True)
-    fake.write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
-    fake.chmod(0o755)
-    env = {**os.environ, "PATH": f"{fake.parent}:{os.environ['PATH']}"}
-    r = subprocess.run(["bash", str(STATUS_SH), *args], capture_output=True, text=True, env=env)
-    return r, calls.read_text() if calls.exists() else ""
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        ("logs", "server; id"),  # nothing but the four services
-        ("logs", "../../etc"),
-        ("logs", "server", "-f"),  # LINES: a number, nothing else
-        ("logs", "server", "5000"),
-        ("logs", "server", "10", "extra"),
-        ("logs",),
-        ("agents", "extra"),
-        ("exec",),
-        ("status", "--format", "x"),
-    ],
-)
-def test_status_script_refuses_anything_unexpected(tmp_path, args):
-    """It runs as root through sudo for a monitoring account: arguments are checked
-    strictly, and nothing reaches docker unless they pass."""
-    r, calls = run_status(tmp_path, *args)
-    assert r.returncode == 2 and "usage:" in r.stderr
-    assert calls == ""
-
-
-def test_status_script_runs_only_fixed_read_only_commands(tmp_path):
-    (tmp_path / "a").mkdir()
-    (tmp_path / "b").mkdir()
-    r, calls = run_status(tmp_path / "a", "logs", "dns-sinkhole", "50")
-    assert r.returncode == 0, r.stderr
-    assert calls.strip() == "compose logs --no-color --timestamps --tail 50 dns-sinkhole"
-    r, calls = run_status(tmp_path / "b", "agents")
-    assert r.returncode == 0, r.stderr
-    assert calls.startswith("compose exec -T db psql") and "SELECT" in calls
-    assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b", calls)  # reads only

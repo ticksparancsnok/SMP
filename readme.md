@@ -76,22 +76,6 @@ sinkhole, which keeps the last synced lists on a volume and keeps filtering whil
 server is down; `./install.sh` re-syncs on every run (`smp dns-sync`). Only nginx and
 the DNS port are published.
 
-**Monitoring without admin rights.** `tools/smp-status.sh` shows a running SMP read-only:
-versions, containers, resources, health, disk and upgrade backups (`status`, the default),
-a service's recent log (`logs server|nginx|dns-sinkhole|db [LINES]`) and the PCs with their
-agent versions and addresses (`agents`). Docker access can't be limited to viewing
-(anyone who may use docker is effectively root), so give a monitoring account exactly
-this script through sudo and nothing else, as root:
-
-```sh
-echo 'smp ALL=(root) NOPASSWD: /opt/smp/tools/smp-status.sh, /opt/smp/tools/smp-status.sh *' > /etc/sudoers.d/smp-status
-chmod 440 /etc/sudoers.d/smp-status && visudo -c
-```
-
-(replace `smp` with the account, `/opt/smp` with the install folder). The account then runs
-`sudo /opt/smp/tools/smp-status.sh agents` and so on. The script never shows secrets
-(`.env`, container environments) and accepts only the arguments above.
-
 **Computers (agent).** `./install.sh` also builds the Windows agent, and SMP offers it at
 `https://<smp address>/downloads/smp-agent.exe` (and under **Devices → Agent for
 Windows**, with its checksum): everything stays on your own server. On each PC run, as
