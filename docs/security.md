@@ -1,4 +1,4 @@
-# Security notes (v1.0.3)
+# Security notes
 
 How SMP's core protects accounts, what operators must configure, and the decisions taken on the security reviews and releases. Read with [architecture.md](architecture.md).
 
@@ -71,7 +71,7 @@ If a key is lost or leaked, rotate it and issue new one-time passwords to accoun
 - **Sessions:** random 256-bit tokens; only their SHA-256 is stored. Cookies are HttpOnly and `SameSite=Strict`, with an Origin check on state-changing requests. A password change ends all sessions.
 - **Audit:** append-only (enforced by a database trigger). Logins, failures, resets and exports are all logged. Secrets (passwords, OTPs) never appear in it. If a failed-login audit row can't be written, it goes to the server log instead.
 
-## How the PC agents are protected (v1.0.3)
+## How the PC agents are protected
 - **Identity:** each PC's own ECDSA P-256 key, made on install. No shared secret or enrollment code exists that could leak; the server stores only public keys.
 - **Joining needs a human:** a join request does nothing until an admin approves it after comparing the fingerprint shown on the PC. Pending requests expire after 7 days and are capped (20 per network: one IPv4 address, or an IPv6 /64; 500 in total), and a machine (MAC) has one pending request at a time. A rejected machine is remembered by key and MAC for 90 days after it last asked ("allow again" in Devices undoes it), so it doesn't come back after an IP change or a reinstall. A key that already belongs to a device can't be approved for another one, and taking over a device whose own agent is online needs an explicit confirmation (`replace_online`), since a request with an online PC's hostname and MAC is easy to fake.
 - **Every request is signed** (method, path, time, body hash); requests more than 5 minutes off are refused, and a signature is accepted only once. Unknown, rejected and reset keys all get the same 401.

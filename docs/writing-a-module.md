@@ -2,6 +2,8 @@
 
 `server/smp/modules/shortlinks/` is the reference. Copy its layout.
 
+The examples below build an imagined, simplified `dns` module. The real one (`server/smp/modules/dns/`) came later and looks different (other permissions, no classifier yet), so use your own module's name instead.
+
 ## 1. Create the package
 
 ```
@@ -37,7 +39,7 @@ class DnsModule(Module):
         Permission("dns.lists.write", "Edit block/allow lists"),          # admin only
         # Things that happen *in a room* are room_scoped: a teacher assigned to
         # Lab 1 gets this permission only for Lab 1.
-        # Permission("classroom.screen.lock", "Lock screens", ("teacher",), room_scoped=True),
+        # Permission("classroom.screens.lock", "Lock screens", ("teacher",), room_scoped=True),
     )
     ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.review.manage"),)
     events = (EventSubject("dns.domain.blocked", "A domain was auto-blocked"),)
@@ -143,7 +145,7 @@ They authenticate with an API token that has only the permissions they need (e.g
 
 ## 6. Web UI page
 
-The menu is built from your manifest's `ui_routes`, so the entry appears automatically (greyed-out placeholders for `dns`/`classroom`/`software` vanish once the module is enabled). To give it a page:
+The menu is built from your manifest's `ui_routes`, so the entry appears automatically. To give it a page:
 
 1. Regenerate the API types: `(cd server && smp openapi -o ../WEBUI/openapi.json) && (cd WEBUI && npm run gen:api)`
 2. Add `WEBUI/src/views/DnsView.vue`. `RoomsView.vue` is a compact example of list + dialog + error handling.

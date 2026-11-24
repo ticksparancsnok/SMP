@@ -13,7 +13,7 @@
 //! reports it right away with a new heartbeat (the waiting one is left to finish on
 //! its own thread; its answer is ignored).
 //!
-//! Getting back after the server was away (issue #10): every error is retried (after
+//! Getting back after the server was away: every error is retried (after
 //! 1, 2, 4, ... up to 30 s), a heartbeat that doesn't answer in time counts as an error
 //! instead of being waited for, network errors drop the pooled connections (they may be
 //! dead), and the watchdog (watchdog.rs) restarts the process if nothing gets through

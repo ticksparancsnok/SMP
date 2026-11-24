@@ -71,12 +71,6 @@ const en = {
   'nav./dns': 'Site blocker',
   'nav./classroom': 'Monitoring',
   'nav./software': 'Software deployment',
-  'planned./classroom': 'View and lock the screens of student computers, room by room.',
-  'planned./software': 'Install and remove programs on Windows 10/11 computers, room by room.',
-  'planned.card./classroom': 'Monitored rooms',
-  'planned.card./classroom.text': 'Active lessons and locked screens per room.',
-  'planned.card./software': 'Installations',
-  'planned.card./software.text': 'Installations in progress and failed ones.',
 
   // module titles, by module name
   'module.core': 'Core',

@@ -13,12 +13,9 @@ import { t, tOr } from '../i18n'
 import { hasModule, isStaff, routeTitle, session } from '../session'
 
 // Cards come from GET /dashboard: every backend module contributes its own via
-// Module.dashboard(). The placeholders below disappear once their module exists.
-// Texts: planned.card.<link> in i18n.
-const PLANNED_CARDS = [
-  { module: 'classroom', icon: '🖥️', link: '/classroom' },
-  { module: 'software', icon: '⏬', link: '/software' },
-]
+// Module.dashboard(). Placeholders for planned modules (none at the moment) go below
+// and disappear once their module exists. Texts: planned.card.<link> in i18n.
+const PLANNED_CARDS: { module: string; icon: string; link: string }[] = []
 
 // The server sends English title/hint; translate by widget id, rebuilding the hint
 // from widget.data so numbers and plurals fit the language.

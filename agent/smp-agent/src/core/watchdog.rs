@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Attribution required in modified versions: see NOTICE
 
-//! The last line of defence for "the agent doesn't reconnect after the server was away
-//! until someone restarts it" (issue #10): if nothing has reached the server for a
-//! while, restart the agent process, which is what that someone would do.
+//! The last line of defence against an agent that doesn't reconnect after the server
+//! was away, until someone restarts it: if nothing has reached the server for a while,
+//! restart the agent process, which is what that someone would do.
 //!
 //! The main loop already retries every error (runner.rs), and gives up on requests that
 //! hang; this catches whatever is left (a stuck thread, a wedged network stack, a state

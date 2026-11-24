@@ -116,12 +116,11 @@ export function hasModule(name: string): boolean {
 /** Menu sections in display order (titles: nav.section.<name> in i18n). */
 export const SECTIONS = ['overview', 'account', 'admin', 'services']
 
-/** Services we plan to build. Shown greyed out until the backend module exists.
- *  Title and blurb are translated by path (nav.<path>, planned.<path>). */
-export const PLANNED: (UiRoute & { module: string })[] = [
-  { module: 'classroom', path: '/classroom', title: 'Monitoring', icon: '🖥️', permission: null, section: 'services' },
-  { module: 'software', path: '/software', title: 'Software deployment', icon: '⏬', permission: null, section: 'services' },
-]
+/** Services we plan to build, shown greyed out to staff until the backend module exists
+ *  (none at the moment: monitoring and software deployment were the last ones). Entry
+ *  form: { module, path, title, icon, permission: null, section }; title and blurb are
+ *  translated by path (nav.<path>, planned.<path>). */
+export const PLANNED: (UiRoute & { module: string })[] = []
 
 /** A menu/route title in the UI language; the server's (English) title is the fallback. */
 export const routeTitle = (r: { path: string; title: string }) => tOr(`nav.${r.path}`, r.title)

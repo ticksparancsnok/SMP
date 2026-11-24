@@ -105,7 +105,7 @@ visit the PCs again after the first `install`.
 - **Linux** (development, test PCs): the agent replaces its binary and restarts itself in
   the same process, without a watcher.
 
-## Staying connected (issue #10)
+## Staying connected
 
 The agent retries every failed request (after 1, 2, 4, ... up to 30 s), gives up on a
 heartbeat that doesn't answer within 60 s instead of waiting for it, drops pooled
@@ -146,8 +146,8 @@ SMP; admins upload the installers there). Everything runs as SYSTEM, without a w
 ```
                       C:\Program Files\SMP\smp-agent.exe
  ┌───────────────────────────── session 0 ─────────────────────────────┐
- │ service (SYSTEM): join -> heartbeat (long poll) -> capabilities      │
- │   screen capability: worker thread, uploads JPEGs to SMP             │
+ │ service (SYSTEM): join -> heartbeat (long poll) -> capabilities:     │
+ │   screen (uploads JPEGs), lock, software (installers), updates       │
  └──────────────┬───────────────────────────────────────────────────────┘
                 │ private named pipe (SYSTEM/admins only, checked process id)
  ┌──────────────┴──────────── user's session ──────────────────────────┐
@@ -199,8 +199,12 @@ agent/
         identity.rs             the device's P-256 key, fingerprint, request signing
         state.rs                agent.json: server, wrapped key, certificate pin, device id
         tls.rs                  which server certificates are accepted (pinning)
-        api.rs                  signed requests to the server (JSON, screen frames)
+        api.rs                  signed requests to the server: JSON, screen frames,
+                                downloads (updates, the lock logo, installers; resumable)
         runner.rs               join -> wait for approval -> heartbeat loop
+        presence.rs             logged-in user and own address, checked every second
+        watchdog.rs             restarts the agent after 15 minutes without the server
+        update.rs               update.json: an update in progress, confirmed or failed
         capability.rs           the Capability trait every feature implements
         sysinfo.rs              hostname, MAC, OS, logged-in user
       capabilities/
@@ -216,6 +220,8 @@ agent/
       platform/                 OS-specific bits behind one interface
         generic.rs              Linux (development, tests, demo PCs with a fake screen)
         helper_protocol.rs      service <-> helper messages (tested on Linux)
+        state_dir.rs            which folder holds the identity and logs (C:\ProgramData\SMP,
+                                or SMP-1, ... when someone else made that one; tested on Linux)
         win/                    Windows: service, session helper, capture, tray, lock window,
                                 input block, software (msiexec, registry, shutdown.exe),
                                 DPAPI, ACLs (mod.rs explains how they fit together)
