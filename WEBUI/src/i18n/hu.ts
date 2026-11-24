@@ -69,12 +69,6 @@ const hu: Dictionary = {
   'nav./dns': 'Oldal blokkoló',
   'nav./classroom': 'Monitorozás',
   'nav./software': 'Programtelepítés',
-  'planned./classroom': 'A tanulói gépek képernyőjének megtekintése és zárolása termenként.',
-  'planned./software': 'Programok telepítése és eltávolítása, termenként.',
-  'planned.card./classroom': 'Monitorozott termek',
-  'planned.card./classroom.text': 'Aktív órák, zárolt képernyők termenként.',
-  'planned.card./software': 'Telepítések',
-  'planned.card./software.text': 'Folyamatban lévő és sikertelen telepítések.',
 
   'module.core': 'Alaprendszer',
   'module.shortlinks': 'Rövid linkek',

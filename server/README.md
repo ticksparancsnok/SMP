@@ -39,11 +39,11 @@ smp/
     models.py       shared domain model (read this first)
     context.py      Ctx, Principal, require(): what every handler uses
     module.py       Module contract + registry
-  version.py        versions from ../Version.toml (the only place they're written)
     policy.py       schedule evaluation, policy resolution, IP -> device/room
     events.py       event bus (NATS-style subjects)
     identity.py     identity provider interface (local now; ldap/google later)
     api/            core REST endpoints
+  version.py        versions from ../Version.toml (the only place they're written)
   modules/
     __init__.py     the list of compiled-in modules
     shortlinks/     reference module
@@ -129,9 +129,11 @@ smp migrate
 | `SMP_VERSION_FILE` | the nearest `Version.toml` above the package | where the versions are read from (`smp/version.py`); the Docker image sets `/app/Version.toml` |
 | `SMP_BACKUP_KEY` / `SMP_BACKUP_KEY_FILE` | none | only for `smp backup` (database backups of `upgrade.sh`); see `docs/security.md` |
 | `SMP_DATABASE_URL` | `postgresql+asyncpg://smp:smp@localhost:5432/smp` | |
+| `SMP_DB_ECHO` | `false` | log every SQL statement (debugging) |
 | `SMP_DEFAULT_ORG` | `default` | org slug used when login names none |
 | `SMP_COOKIE_SECURE` | `true` | set `false` only for http dev |
 | `SMP_SESSION_TTL_HOURS` | `12` | |
+| `SMP_SESSION_COOKIE_NAME` | `smp_session` | |
 | `SMP_SECRET_KEY` / `SMP_SECRET_KEY_FILE` | none | **required** (the server won't start without it): ≥32 random chars; prefer the file variant. See `docs/security.md` |
 | `SMP_SECRET_KEY_PREVIOUS` | none | old key(s) during a rotation; then run `smp reencrypt-otps` |
 | `SMP_LOGIN_MAX_FAILURES` / `SMP_LOGIN_LOCKOUT_SECONDS` | `5` / `60` | failed logins for one account (any IP) before it's locked, and for how long |
@@ -141,6 +143,8 @@ smp migrate
 | `SMP_ENABLED_MODULES` | all | comma separated; core is always on |
 | `SMP_AGENT_LONGPOLL_SECONDS` | `25` | how long a PC's heartbeat waits for a config change before the server answers anyway |
 | `SMP_AGENT_DOWNLOAD_DIR` | none | folder with `smp-agent.exe` (+ `smp-agent.version`) offered at `/downloads/smp-agent.exe`; the Docker image builds it and sets this |
+| `SMP_SOFTWARE_DIR` | none | where uploaded installers are kept (the `softwaredata` volume in the Docker stack); unset = uploads are refused (503) |
+| `SMP_SOFTWARE_MAX_UPLOAD_BYTES` | `8589934592` (8 GiB) | largest installer that can be uploaded; nginx passes that endpoint through without its own limit |
 | `SMP_CORS_ORIGINS` | none | only if the UI is served from another origin |
 | `SMP_UI_DIR` | none | serve the built web UI (`WEBUI/dist`) at `/`; set in the Docker image |
 | `SMP_DNS_SINKHOLE_URL` | `http://127.0.0.1:8080` | Go DNS sinkhole; `http://dns-sinkhole:8080` inside Compose |
