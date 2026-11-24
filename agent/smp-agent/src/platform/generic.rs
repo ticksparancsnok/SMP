@@ -116,10 +116,35 @@ pub fn console_user() -> Option<String> {
 pub fn screen_source() -> Box<dyn crate::capabilities::screen::source::ScreenSource> {
     use crate::capabilities::screen::source::{FakeScreen, NoScreen};
     match std::env::var("SMP_AGENT_FAKE_SCREEN").ok().and_then(|s| FakeScreen::parse(&s)) {
-        Some(fake) => {
+        Some(mut fake) => {
             log::info!("using a generated {}x{} test screen", fake.width, fake.height);
+            fake.locked = fake_lock();
             Box::new(fake)
         }
         None => Box::new(NoScreen),
     }
+}
+
+/// No software installation here. SMP_AGENT_FAKE_SOFTWARE=1 pretends to install
+/// (capabilities/software/fake.rs), so test PCs show a whole rollout in SMP.
+pub fn software_installer() -> Box<dyn crate::capabilities::software::Installer> {
+    use crate::capabilities::software::fake::{FakeInstaller, Unsupported};
+    if std::env::var_os("SMP_AGENT_FAKE_SOFTWARE").is_some_and(|v| v != "0" && !v.is_empty()) {
+        log::info!("pretending to install software (SMP_AGENT_FAKE_SOFTWARE)");
+        return Box::new(FakeInstaller::new(state_dir().join("fake-software.json")));
+    }
+    Box::new(Unsupported)
+}
+
+/// No real screen lock here: the log says what would be shown, and a fake screen shows
+/// the lock picture (so a teacher sees test PCs lock on the Monitoring page).
+pub fn lock_target() -> Box<dyn crate::capabilities::lock::LockTarget> {
+    Box::new(crate::capabilities::lock::LogLock { shared: fake_lock() })
+}
+
+/// The lock state the fake screen and the lock share (one per process).
+fn fake_lock() -> std::sync::Arc<std::sync::Mutex<Option<crate::capabilities::lock::LockScreen>>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static SHARED: OnceLock<Arc<Mutex<Option<crate::capabilities::lock::LockScreen>>>> = OnceLock::new();
+    SHARED.get_or_init(Arc::default).clone()
 }

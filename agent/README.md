@@ -2,7 +2,7 @@
 
 The program that runs on the school's computers. It asks the SMP server to manage
 the computer (an admin approves it), keeps a heartbeat, and runs **capabilities**:
-screen monitoring now, later screen lock, software installation and so on.
+screen monitoring, the screen lock and software installation.
 
 One `smp-agent.exe` (about 4 MB, no runtime or DLLs to install) does everything; what
 it does depends on the command it's started with.
@@ -64,6 +64,19 @@ taskbar instead of the hidden "^" area:
   logon. If the school's own policy already sets it, SMP leaves it alone; `uninstall`
   removes it only if SMP set it.
 
+**Screen lock:** a teacher can lock the computers of their room (all or some) on the
+Monitoring page. A locked computer shows the teacher's message under the school's logo
+(Settings -> Monitoring; without one, the SMP logo) on every monitor, and keyboard and
+mouse do nothing until the teacher unlocks it. With an empty message it says "This
+computer was locked by the teacher" (Hungarian or English: the language of SMP's block
+page, set in SMP's DNS settings, so a PC with English Windows in a Hungarian school
+still shows Hungarian). What it doesn't stop, because Windows doesn't let any program: Ctrl+Alt+Del,
+whose screen offers sign out, switch user, lock and shut down (all of which end the
+session or come back to the lock). The lock goes away whenever the agent stops (service
+stopped, uninstalled, or 15 minutes without the server: the watchdog restarts it
+unlocked), so a server outage can never leave a room unusable; logging off and on again
+doesn't unlock (the new session gets the lock too).
+
 ## Updates
 
 Installed agents update themselves to the version their SMP server offers: `[agent]` in
@@ -102,6 +115,32 @@ school's DNS). On top of that, a watchdog restarts the agent if nothing reached 
 server for 15 minutes (`SMP_AGENT_WATCHDOG_SECONDS` changes it, e.g. for tests); on
 Windows the service manager starts it again 5 s later.
 
+## Software
+
+The PC installs and removes the programs SMP assigns to it (**Software deployment** in
+SMP; admins upload the installers there). Everything runs as SYSTEM, without a window:
+
+- **When:** shortly after the list changes (a random wait up to *spread_s*, so a room
+  doesn't start at once), and every 30 minutes (a program someone uninstalled comes
+  back; failed ones are retried). One package at a time.
+- **How:** the package's detection rule says whether it's there (.msi: its product code;
+  else a registry key under HKLM or a file). If something needs doing, the installer is
+  downloaded from SMP (signed, continues where it stopped; SMP lets a few PCs download at
+  once and tells the others to wait), checked (size, SHA-256), and run:
+  `msiexec /i <file> /qn /norestart /l*v <log>` plus the package's arguments, or the
+  .exe with its arguments. Exit code 0 is success, 3010/1641 success with a restart
+  needed, 1618 "another installation is running" (tried again in 5 minutes). Then the
+  rule is checked again and SMP gets the result.
+- **Restart:** only if the package says so (*always*, or *if required* and the installer
+  asked): Windows shows its own countdown with a message (*reboot_warning_s*, 30 s when
+  nobody is logged on). With *never*, SMP shows "restart pending" until the PC restarts.
+- **Failures** wait 1, 2, 4, ... up to 24 hours before the next try, unless an admin
+  changes the package.
+- **Removing:** only when SMP says *remove* (a deleted assignment leaves the program).
+- Files: `C:\ProgramData\SMP\software\` (downloads, deleted after a successful
+  installation; `logs\<package id>.log` is the Windows Installer log) and
+  `software.json` (what SMP installed, product codes, failures, pending restarts).
+
 ## How it works
 
 ```
@@ -113,7 +152,8 @@ Windows the service manager starts it again 5 s later.
                 │ private named pipe (SYSTEM/admins only, checked process id)
  ┌──────────────┴──────────── user's session ──────────────────────────┐
  │ session-helper (SYSTEM, on the user's desktop): tray icon,           │
- │   screen capture of the primary display + shrink + JPEG              │
+ │   screen capture of the primary display + shrink + JPEG,             │
+ │   lock screen over every monitor + keyboard/mouse block              │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,6 +175,13 @@ Windows the service manager starts it again 5 s later.
   SMP settings (school-wide) and `classroom` policies (per room / lesson schedule).
 - **Aspect ratio:** the picture keeps the screen's shape (16:9, 16:10, 4:3, 1:1, ...);
   only the primary display is captured.
+- **Screen lock:** the config's `classroom` section carries `"lock": {"message": ...,
+  "logo": {"sha256", "size", "url"}}` while the PC is locked (nothing otherwise). The
+  logo (a PNG) is downloaded once with a signed request and kept in memory by its
+  SHA-256; the lock doesn't wait for it (SMP's logo until it's there). The helper shows
+  a topmost window over the whole virtual screen (every monitor), puts itself on top
+  again every half second, and blocks input with low-level keyboard and mouse hooks on a
+  thread of their own (`platform/win/lock_window.rs`, `input_block.rs`).
 
 ## Layout
 
@@ -143,9 +190,9 @@ agent/
   Cargo.toml                    workspace (one crate for now)
   Dockerfile.build              Rust + MinGW: builds the Linux binary and the Windows .exe
   .cargo/config.toml            Windows cross-compiling settings
-  tools/make_tray_icons.py      the tray icons from the SMP logo
+  tools/make_tray_icons.py      the tray icons and the lock screen's SMP logo
   smp-agent/
-    assets/                     tray icons (grey/colour, 16-32 px)
+    assets/                     tray icons (grey/colour, 16-32 px), lock-logo.png
     src/
       main.rs                   commands: join | run | status | install | uninstall | ...
       core/                     platform-independent, unit-tested on Linux
@@ -160,11 +207,18 @@ agent/
         mod.rs                  the list of capabilities this build runs
         screen/                 monitoring: config, timing, uploads (mod.rs),
                                 shrink + JPEG (encode.rs), where pictures come from (source.rs)
+        lock/                   screen lock: config, logo download (mod.rs),
+                                logo PNG -> picture on the lock background (picture.rs)
+        software/               software deployment: the worker (mod.rs), config,
+                                decisions + exit codes (plan.rs), software.json (local.rs),
+                                reports (report.rs), a fake installer for Linux (fake.rs)
+        update.rs               automatic updates
       platform/                 OS-specific bits behind one interface
         generic.rs              Linux (development, tests, demo PCs with a fake screen)
         helper_protocol.rs      service <-> helper messages (tested on Linux)
-        win/                    Windows: service, session helper, capture, tray, DPAPI, ACLs
-                                (mod.rs explains how they fit together)
+        win/                    Windows: service, session helper, capture, tray, lock window,
+                                input block, software (msiexec, registry, shutdown.exe),
+                                DPAPI, ACLs (mod.rs explains how they fit together)
 ```
 
 How a request is signed, and why there is no token: see the comment at the top of
@@ -179,7 +233,8 @@ it's fine.
 ## Adding a capability
 
 1. Create `src/capabilities/<name>.rs` (or a folder) with a type that implements
-   `core::capability::Capability`: `name()` = the config section it reads,
+   `core::capability::Capability`: `name()` = its name in logs and the config section
+   it reads (`section()` when that differs: the lock reads `classroom`),
    `apply_config()` called on every change (keep it fast: hand work to your own
    thread, like `screen` does), `stop()`.
 2. Add it to `capabilities::all()`.
@@ -230,8 +285,13 @@ target/debug/smp-agent status
 
 `SMP_AGENT_STATE_DIR` changes where the identity is kept (default
 `~/.local/state/smp-agent`), `SMP_AGENT_USER` the reported user, `RUST_LOG=debug`
-shows every picture sent ("thumb: 8049 bytes" / "thumb: unchanged"). Several fake PCs
+shows every picture sent ("thumb: 8049 bytes" / "thumb: unchanged"). There is no real
+lock on Linux: a locked fake screen shows the lock picture (background and logo, no
+text) and the log says "LOCKED", so locking can be tried on the Monitoring page too. Several fake PCs
 can run as containers with `--hostname LAB-PC02` and their own state directory.
+`SMP_AGENT_FAKE_SOFTWARE=1` pretends to install software (nothing runs; the log says what
+would, and SMP shows the results), `SMP_AGENT_FAKE_SOFTWARE_EXIT=1603` makes every
+installation fail with that exit code.
 
 ## License
 

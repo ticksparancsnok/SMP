@@ -11,6 +11,7 @@ from smp.modules.agent import AgentModule
 from smp.modules.classroom import ClassroomModule
 from smp.modules.dns import DnsModule
 from smp.modules.shortlinks import ShortlinksModule
+from smp.modules.software import SoftwareModule
 
 
 def all_modules() -> list[Module]:
@@ -20,7 +21,8 @@ def all_modules() -> list[Module]:
         DnsModule(),
         AgentModule(),
         ClassroomModule(),
-        # SoftwareModule(), IdentityModule(),
+        SoftwareModule(),
+        # IdentityModule(),
     ]
 
 

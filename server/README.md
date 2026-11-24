@@ -50,6 +50,7 @@ smp/
     dns/            DNS blocklist/allowlist, synced to the Go sinkhole
     agent/          PC agents: join requests, approval, signed heartbeats (long poll)
     classroom/      monitoring: who watches which room, screen frames (memory only), seating plans
+    software/       software deployment: installer uploads, packages, assignments, PCs' install states
   migrations/       Alembic (one history for all modules)
   cli.py            smp preflight | status | migrate | bootstrap | dns-sync | create-token | reencrypt-otps | backup | openapi | serve
 ```

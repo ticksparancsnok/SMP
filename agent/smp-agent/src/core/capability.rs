@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Attribution required in modified versions: see NOTICE
 
-//! Capabilities: what the agent can do (monitor the screen, later: lock it, install
-//! software, ...). Each one owns a section of the config the server sends, named
-//! after it ("screen": {...}), and runs its own worker thread if it needs one.
+//! Capabilities: what the agent can do (monitor the screen, lock it, install
+//! software, ...). Each one owns a section of the config the server sends (by
+//! default named after it, see `section`), and runs its own worker thread if it needs one.
 //!
 //! Adding a capability = a new module under src/capabilities/ implementing this
 //! trait, plus one line in capabilities::all(). The core never changes for it.
@@ -12,8 +12,17 @@
 use serde_json::Value;
 
 pub trait Capability: Send {
-    /// The config section this capability reads (also its name in logs).
+    /// The capability's name in logs; also the config section it reads, unless
+    /// `section` says otherwise.
     fn name(&self) -> &'static str;
+
+    /// The config section this capability reads: the name of the server module that
+    /// sends it. One module may drive several capabilities (the server's "classroom"
+    /// module sends both screen monitoring and the screen lock), so this can differ
+    /// from `name`; by default it's the same.
+    fn section(&self) -> &'static str {
+        self.name()
+    }
 
     /// Called whenever the server's config changed; `section` is None when the server
     /// sends nothing for this capability (it should then stop / stay idle).
@@ -34,7 +43,7 @@ impl Registry {
 
     pub fn apply(&mut self, config: &Value) {
         for cap in &mut self.capabilities {
-            cap.apply_config(config.get(cap.name()));
+            cap.apply_config(config.get(cap.section()));
         }
     }
 
@@ -73,5 +82,28 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen[0], Some(serde_json::json!({"interval_s": 5})));
         assert_eq!(seen[1], None);
+    }
+
+    /// Named "lock" in logs, reads the "classroom" section (like the real one).
+    struct SharedSection(Arc<Mutex<Vec<Option<Value>>>>);
+    impl Capability for SharedSection {
+        fn name(&self) -> &'static str {
+            "lock"
+        }
+        fn section(&self) -> &'static str {
+            "classroom"
+        }
+        fn apply_config(&mut self, section: Option<&Value>) {
+            self.0.lock().unwrap().push(section.cloned());
+        }
+    }
+
+    #[test]
+    fn a_capability_can_read_a_section_with_another_name() {
+        let seen = Arc::new(Mutex::new(vec![]));
+        let mut reg = Registry::new(vec![Box::new(SharedSection(seen.clone()))]);
+        reg.apply(&serde_json::json!({"lock": {"x": 1}, "classroom": {"active": false}}));
+        assert_eq!(seen.lock().unwrap()[0], Some(serde_json::json!({"active": false})));
+        assert_eq!(reg.names(), ["lock"]);
     }
 }

@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Folder with the Windows agent (smp-agent.exe + smp-agent.version) offered at
     # /downloads/smp-agent.exe. The Docker image builds it and sets this.
     agent_download_dir: str | None = None
+    # Software deployment: where uploaded installers are kept (a volume in the Docker
+    # stack). Unset = uploads are refused (503). See smp/modules/software/storage.py.
+    software_dir: str | None = None
+    # Largest installer that can be uploaded (bytes). nginx lets bigger bodies through
+    # to this server for that one endpoint, so this is the limit that counts.
+    software_max_upload_bytes: int = 8 * 1024**3
 
     # Reverse proxies whose X-Forwarded-For is trusted (comma separated IPs/CIDRs, "*" = any).
     # Must include the proxy, or every client looks like the proxy's IP to the throttle.

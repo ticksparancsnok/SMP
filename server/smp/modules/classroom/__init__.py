@@ -12,6 +12,12 @@ someone watches their room, and full-size frames only for a PC someone enlarged
 Settings (school defaults) and the "classroom" policy kind (per room / schedule,
 e.g. a slower interval for a room on weak Wi-Fi, or monitoring only during lessons)
 decide the numbers.
+
+Screen lock: teachers lock a room's PCs (all or some) from the Monitoring page; a
+locked PC shows the teacher's message with the school's logo (Settings -> Monitoring)
+and blocks keyboard and mouse. Locks are stored (a server restart doesn't unlock a
+room) and apply while the PC is in the room it was locked in. The agent side:
+agent/smp-agent/src/capabilities/lock/. Monitoring policies don't affect locking.
 """
 
 from __future__ import annotations
@@ -31,6 +37,11 @@ class ClassroomSettings(BaseModel):
     detail_width: int = Field(1600, ge=640, le=3840, description="Width of an enlarged screen in pixels")
     detail_interval_s: int = Field(2, ge=1, le=60, description="Seconds between frames of an enlarged screen")
     jpeg_quality: int = Field(60, ge=20, le=95, description="JPEG quality (lower: less traffic)")
+    lock_message: str = Field(
+        "", max_length=500,
+        description="Suggested text for locked screens (teachers can change it each time). "
+        "Empty: a built-in sentence in the block page's language (DNS settings)",
+    )
 
 
 class ClassroomPolicy(BaseModel):
@@ -42,6 +53,60 @@ class ClassroomPolicy(BaseModel):
     detail_width: int | None = Field(None, ge=640, le=3840)
     detail_interval_s: int | None = Field(None, ge=1, le=60)
     jpeg_quality: int | None = Field(None, ge=20, le=95)
+
+
+LOCK_LOGO_AGENT_PATH = "/api/v1/classroom/agent/lock-logo"
+
+# Shown when neither the teacher nor the school's settings give a text. Same sentences
+# as the agent's own fallback (capabilities/lock/mod.rs).
+LOCK_DEFAULT_TEXT = {"hu": "A számítógépet a tanár zárolta.", "en": "This computer was locked by the teacher."}
+
+
+async def lock_language(db: AsyncSession, org_id) -> str:
+    """The locked screens' language: the block page's (DNS settings), so one school-wide
+    setting decides what students read, not each PC's Windows language."""
+    from smp.core.models import ModuleSetting
+    from smp.modules.dns import DnsSettings
+
+    row = await db.get(ModuleSetting, (org_id, "dns"))
+    return DnsSettings.model_validate(row.data if row else {}).block_page_language
+
+
+async def lock_default_text(db: AsyncSession, org_id) -> str:
+    """What a lock without a message of its own shows: the school's suggested text, else
+    the built-in sentence in the block page's language."""
+    from smp.core.models import ModuleSetting
+
+    row = await db.get(ModuleSetting, (org_id, "classroom"))
+    suggested = ClassroomSettings.model_validate(row.data if row else {}).lock_message.strip()
+    return suggested or LOCK_DEFAULT_TEXT[await lock_language(db, org_id)]
+
+
+async def lock_config(db: AsyncSession, device) -> dict[str, Any] | None:
+    """The "lock" entry of a PC's config, or None when it isn't locked (see
+    agent/smp-agent/src/capabilities/lock/mod.rs for what the agent does with it).
+    A few small queries, only for locked PCs; the logo itself is never in the config,
+    only its fingerprint. The text is always resolved here (the teacher's, the school's,
+    or the built-in one), so changing a setting changes what locked screens show."""
+    from sqlalchemy import select
+
+    from smp.modules.classroom.models import ClassroomLock, ClassroomLockLogo
+
+    if device.room_id is None:
+        return None
+    message = (await db.execute(
+        select(ClassroomLock.message).where(ClassroomLock.device_id == device.id, ClassroomLock.room_id == device.room_id)
+    )).scalar_one_or_none()
+    if message is None:
+        return None
+    logo = (await db.execute(
+        select(ClassroomLockLogo.sha256, ClassroomLockLogo.size).where(ClassroomLockLogo.org_id == device.org_id)
+    )).one_or_none()
+    return {
+        "message": message or await lock_default_text(db, device.org_id),
+        "language": await lock_language(db, device.org_id),  # for the agent's own fallback text
+        "logo": None if logo is None else {"sha256": logo.sha256, "size": logo.size, "url": LOCK_LOGO_AGENT_PATH},
+    }
 
 
 async def screen_params(db: AsyncSession, org_id, *, device=None, room_id=None) -> dict[str, Any]:
@@ -65,6 +130,8 @@ class ClassroomModule(Module):
     permissions = (
         Permission("classroom.screens.view", "Watch the screens of a room's computers", ("teacher",), room_scoped=True),
         Permission("classroom.layout.edit", "Arrange a room's computers on the monitoring page", ("teacher",), room_scoped=True),
+        Permission("classroom.screens.lock", "Lock the screens, keyboards and mice of a room's computers", ("teacher",),
+                   room_scoped=True),
     )
     ui_routes = (UiRoute("/classroom", "Monitoring", "🖥️", "classroom.screens.view", "services"),)
     events = (
@@ -86,6 +153,12 @@ class ClassroomModule(Module):
         return router
 
     async def agent_config(self, db: AsyncSession, device) -> dict[str, Any] | None:
+        section = await self._screen_config(db, device)
+        if (lock := await lock_config(db, device)) is not None:
+            section["lock"] = lock  # unlocked PCs get no "lock" key at all (older agents: same config as before)
+        return section
+
+    async def _screen_config(self, db: AsyncSession, device) -> dict[str, Any]:
         off = {"active": False}
         if not self.watches.is_watched(device.room_id):
             return off

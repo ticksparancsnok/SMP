@@ -65,7 +65,9 @@ COPY server/pyproject.toml Version.toml ./
 COPY server/smp ./smp
 # smp/version.py reads [server] (and the others) from here, when installing and at runtime
 ENV SMP_VERSION_FILE=/app/Version.toml
-RUN pip install --quiet . && useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 smp
+RUN pip install --quiet . && useradd --no-create-home --shell /usr/sbin/nologin --uid 10001 smp \
+ && mkdir -p /app/data/software && chown smp:smp /app/data/software
+# ^ software installers (a volume in docker-compose.yml): a new volume takes this folder's owner
 COPY --from=ui /ui/dist /app/ui
 COPY --from=agent /out /app/downloads
 ENV SMP_UI_DIR=/app/ui SMP_AGENT_DOWNLOAD_DIR=/app/downloads

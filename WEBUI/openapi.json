@@ -7,7 +7,7 @@
    "name": "AGPL-3.0-or-later",
    "identifier": "AGPL-3.0-or-later"
   },
-  "version": "1.0.3 B"
+  "version": "1.0.3 E"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -4176,6 +4176,718 @@
      }
     }
    }
+  },
+  "/api/v1/classroom/rooms/{room_id}/lock": {
+   "post": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Lock Screens",
+    "description": "Lock the room's computers (or `device_ids`): they show `message` with the school's\nlogo and block keyboard and mouse until unlocked. Locking a locked one again changes\nits message. Stays until someone unlocks it (also across server restarts), while\nthe computer is in this room.",
+    "operationId": "lock_screens_api_v1_classroom_rooms__room_id__lock_post",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LockIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LockOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/rooms/{room_id}/unlock": {
+   "post": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Unlock Screens",
+    "operationId": "unlock_screens_api_v1_classroom_rooms__room_id__unlock_post",
+    "parameters": [
+     {
+      "name": "room_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Room Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UnlockIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LockOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/lock-logo/info": {
+   "get": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Lock Logo Info",
+    "description": "The school's lock screen logo, or null: locked screens show the SMP logo.",
+    "operationId": "lock_logo_info_api_v1_classroom_lock_logo_info_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/LogoInfo"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "title": "Response Lock Logo Info Api V1 Classroom Lock Logo Info Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/classroom/lock-logo": {
+   "get": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Get Lock Logo",
+    "operationId": "get_lock_logo_api_v1_classroom_lock_logo_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       },
+       "image/png": {}
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Upload Lock Logo",
+    "description": "Replace the logo on locked screens (raw PNG body, at most 1 MB and 2048x2048).\nLocked computers switch to it right away.",
+    "operationId": "upload_lock_logo_api_v1_classroom_lock_logo_post",
+    "requestBody": {
+     "content": {
+      "image/png": {
+       "schema": {
+        "type": "string",
+        "format": "binary"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LogoInfo"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "classroom"
+    ],
+    "summary": "Delete Lock Logo",
+    "description": "Back to the SMP logo on locked screens.",
+    "operationId": "delete_lock_logo_api_v1_classroom_lock_logo_delete",
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     }
+    }
+   }
+  },
+  "/api/v1/software/uploads": {
+   "post": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Upload",
+    "description": "The installer file as the raw request body (not a form). Stored once per content.",
+    "operationId": "upload_api_v1_software_uploads_post",
+    "parameters": [
+     {
+      "name": "filename",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 255,
+       "description": "the installer's file name (.msi or .exe)",
+       "title": "Filename"
+      },
+      "description": "the installer's file name (.msi or .exe)"
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwareUploadOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/packages": {
+   "get": {
+    "tags": [
+     "software"
+    ],
+    "summary": "List Packages",
+    "operationId": "list_packages_api_v1_software_packages_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/SoftwarePackageOut"
+         },
+         "type": "array",
+         "title": "Response List Packages Api V1 Software Packages Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Create Package",
+    "operationId": "create_package_api_v1_software_packages_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoftwarePackageIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwarePackageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/packages/{package_id}": {
+   "get": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Get Package",
+    "operationId": "get_package_api_v1_software_packages__package_id__get",
+    "parameters": [
+     {
+      "name": "package_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Package Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwarePackageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Update Package",
+    "operationId": "update_package_api_v1_software_packages__package_id__patch",
+    "parameters": [
+     {
+      "name": "package_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Package Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoftwarePackageUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwarePackageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Delete Package",
+    "operationId": "delete_package_api_v1_software_packages__package_id__delete",
+    "parameters": [
+     {
+      "name": "package_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Package Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/packages/{package_id}/assignments": {
+   "get": {
+    "tags": [
+     "software"
+    ],
+    "summary": "List Assignments",
+    "description": "Teachers see the school-wide ones and those for their rooms and their computers.",
+    "operationId": "list_assignments_api_v1_software_packages__package_id__assignments_get",
+    "parameters": [
+     {
+      "name": "package_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Package Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SoftwareAssignmentOut"
+         },
+         "title": "Response List Assignments Api V1 Software Packages  Package Id  Assignments Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/assignments": {
+   "post": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Create Assignment",
+    "operationId": "create_assignment_api_v1_software_assignments_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoftwareAssignmentIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwareAssignmentOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/assignments/{assignment_id}": {
+   "patch": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Update Assignment",
+    "operationId": "update_assignment_api_v1_software_assignments__assignment_id__patch",
+    "parameters": [
+     {
+      "name": "assignment_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Assignment Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoftwareAssignmentUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SoftwareAssignmentOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Delete Assignment",
+    "description": "The program stays where it is installed (assign \"remove\" to uninstall it).",
+    "operationId": "delete_assignment_api_v1_software_assignments__assignment_id__delete",
+    "parameters": [
+     {
+      "name": "assignment_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Assignment Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/packages/{package_id}/devices": {
+   "get": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Package Devices",
+    "description": "Every computer (that the caller can see) this package is assigned to or that has\nreported about it, by hostname.",
+    "operationId": "package_devices_api_v1_software_packages__package_id__devices_get",
+    "parameters": [
+     {
+      "name": "package_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Package Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SoftwareDeviceStateOut"
+         },
+         "title": "Response Package Devices Api V1 Software Packages  Package Id  Devices Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/software/devices/{device_id}": {
+   "get": {
+    "tags": [
+     "software"
+    ],
+    "summary": "Device Packages",
+    "description": "One computer: the packages assigned to it or that it reported about.",
+    "operationId": "device_packages_api_v1_software_devices__device_id__get",
+    "parameters": [
+     {
+      "name": "device_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Device Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SoftwarePackageStateOut"
+         },
+         "title": "Response Device Packages Api V1 Software Devices  Device Id  Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -5054,6 +5766,29 @@
     ],
     "title": "EntryOut"
    },
+   "FileDetection": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "const": "file",
+      "title": "Type"
+     },
+     "path": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 4,
+      "pattern": "^([A-Za-z]:\\\\|%[A-Za-z0-9_()]+%\\\\)",
+      "title": "Path"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type",
+     "path"
+    ],
+    "title": "FileDetection",
+    "description": "Installed = this file exists. %ProgramFiles%, %ProgramFiles(x86)%, %SystemRoot%\nand the like are expanded on the computer."
+   },
    "FrameInfo": {
     "properties": {
      "at": {
@@ -5865,6 +6600,50 @@
     "type": "object",
     "title": "LinkUpdate"
    },
+   "LockIn": {
+    "properties": {
+     "message": {
+      "type": "string",
+      "maxLength": 500,
+      "title": "Message",
+      "default": ""
+     },
+     "device_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "format": "uuid"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Device Ids"
+     }
+    },
+    "type": "object",
+    "title": "LockIn"
+   },
+   "LockOut": {
+    "properties": {
+     "locked": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "title": "Locked"
+     }
+    },
+    "type": "object",
+    "required": [
+     "locked"
+    ],
+    "title": "LockOut"
+   },
    "LoginIn": {
     "properties": {
      "username": {
@@ -5897,6 +6676,40 @@
      "password"
     ],
     "title": "LoginIn"
+   },
+   "LogoInfo": {
+    "properties": {
+     "sha256": {
+      "type": "string",
+      "title": "Sha256"
+     },
+     "size": {
+      "type": "integer",
+      "title": "Size"
+     },
+     "width": {
+      "type": "integer",
+      "title": "Width"
+     },
+     "height": {
+      "type": "integer",
+      "title": "Height"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "sha256",
+     "size",
+     "width",
+     "height",
+     "updated_at"
+    ],
+    "title": "LogoInfo"
    },
    "MeOut": {
     "properties": {
@@ -6009,6 +6822,33 @@
      "display_name"
     ],
     "title": "MemberOut"
+   },
+   "MsiDetection": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "const": "msi",
+      "title": "Type"
+     },
+     "product_code": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^\\{[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\\}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Product Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type"
+    ],
+    "title": "MsiDetection",
+    "description": "Installed = Windows Installer knows the product code. Without one, the agent\nreads it from the .msi file itself. Only for .msi packages."
    },
    "Page_DeviceOut_": {
     "properties": {
@@ -6358,6 +7198,52 @@
     "title": "PreferencesPatch",
     "description": "Merged into the stored preferences: only the fields sent change. A null page size\nremoves that list's choice; \"locale\": null forgets the language."
    },
+   "RegistryDetection": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "const": "registry",
+      "title": "Type"
+     },
+     "key": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 6,
+      "title": "Key"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 255
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "equals": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 255
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Equals"
+     }
+    },
+    "type": "object",
+    "required": [
+     "type",
+     "key"
+    ],
+    "title": "RegistryDetection",
+    "description": "Installed = this key exists under HKEY_LOCAL_MACHINE (the agent looks in the 64-\nand the 32-bit view). With `value`: that value exists in it; with `equals` too: its\ndata is exactly that (e.g. DisplayVersion = 24.08, so a new version reinstalls)."
+   },
    "Role": {
     "type": "string",
     "enum": [
@@ -6601,6 +7487,18 @@
       "type": "boolean",
       "title": "Can Edit Layout"
      },
+     "can_lock": {
+      "type": "boolean",
+      "title": "Can Lock"
+     },
+     "lock_message": {
+      "type": "string",
+      "title": "Lock Message"
+     },
+     "lock_default": {
+      "type": "string",
+      "title": "Lock Default"
+     },
      "params": {
       "additionalProperties": true,
       "type": "object",
@@ -6614,6 +7512,9 @@
      "layout",
      "devices",
      "can_edit_layout",
+     "can_lock",
+     "lock_message",
+     "lock_default",
      "params"
     ],
     "title": "RoomView"
@@ -6709,6 +7610,11 @@
      "online": {
       "type": "boolean",
       "title": "Online"
+     },
+     "locked": {
+      "type": "boolean",
+      "title": "Locked",
+      "default": false
      }
     },
     "type": "object",
@@ -6720,6 +7626,743 @@
      "online"
     ],
     "title": "ScreenDevice"
+   },
+   "SoftwareAssignmentIn": {
+    "properties": {
+     "package_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Package Id"
+     },
+     "target_type": {
+      "type": "string",
+      "enum": [
+       "org",
+       "room",
+       "device"
+      ],
+      "title": "Target Type"
+     },
+     "target_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Id"
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "install",
+       "remove"
+      ],
+      "title": "Action",
+      "default": "install"
+     }
+    },
+    "type": "object",
+    "required": [
+     "package_id",
+     "target_type"
+    ],
+    "title": "SoftwareAssignmentIn"
+   },
+   "SoftwareAssignmentOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "package_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Package Id"
+     },
+     "target_type": {
+      "type": "string",
+      "title": "Target Type"
+     },
+     "target_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Id"
+     },
+     "target_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Name"
+     },
+     "action": {
+      "type": "string",
+      "title": "Action"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "package_id",
+     "target_type",
+     "target_id",
+     "target_name",
+     "action",
+     "created_at"
+    ],
+    "title": "SoftwareAssignmentOut"
+   },
+   "SoftwareAssignmentUpdate": {
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "install",
+       "remove"
+      ],
+      "title": "Action"
+     }
+    },
+    "type": "object",
+    "required": [
+     "action"
+    ],
+    "title": "SoftwareAssignmentUpdate"
+   },
+   "SoftwareDeviceStateOut": {
+    "properties": {
+     "device_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Device Id"
+     },
+     "hostname": {
+      "type": "string",
+      "title": "Hostname"
+     },
+     "room_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room Id"
+     },
+     "room_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Room Name"
+     },
+     "online": {
+      "type": "boolean",
+      "title": "Online"
+     },
+     "action": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Action"
+     },
+     "state": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "State"
+     },
+     "exit_code": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Exit Code"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message",
+      "default": ""
+     },
+     "updated_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "device_id",
+     "hostname",
+     "room_id",
+     "room_name",
+     "online",
+     "action",
+     "state"
+    ],
+    "title": "SoftwareDeviceStateOut"
+   },
+   "SoftwarePackageIn": {
+    "properties": {
+     "upload_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Upload Id"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "version": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Version",
+      "default": ""
+     },
+     "publisher": {
+      "type": "string",
+      "maxLength": 200,
+      "title": "Publisher",
+      "default": ""
+     },
+     "notes": {
+      "type": "string",
+      "maxLength": 5000,
+      "title": "Notes",
+      "default": ""
+     },
+     "install_args": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Install Args",
+      "default": ""
+     },
+     "uninstall_command": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Uninstall Command",
+      "default": ""
+     },
+     "detection": {
+      "anyOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/MsiDetection"
+         },
+         {
+          "$ref": "#/components/schemas/RegistryDetection"
+         },
+         {
+          "$ref": "#/components/schemas/FileDetection"
+         }
+        ],
+        "discriminator": {
+         "propertyName": "type",
+         "mapping": {
+          "file": "#/components/schemas/FileDetection",
+          "msi": "#/components/schemas/MsiDetection",
+          "registry": "#/components/schemas/RegistryDetection"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Detection"
+     },
+     "reboot": {
+      "type": "string",
+      "enum": [
+       "never",
+       "if_required",
+       "always"
+      ],
+      "title": "Reboot",
+      "default": "never"
+     },
+     "success_codes": {
+      "items": {
+       "type": "integer",
+       "maximum": 4294967295.0,
+       "minimum": -2147483648.0
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Success Codes"
+     },
+     "timeout_s": {
+      "type": "integer",
+      "maximum": 21600.0,
+      "minimum": 60.0,
+      "title": "Timeout S",
+      "default": 3600
+     }
+    },
+    "type": "object",
+    "required": [
+     "upload_id",
+     "name"
+    ],
+    "title": "SoftwarePackageIn"
+   },
+   "SoftwarePackageOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version": {
+      "type": "string",
+      "title": "Version"
+     },
+     "publisher": {
+      "type": "string",
+      "title": "Publisher"
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes"
+     },
+     "upload_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Upload Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "file_name": {
+      "type": "string",
+      "title": "File Name"
+     },
+     "size": {
+      "type": "integer",
+      "title": "Size"
+     },
+     "sha256": {
+      "type": "string",
+      "title": "Sha256"
+     },
+     "install_args": {
+      "type": "string",
+      "title": "Install Args"
+     },
+     "uninstall_command": {
+      "type": "string",
+      "title": "Uninstall Command"
+     },
+     "detection": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Detection"
+     },
+     "reboot": {
+      "type": "string",
+      "title": "Reboot"
+     },
+     "success_codes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Success Codes"
+     },
+     "timeout_s": {
+      "type": "integer",
+      "title": "Timeout S"
+     },
+     "removable": {
+      "type": "boolean",
+      "title": "Removable"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Updated At"
+     },
+     "assignments": {
+      "type": "integer",
+      "title": "Assignments",
+      "default": 0
+     },
+     "counts": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Counts",
+      "default": {}
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "version",
+     "publisher",
+     "notes",
+     "upload_id",
+     "kind",
+     "file_name",
+     "size",
+     "sha256",
+     "install_args",
+     "uninstall_command",
+     "detection",
+     "reboot",
+     "success_codes",
+     "timeout_s",
+     "removable",
+     "created_at",
+     "updated_at"
+    ],
+    "title": "SoftwarePackageOut"
+   },
+   "SoftwarePackageStateOut": {
+    "properties": {
+     "package_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Package Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version": {
+      "type": "string",
+      "title": "Version"
+     },
+     "action": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Action"
+     },
+     "state": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "State"
+     },
+     "exit_code": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Exit Code"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message",
+      "default": ""
+     },
+     "updated_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "package_id",
+     "name",
+     "version",
+     "action",
+     "state"
+    ],
+    "title": "SoftwarePackageStateOut"
+   },
+   "SoftwarePackageUpdate": {
+    "properties": {
+     "upload_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Upload Id"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "publisher": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Publisher"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 5000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "install_args": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Install Args"
+     },
+     "uninstall_command": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Uninstall Command"
+     },
+     "detection": {
+      "anyOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/MsiDetection"
+         },
+         {
+          "$ref": "#/components/schemas/RegistryDetection"
+         },
+         {
+          "$ref": "#/components/schemas/FileDetection"
+         }
+        ],
+        "discriminator": {
+         "propertyName": "type",
+         "mapping": {
+          "file": "#/components/schemas/FileDetection",
+          "msi": "#/components/schemas/MsiDetection",
+          "registry": "#/components/schemas/RegistryDetection"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Detection"
+     },
+     "reboot": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "never",
+         "if_required",
+         "always"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reboot"
+     },
+     "success_codes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer",
+         "maximum": 4294967295.0,
+         "minimum": -2147483648.0
+        },
+        "type": "array",
+        "maxItems": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Success Codes"
+     },
+     "timeout_s": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 21600.0,
+        "minimum": 60.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Timeout S"
+     }
+    },
+    "type": "object",
+    "title": "SoftwarePackageUpdate"
+   },
+   "SoftwareUploadOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "file_name": {
+      "type": "string",
+      "title": "File Name"
+     },
+     "size": {
+      "type": "integer",
+      "title": "Size"
+     },
+     "sha256": {
+      "type": "string",
+      "title": "Sha256"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "file_name",
+     "size",
+     "sha256",
+     "kind",
+     "created_at"
+    ],
+    "title": "SoftwareUploadOut"
    },
    "SyncStatusOut": {
     "properties": {
@@ -6962,6 +8605,27 @@
      "revoked_at"
     ],
     "title": "TokenOut"
+   },
+   "UnlockIn": {
+    "properties": {
+     "device_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "format": "uuid"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Device Ids"
+     }
+    },
+    "type": "object",
+    "title": "UnlockIn"
    },
    "UserCreate": {
     "properties": {
@@ -7409,6 +9073,11 @@
      "online": {
       "type": "boolean",
       "title": "Online"
+     },
+     "locked": {
+      "type": "boolean",
+      "title": "Locked",
+      "default": false
      },
      "thumb": {
       "anyOf": [

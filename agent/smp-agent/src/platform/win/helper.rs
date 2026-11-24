@@ -3,9 +3,9 @@
 // Attribution required in modified versions: see NOTICE
 
 //! `smp-agent session-helper`: runs in the user's session (started by the service,
-//! see session.rs). Shows the tray icon from the first moment, and captures the
-//! screen when the service asks. It exits when the service closes the pipe, so the
-//! icon disappears exactly when the agent stops.
+//! see session.rs). Shows the tray icon from the first moment, captures the screen
+//! and shows the lock screen when the service asks. It exits when the service closes
+//! the pipe, so the icon and any lock disappear exactly when the agent stops.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -16,7 +16,9 @@ use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 
+use super::lock_window::LockWindow;
 use super::{capture, tray, tray_visibility};
+use crate::capabilities::lock::picture::SMP_LOGO;
 use crate::capabilities::screen::encode::encode;
 use crate::platform::helper_protocol::{self as protocol, Request};
 
@@ -40,6 +42,7 @@ pub fn run(pipe_name: &str, server_pid: u32) -> Result<()> {
 
     let mut reader = BufReader::new(pipe.try_clone()?);
     let mut writer: File = pipe;
+    let mut lock: Option<LockWindow> = None; // dropping it unlocks
     while let Some(request) = protocol::read_request(&mut reader)? {
         match request {
             Request::Capture { max_width, quality } => {
@@ -52,8 +55,23 @@ pub fn run(pipe_name: &str, server_pid: u32) -> Result<()> {
                 tray.set_monitoring(monitoring);
                 protocol::write_ok(&mut writer)?;
             }
+            Request::Lock { text, png } => {
+                let png = if png.is_empty() { SMP_LOGO.to_vec() } else { png };
+                match &lock {
+                    Some(window) => window.update(text, png),
+                    None => match LockWindow::start(text, png) {
+                        Ok(window) => lock = Some(window),
+                        Err(e) => log::error!("couldn't lock the screen: {e:#}"),
+                    },
+                }
+                protocol::write_ok(&mut writer)?;
+            }
+            Request::Unlock => {
+                lock = None;
+                protocol::write_ok(&mut writer)?;
+            }
         }
     }
     log::info!("the service closed the pipe; exiting");
-    Ok(()) // dropping `tray` removes the icon
+    Ok(()) // dropping `lock` unlocks, dropping `tray` removes the icon
 }
