@@ -7,7 +7,7 @@
    "name": "AGPL-3.0-or-later",
    "identifier": "AGPL-3.0-or-later"
   },
-  "version": "1.0.3 E"
+  "version": "1.0.4 A"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -7491,6 +7491,10 @@
       "type": "boolean",
       "title": "Can Lock"
      },
+     "can_control": {
+      "type": "boolean",
+      "title": "Can Control"
+     },
      "lock_message": {
       "type": "string",
       "title": "Lock Message"
@@ -7513,6 +7517,7 @@
      "devices",
      "can_edit_layout",
      "can_lock",
+     "can_control",
      "lock_message",
      "lock_default",
      "params"
@@ -7615,6 +7620,22 @@
       "type": "boolean",
       "title": "Locked",
       "default": false
+     },
+     "can_remote": {
+      "type": "boolean",
+      "title": "Can Remote",
+      "default": false
+     },
+     "controlled_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Controlled By"
      }
     },
     "type": "object",
@@ -9078,6 +9099,22 @@
       "type": "boolean",
       "title": "Locked",
       "default": false
+     },
+     "can_remote": {
+      "type": "boolean",
+      "title": "Can Remote",
+      "default": false
+     },
+     "controlled_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Controlled By"
      },
      "thumb": {
       "anyOf": [

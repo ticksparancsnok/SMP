@@ -18,6 +18,11 @@ locked PC shows the teacher's message with the school's logo (Settings -> Monito
 and blocks keyboard and mouse. Locks are stored (a server restart doesn't unlock a
 room) and apply while the PC is in the room it was locked in. The agent side:
 agent/smp-agent/src/capabilities/lock/. Monitoring policies don't affect locking.
+
+Remote control: a teacher sees one PC's screen live and uses its mouse and keyboard,
+through a WebSocket between browser and server; the PC sends frames and fetches the
+input with signed HTTP requests (remote.py, api.py). Sessions live in memory and end
+with the WebSocket. A locked PC can't be controlled, and locking ends control.
 """
 
 from __future__ import annotations
@@ -37,6 +42,11 @@ class ClassroomSettings(BaseModel):
     detail_width: int = Field(1600, ge=640, le=3840, description="Width of an enlarged screen in pixels")
     detail_interval_s: int = Field(2, ge=1, le=60, description="Seconds between frames of an enlarged screen")
     jpeg_quality: int = Field(60, ge=20, le=95, description="JPEG quality (lower: less traffic)")
+    remote_fps: int = Field(
+        5, ge=1, le=15,
+        description="Pictures per second of a remote-controlled screen (unchanged screens send nothing). "
+        "5 is about 2-6 Mbit/s for that one computer",
+    )
     lock_message: str = Field(
         "", max_length=500,
         description="Suggested text for locked screens (teachers can change it each time). "
@@ -56,6 +66,8 @@ class ClassroomPolicy(BaseModel):
 
 
 LOCK_LOGO_AGENT_PATH = "/api/v1/classroom/agent/lock-logo"
+REMOTE_FRAME_PATH = "/api/v1/classroom/agent/remote/frame"
+REMOTE_INPUT_PATH = "/api/v1/classroom/agent/remote/input"
 
 # Shown when neither the teacher nor the school's settings give a text. Same sentences
 # as the agent's own fallback (capabilities/lock/mod.rs).
@@ -132,6 +144,8 @@ class ClassroomModule(Module):
         Permission("classroom.layout.edit", "Arrange a room's computers on the monitoring page", ("teacher",), room_scoped=True),
         Permission("classroom.screens.lock", "Lock the screens, keyboards and mice of a room's computers", ("teacher",),
                    room_scoped=True),
+        Permission("classroom.screens.control", "Control a room's computers remotely (screen, mouse, keyboard)",
+                   ("teacher",), room_scoped=True),
     )
     ui_routes = (UiRoute("/classroom", "Monitoring", "🖥️", "classroom.screens.view", "services"),)
     events = (
@@ -142,10 +156,12 @@ class ClassroomModule(Module):
     policy_model = ClassroomPolicy
 
     def __init__(self) -> None:
+        from smp.modules.classroom.remote import RemoteSessions
         from smp.modules.classroom.watch import FrameStore, WatchRegistry
 
         self.watches = WatchRegistry()
         self.frames = FrameStore()
+        self.remote = RemoteSessions()
 
     def router(self) -> APIRouter:
         from smp.modules.classroom.api import router
@@ -156,7 +172,29 @@ class ClassroomModule(Module):
         section = await self._screen_config(db, device)
         if (lock := await lock_config(db, device)) is not None:
             section["lock"] = lock  # unlocked PCs get no "lock" key at all (older agents: same config as before)
+        if (remote := await self._remote_config(db, device)) is not None:
+            section["remote"] = remote  # likewise: only the one PC being controlled
         return section
+
+    async def _remote_config(self, db: AsyncSession, device) -> dict[str, Any] | None:
+        """The "remote" entry while a teacher controls this PC (see remote.py and
+        agent/smp-agent/src/capabilities/remote/)."""
+        session = self.remote.get(device.id)
+        if session is None or session.ended.is_set():
+            return None
+        from smp.core.models import ModuleSetting
+
+        row = await db.get(ModuleSetting, (device.org_id, "classroom"))
+        settings = ClassroomSettings.model_validate(row.data if row else {})
+        return {
+            "session": session.id,
+            "block_local": session.block_local,
+            "interval_ms": 1000 // settings.remote_fps,
+            "width": settings.detail_width,
+            "quality": settings.jpeg_quality,
+            "frame_path": REMOTE_FRAME_PATH,
+            "input_path": REMOTE_INPUT_PATH,
+        }
 
     async def _screen_config(self, db: AsyncSession, device) -> dict[str, Any]:
         off = {"active": False}

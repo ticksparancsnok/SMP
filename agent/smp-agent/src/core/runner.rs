@@ -215,6 +215,7 @@ impl Agent {
                 wait: version.is_some(),
                 platform: PLATFORM,
                 address: presence.address.map(|a| a.to_string()),
+                capabilities: registry.names(),
             };
             sent += 1;
             let (client, answers_tx, number) = (self.client.clone(), answers_tx.clone(), sent);

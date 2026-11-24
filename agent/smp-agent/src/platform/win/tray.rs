@@ -7,6 +7,8 @@
 //!
 //!   grey     "SMP agent running": nobody is viewing the screen
 //!   colour   "monitoring active": a teacher is viewing the screen right now
+//!   colour   "remote control": a teacher sees the screen and uses mouse and keyboard
+//!            (same icon, its own text: the tooltip says which)
 //!
 //! Hovering shows that text, in Hungarian or English (the Windows display language).
 //!
@@ -47,6 +49,7 @@ const ICON_ON: [(i32, &[u8]); 4] = [
 const WM_SET_MONITORING: u32 = WM_APP + 1;
 const WM_REMOVE: u32 = WM_APP + 2;
 const WM_READD: u32 = WM_APP + 3;
+const WM_SET_CONTROLLED: u32 = WM_APP + 4;
 
 /// Handle to the tray thread's window. Dropping it removes the icon.
 pub struct Tray {
@@ -72,6 +75,11 @@ impl Tray {
     pub fn set_monitoring(&self, monitoring: bool) {
         // SAFETY: posting to our own window; ignored if it's already gone.
         let _ = unsafe { PostMessageW(Some(self.hwnd()), WM_SET_MONITORING, WPARAM(monitoring as usize), LPARAM(0)) };
+    }
+
+    pub fn set_controlled(&self, controlled: bool) {
+        // SAFETY: posting to our own window; ignored if it's already gone.
+        let _ = unsafe { PostMessageW(Some(self.hwnd()), WM_SET_CONTROLLED, WPARAM(controlled as usize), LPARAM(0)) };
     }
 
     /// A handle other threads can keep (unlike `Tray`, dropping it does nothing).
@@ -108,6 +116,8 @@ impl Drop for Tray {
 /// Everything the window procedure needs (it runs on the tray thread only).
 struct State {
     monitoring: bool,
+    /// A teacher controls the computer (remote control): wins over `monitoring`.
+    controlled: bool,
     icon_off: HICON,
     icon_on: HICON,
     /// Explorer broadcasts this after it (re)starts: then the icon must be added again.
@@ -156,6 +166,7 @@ fn create_window() -> Result<HWND> {
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
                 monitoring: false,
+                controlled: false,
                 icon_off: load_icon(&ICON_OFF),
                 icon_on: load_icon(&ICON_ON),
                 taskbar_created,
@@ -176,12 +187,14 @@ fn load_icon(set: &[(i32, &[u8])]) -> HICON {
     unsafe { CreateIconFromResourceEx(png, true, 0x0003_0000, *size, *size, LR_DEFAULTCOLOR) }.unwrap_or_default()
 }
 
-fn tooltip(monitoring: bool, hungarian: bool) -> &'static str {
-    match (monitoring, hungarian) {
-        (false, true) => "SMP ügynök fut – a képernyőt most senki sem nézi",
-        (true, true) => "SMP: monitorozás aktív – a tanár látja a képernyőt",
-        (false, false) => "SMP agent running – nobody is viewing this screen",
-        (true, false) => "SMP: monitoring active – a teacher can see this screen",
+fn tooltip(state: &State) -> &'static str {
+    match (state.controlled, state.monitoring, state.hungarian) {
+        (true, _, true) => "SMP: távvezérlés – a tanár látja a képernyőt, és használja az egeret és a billentyűzetet",
+        (true, _, false) => "SMP: remote control – a teacher sees this screen and uses its mouse and keyboard",
+        (false, false, true) => "SMP ügynök fut – a képernyőt most senki sem nézi",
+        (false, true, true) => "SMP: monitorozás aktív – a tanár látja a képernyőt",
+        (false, false, false) => "SMP agent running – nobody is viewing this screen",
+        (false, true, false) => "SMP: monitoring active – a teacher can see this screen",
     }
 }
 
@@ -194,10 +207,10 @@ fn show(window: HWND, action: NOTIFY_ICON_MESSAGE) -> bool {
             hWnd: window,
             uID: 1,
             uFlags: NIF_ICON | NIF_TIP,
-            hIcon: if state.monitoring { state.icon_on } else { state.icon_off },
+            hIcon: if state.monitoring || state.controlled { state.icon_on } else { state.icon_off },
             ..Default::default()
         };
-        let text: Vec<u16> = tooltip(state.monitoring, state.hungarian).encode_utf16().collect();
+        let text: Vec<u16> = tooltip(state).encode_utf16().collect();
         let n = text.len().min(data.szTip.len() - 1);
         data.szTip[..n].copy_from_slice(&text[..n]);
         // SAFETY: data is fully initialised and outlives the call.
@@ -212,6 +225,17 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
             STATE.with(|s| {
                 if let Some(state) = s.borrow_mut().as_mut() {
                     state.monitoring = wparam.0 != 0;
+                }
+            });
+            if !show(window, NIM_MODIFY) {
+                show(window, NIM_ADD);
+            }
+            LRESULT(0)
+        }
+        WM_SET_CONTROLLED => {
+            STATE.with(|s| {
+                if let Some(state) = s.borrow_mut().as_mut() {
+                    state.controlled = wparam.0 != 0;
                 }
             });
             if !show(window, NIM_MODIFY) {

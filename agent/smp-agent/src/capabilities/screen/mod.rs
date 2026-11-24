@@ -214,6 +214,7 @@ impl Worker {
             let same = stream.sent_hash == Some(picture.hash);
             let mut upload = FrameUpload {
                 kind: stream.kind,
+                session: None,
                 jpeg: if same { None } else { Some(&picture.jpeg) },
                 width: picture.width,
                 height: picture.height,

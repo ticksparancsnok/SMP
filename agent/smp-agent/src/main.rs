@@ -82,6 +82,9 @@ enum Command {
     SessionHelper {
         #[arg(long)]
         pipe: String,
+        /// remote control's input (one way, service -> helper)
+        #[arg(long)]
+        input_pipe: String,
         #[arg(long)]
         server_pid: u32,
     },
@@ -179,7 +182,7 @@ fn real_main(cli: Cli) -> Result<()> {
         #[cfg(windows)]
         Command::Service => platform::service::run()?,
         #[cfg(windows)]
-        Command::SessionHelper { pipe, server_pid } => platform::helper::run(&pipe, server_pid)?,
+        Command::SessionHelper { pipe, input_pipe, server_pid } => platform::helper::run(&pipe, &input_pipe, server_pid)?,
         #[cfg(windows)]
         Command::UpdateWatch { to } => platform::update::watch(&to, &state_path)?,
     }

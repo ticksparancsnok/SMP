@@ -6,6 +6,8 @@
 
 Agents:   PUT  /frames                      latest screen of a PC (signed, JPEG body)
           GET  /agent/lock-logo             the school's lock screen logo (signed, PNG)
+          PUT  /agent/remote/frame          the controlled PC's screen (signed, JPEG body)
+          GET  /agent/remote/input          the teacher's input for it (signed, long poll)
 Viewers:  GET  /rooms                       rooms the caller may watch
           GET  /rooms/{id}                  room, layout, PCs, current parameters
           POST /rooms/{id}/watch            start / keep watching (every few seconds)
@@ -14,17 +16,20 @@ Viewers:  GET  /rooms                       rooms the caller may watch
 Editors:  PUT  /rooms/{id}/layout           auto order or seating-plan grid
 Lockers:  POST /rooms/{id}/lock             lock all / some PCs of a room, with a message
           POST /rooms/{id}/unlock           unlock all / some
+Control:  WS   /devices/{id}/remote         remote control of one PC (see remote.py)
 Admins:   GET|POST|DELETE /lock-logo        the school's logo on locked screens (PNG)
           GET  /lock-logo/info              its size and fingerprint, or null
 
 Every viewing session is audited (start, stop or time-out, which PC was enlarged),
-and so is every lock, unlock and logo change.
+and so is every lock, unlock, logo change and remote control session.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
+import json
 import logging
 import struct
 import time
@@ -32,13 +37,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from smp.core import db
-from smp.core.context import Ctx, require
+from smp.core.context import Ctx, require, websocket_ctx
 from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
 from smp.core.events import Event
@@ -47,6 +52,7 @@ from smp.core.uploads import read_limited
 from smp.modules.agent.api import authenticate_agent
 from smp.modules.classroom import ClassroomSettings, lock_default_text, screen_params
 from smp.modules.classroom.models import ClassroomLayout, ClassroomLock, ClassroomLockLogo
+from smp.modules.classroom.remote import RemoteFrame, RemoteSession, RemoteSessions, clean_events
 from smp.modules.classroom.watch import Frame
 
 router = APIRouter()
@@ -55,6 +61,7 @@ log = logging.getLogger(__name__)
 VIEW = "classroom.screens.view"
 EDIT = "classroom.layout.edit"
 LOCK = "classroom.screens.lock"
+CONTROL = "classroom.screens.control"
 MAX_FRAME_BYTES = 3 * 1024 * 1024
 MAX_LOGO_BYTES = 1024 * 1024  # the web UI shrinks logos to 1024 px before uploading: far less
 MAX_LOGO_SIDE = 2048  # the agent accepts at most this (capabilities/lock/picture.rs)
@@ -183,6 +190,8 @@ class ScreenDevice(BaseModel):
     user: str | None
     online: bool
     locked: bool = False  # screen lock on (the PC shows it once it gets the config)
+    can_remote: bool = False  # its agent can be remote controlled (reports the "remote" capability)
+    controlled_by: str | None = None  # who controls it right now
 
 
 class RoomView(BaseModel):
@@ -192,6 +201,7 @@ class RoomView(BaseModel):
     devices: list[ScreenDevice]
     can_edit_layout: bool
     can_lock: bool
+    can_control: bool
     lock_message: str  # the school's suggested lock text (settings), to start the lock dialog with
     lock_default: str  # what locked PCs show without a message (block page language)
     params: dict  # interval_s, thumb_width, ..., enabled
@@ -217,11 +227,12 @@ async def _locked(ctx: Ctx, room_id: uuid.UUID) -> set[uuid.UUID]:
     )).scalars())
 
 
-def _screen_device(d: Device, locked: set[uuid.UUID]) -> ScreenDevice:
+def _screen_device(d: Device, locked: set[uuid.UUID], controllers: dict[uuid.UUID, str]) -> ScreenDevice:
     online = d.last_seen_at is not None and d.last_seen_at >= datetime.now(UTC) - ONLINE_WINDOW
     # The last reported user only means something while the PC still reports.
     return ScreenDevice(id=d.id, hostname=d.hostname, display_name=d.display_name,
-                        user=d.logged_in_user if online else None, online=online, locked=d.id in locked)
+                        user=d.logged_in_user if online else None, online=online, locked=d.id in locked,
+                        can_remote="remote" in (d.agent_capabilities or []), controlled_by=controllers.get(d.id))
 
 
 @router.get("/rooms/{room_id}", response_model=RoomView)
@@ -235,9 +246,10 @@ async def get_room(room_id: uuid.UUID, ctx: Ctx = Depends(require(VIEW, any_room
     assert isinstance(settings, ClassroomSettings)
     return RoomView(
         id=room.id, name=room.name, layout=layout,
-        devices=[_screen_device(d, locked) for d in await _devices(ctx, room.id)],
+        devices=[_screen_device(d, locked, _mod(ctx.request).remote.controllers()) for d in await _devices(ctx, room.id)],
         can_edit_layout=ctx.principal.can(EDIT, room.id),
         can_lock=ctx.principal.can(LOCK, room.id),
+        can_control=ctx.principal.can(CONTROL, room.id),
         lock_message=settings.lock_message,
         lock_default=await lock_default_text(ctx.db, ctx.org_id),
         params=await screen_params(ctx.db, ctx.org_id, room_id=room.id),
@@ -301,7 +313,7 @@ async def watch(room_id: uuid.UUID, body: WatchIn, request: Request, ctx: Ctx = 
     params = await screen_params(ctx.db, ctx.org_id, room_id=room.id)
     locked = await _locked(ctx, room.id)
     return WatchOut(
-        devices=[WatchDevice(**_screen_device(d, locked).model_dump(),
+        devices=[WatchDevice(**_screen_device(d, locked, mod.remote.controllers()).model_dump(),
                              thumb=_info(mod.frames.get(d.id, "thumb")), detail=_info(mod.frames.get(d.id, "detail")))
                  for d in devices],
         enabled=params["enabled"], interval_s=params["interval_s"], detail_interval_s=params["detail_interval_s"],
@@ -414,6 +426,8 @@ async def lock_screens(room_id: uuid.UUID, body: LockIn, request: Request,
         ctx.audit("classroom.lock", room, _lock_details(devices, message=message))
     await ctx.commit()
     if devices:
+        # A locked PC's input is blocked anyway: end remote control instead of fighting it.
+        _mod(request).remote.end_devices({d.id for d in devices}, "locked")
         await _config_changed(request, ctx.org_id, "screens locked")
     return LockOut(locked=sorted(await _locked(ctx, room.id)))
 
@@ -527,3 +541,177 @@ async def agent_lock_logo(request: Request):
     if png is None:
         raise AppError(status.HTTP_404_NOT_FOUND, "classroom.no_logo", "no lock screen logo", entity="Logo")
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------- remote control
+#
+# Close codes the web UI shows a message for (WebSocket codes 4000-4999 are ours).
+WS_NOT_SIGNED_IN, WS_FORBIDDEN, WS_NOT_FOUND, WS_CONFLICT, WS_UNSUPPORTED, WS_ENDED = 4401, 4403, 4404, 4409, 4426, 4000
+MAX_INPUT_MESSAGE = 64 * 1024
+
+
+async def _refuse(websocket: WebSocket, code: int, reason: str) -> None:
+    """Accept, then close with our code: a refused handshake would only show the
+    browser "connection failed" (code 1006), without saying why."""
+    await websocket.accept()
+    await websocket.close(code=code, reason=reason)
+
+
+@router.websocket("/devices/{device_id}/remote")
+async def remote_control(websocket: WebSocket, device_id: uuid.UUID):
+    """The teacher's side of remote control. The browser sends input as JSON text
+    messages ({"events": [...]}, see remote.clean_events) and gets each new frame as a
+    JSON text message (sizes) followed by a binary message (the JPEG). Closing it ends
+    control."""
+    mod = websocket.app.state.registry.get("classroom")
+    async with db.sessionmaker()() as s:
+        ctx = await websocket_ctx(websocket, s)
+        if ctx is None:
+            return await _refuse(websocket, WS_NOT_SIGNED_IN, "auth.not_authenticated")
+        device = await s.get(Device, device_id)
+        if device is None or device.org_id != ctx.org_id or device.agent_id is None or device.room_id is None:
+            return await _refuse(websocket, WS_NOT_FOUND, "not_found")
+        if not ctx.principal.can(CONTROL, device.room_id):
+            return await _refuse(websocket, WS_FORBIDDEN, "permission.missing")
+        if "remote" not in (device.agent_capabilities or []):
+            return await _refuse(websocket, WS_UNSUPPORTED, "classroom.remote_unsupported")
+        locked = await s.scalar(select(func.count()).where(ClassroomLock.device_id == device.id,
+                                                            ClassroomLock.room_id == device.room_id))
+        if locked:
+            return await _refuse(websocket, WS_CONFLICT, "classroom.remote_locked")
+        current = mod.remote.get(device.id)
+        if current is not None and current.user_id != ctx.principal.id:
+            return await _refuse(websocket, WS_CONFLICT, "classroom.remote_busy")
+        # The same teacher again (a second tab, a reload): the new view takes over.
+        session = RemoteSession(device.id, device.room_id, ctx.org_id, device.hostname, ctx.principal.id,
+                                ctx.principal.name)
+        mod.remote.start(session)
+        room = await s.get(Room, device.room_id)
+        ctx.audit("classroom.remote.start", room, {"device_id": str(device.id), "hostname": device.hostname,
+                                                    "user": device.logged_in_user})
+        await ctx.commit()
+        hostname, user = device.hostname, device.logged_in_user
+
+    await websocket.accept()
+    await _remote_config_changed(websocket, ctx.org_id, "remote control started")
+    await websocket.send_json({"type": "ready", "hostname": hostname, "user": user})
+    tasks = [asyncio.create_task(_forward_frames(websocket, session)),
+             asyncio.create_task(_receive_input(websocket, session)),
+             asyncio.create_task(session.ended.wait())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tasks:
+            t.cancel()
+        reason = session.end_reason or "closed"
+        mod.remote.finish(session, reason)
+        with contextlib.suppress(Exception):  # the browser may be gone already
+            await websocket.close(code=WS_ENDED, reason=f"classroom.remote_{reason.replace(' ', '_')}")
+        async with db.sessionmaker()() as s:
+            s.add(AuditLog(org_id=session.org_id, actor_type="user", actor_id=str(session.user_id),
+                           actor_name=session.user_name, action="classroom.remote.stop", target_type="room",
+                           target_id=str(session.room_id), details={"device_id": str(session.device_id),
+                                                                    "hostname": session.hostname, "reason": reason,
+                                                                    "seconds": session.seconds()}))
+            await s.commit()
+        await _remote_config_changed(websocket, session.org_id, "remote control ended")
+
+
+async def _remote_config_changed(websocket: WebSocket, org_id: uuid.UUID, reason: str) -> None:
+    await websocket.app.state.bus.publish(Event(subject="agent.config.changed", org_id=org_id, payload={"reason": reason}))
+
+
+async def _forward_frames(websocket: WebSocket, session: RemoteSession) -> None:
+    """Each new frame to the browser. Only the newest counts: a slow connection gets
+    fewer frames, never a growing backlog."""
+    while True:
+        await session.frame_ready.wait()
+        session.frame_ready.clear()
+        if session.ended.is_set():
+            return
+        f = session.frame
+        if f is not None:
+            await websocket.send_json({"type": "frame", "width": f.width, "height": f.height,
+                                       "screen_width": f.screen_width, "screen_height": f.screen_height})
+            await websocket.send_bytes(f.jpeg)
+
+
+async def _receive_input(websocket: WebSocket, session: RemoteSession) -> None:
+    """The browser's messages: input batches ({"events": [...]}, checked, to the PC's
+    queue) and the student-input switch ({"block_input": true|false}). Returns when the
+    browser goes."""
+    try:
+        while True:
+            text = await websocket.receive_text()
+            if len(text) > MAX_INPUT_MESSAGE:
+                continue
+            try:
+                message = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(message, dict) and isinstance(message.get("block_input"), bool):
+                await _set_block_input(websocket, session, message["block_input"])
+            elif events := clean_events(message):
+                session.push_input(events)
+    except (WebSocketDisconnect, RuntimeError, KeyError):  # closed, or a binary message (not ours)
+        return
+
+
+async def _set_block_input(websocket: WebSocket, session: RemoteSession, on: bool) -> None:
+    """Block (or allow again) the student's own keyboard and mouse: audited, sent to the
+    PC with its config, and confirmed to the browser (it shows what is in effect)."""
+    if on != session.block_local:
+        session.block_local = on
+        async with db.sessionmaker()() as s:
+            s.add(AuditLog(org_id=session.org_id, actor_type="user", actor_id=str(session.user_id),
+                           actor_name=session.user_name, action="classroom.remote.block_input", target_type="room",
+                           target_id=str(session.room_id),
+                           details={"device_id": str(session.device_id), "hostname": session.hostname, "on": on}))
+            await s.commit()
+        await _remote_config_changed(websocket, session.org_id, "student input blocked" if on else "student input allowed")
+    await websocket.send_json({"type": "block_input", "on": session.block_local})
+
+
+def _remote_session(request: Request, device_id: uuid.UUID, session_id: str | None) -> RemoteSession:
+    """The PC's current session, if `session_id` is it (a PC still sending for an old
+    session is turned away, like a frame nobody watches)."""
+    remote: RemoteSessions = _mod(request).remote
+    session = remote.get(device_id)
+    if session is None or session.ended.is_set() or session.id != session_id:
+        raise AppError(status.HTTP_409_CONFLICT, "classroom.not_controlled", "nobody controls this computer")
+    return session
+
+
+@router.put("/agent/remote/frame", status_code=204, include_in_schema=False)
+async def put_remote_frame(request: Request):
+    """The controlled PC's screen (with the mouse pointer). "Unchanged" costs nothing:
+    the teacher simply keeps the picture they have."""
+    device, body = await authenticate_agent(request)
+    session = _remote_session(request, device.id, request.headers.get("x-smp-remote-session"))
+    if request.headers.get("x-smp-frame-unchanged") == "1":
+        return
+    if len(body) > MAX_FRAME_BYTES or not body.startswith(b"\xff\xd8"):
+        raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "classroom.bad_frame", "expected a JPEG of at most 3 MB")
+    w, h = _size(request.headers.get("x-smp-frame-size"))
+    sw, sh = _size(request.headers.get("x-smp-screen-size"))
+    session.put_frame(RemoteFrame(jpeg=body, width=w, height=h, screen_width=sw or w, screen_height=sh or h))
+
+
+@router.get("/agent/remote/input", include_in_schema=False)
+async def get_remote_input(request: Request, session: str = ""):
+    """The teacher's input for the controlled PC: answered at once when there is some,
+    else after up to 20 s with none. 409 when the session has ended: the agent stops
+    asking. No database connection is held while waiting."""
+    device, _ = await authenticate_agent(request)
+    events = await _remote_session(request, device.id, session).take_input()
+    if events is None:
+        raise AppError(status.HTTP_409_CONFLICT, "classroom.not_controlled", "nobody controls this computer")
+    return {"events": events}
+
+
+def _size(value: str | None) -> tuple[int, int]:
+    try:
+        w, h = (int(x) for x in (value or "0x0").lower().split("x"))
+        return max(w, 0), max(h, 0)
+    except ValueError:
+        return 0, 0

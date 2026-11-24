@@ -232,6 +232,10 @@ class Device(UUIDPk, Timestamps, OrgScoped, Base):
     room_mode: Mapped[str] = mapped_column(String(16), default="fixed", server_default="fixed")
     logged_in_user: Mapped[str | None] = mapped_column(String(256))  # console session user
     agent_version: Mapped[str | None] = mapped_column(String(32))
+    # What the PC's agent can do, as it reports in each heartbeat (e.g. ["classroom",
+    # "lock", "remote", ...]): the UI offers a feature only to agents that have it.
+    # None: an agent from before 1.0.4 (it doesn't report them).
+    agent_capabilities: Mapped[list | None] = mapped_column(JSONType)
     cert_fingerprint: Mapped[str | None] = mapped_column(String(128))
     os_name: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))

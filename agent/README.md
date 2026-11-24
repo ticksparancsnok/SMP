@@ -77,6 +77,17 @@ stopped, uninstalled, or 15 minutes without the server: the watchdog restarts it
 unlocked), so a server outage can never leave a room unusable; logging off and on again
 doesn't unlock (the new session gets the lock too).
 
+**Remote control:** a teacher can open one computer of their room on the Monitoring page
+(🖱) and use it from there: they see its screen live (with the mouse pointer) and their
+mouse and keyboard work on it, while the student can keep using it too. The tray icon is
+in colour and its text says "remote control" for as long as it lasts; it ends when the
+teacher closes the view (or their connection drops), and any key or button still held
+is let go then. The teacher can also block the student's own keyboard and mouse for the
+session: then only the teacher's input works (Ctrl+Alt+Del still does; afterwards the
+block holds again), and if the agent loses SMP for 30 s it lets the student's input
+through again by itself. A locked computer can't be controlled, and locking it ends control.
+Windows' own security screens (UAC prompts, Ctrl+Alt+Del) can't be shown or controlled.
+
 ## Updates
 
 Installed agents update themselves to the version their SMP server offers: `[agent]` in
@@ -147,13 +158,16 @@ SMP; admins upload the installers there). Everything runs as SYSTEM, without a w
                       C:\Program Files\SMP\smp-agent.exe
  ┌───────────────────────────── session 0 ─────────────────────────────┐
  │ service (SYSTEM): join -> heartbeat (long poll) -> capabilities:     │
- │   screen (uploads JPEGs), lock, software (installers), updates       │
- └──────────────┬───────────────────────────────────────────────────────┘
-                │ private named pipe (SYSTEM/admins only, checked process id)
- ┌──────────────┴──────────── user's session ──────────────────────────┐
+ │   screen (uploads JPEGs), lock, remote, software (installers),       │
+ │   updates                                                            │
+ └──────────────┬──────────────────┬────────────────────────────────────┘
+                │ private named pipes (SYSTEM/admins only, checked process id):
+                │ requests/answers │ remote control input (one way)
+ ┌──────────────┴──────────────────┴─ user's session ──────────────────┐
  │ session-helper (SYSTEM, on the user's desktop): tray icon,           │
- │   screen capture of the primary display + shrink + JPEG,             │
- │   lock screen over every monitor + keyboard/mouse block              │
+ │   screen capture of the primary display (+ pointer) + shrink + JPEG, │
+ │   lock screen over every monitor + keyboard/mouse block,             │
+ │   the teacher's input (SendInput)                                    │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -182,6 +196,22 @@ SMP; admins upload the installers there). Everything runs as SYSTEM, without a w
   a topmost window over the whole virtual screen (every monitor), puts itself on top
   again every half second, and blocks input with low-level keyboard and mouse hooks on a
   thread of their own (`platform/win/lock_window.rs`, `input_block.rs`).
+- **Remote control:** the teacher's browser and SMP talk over a WebSocket; the agent
+  keeps to signed HTTP, like everything else. While `classroom.remote` is in the config,
+  one thread captures the screen with the pointer every `interval_ms` (200 = 5 pictures a
+  second) and uploads it when it changed; another asks for the teacher's input with a
+  long poll (answered as soon as there is some) and hands it to the helper over a second
+  pipe, so a click never waits behind a capture. Mouse positions are 0..65535 across the
+  primary screen; keys are scan codes, typed through the PC's own layout
+  (`capabilities/remote/`, `platform/win/input_inject.rs`). These requests can repeat
+  within a second, so each carries a request number in its signed URL (`?n=`): identical
+  requests would otherwise have identical signatures, which the server refuses as replays.
+  Blocking the student's input reuses the lock's keyboard/mouse hooks, which then let
+  through only injected events carrying the helper's secret random stamp (put on every
+  event it injects for the teacher); the helper alone decides what is blocked
+  (`platform/win/helper.rs`, `Blocking`; `input_block.rs`).
+  Traffic: only the one controlled PC, about 2-6 Mbit/s at 5 pictures a second while the
+  screen changes, almost nothing while it doesn't.
 
 ## Layout
 
@@ -213,6 +243,8 @@ agent/
                                 shrink + JPEG (encode.rs), where pictures come from (source.rs)
         lock/                   screen lock: config, logo download (mod.rs),
                                 logo PNG -> picture on the lock background (picture.rs)
+        remote/                 remote control: config, picture and input threads (mod.rs),
+                                input events, key codes -> scan codes (input.rs)
         software/               software deployment: the worker (mod.rs), config,
                                 decisions + exit codes (plan.rs), software.json (local.rs),
                                 reports (report.rs), a fake installer for Linux (fake.rs)
@@ -223,7 +255,8 @@ agent/
         state_dir.rs            which folder holds the identity and logs (C:\ProgramData\SMP,
                                 or SMP-1, ... when someone else made that one; tested on Linux)
         win/                    Windows: service, session helper, capture, tray, lock window,
-                                input block, software (msiexec, registry, shutdown.exe),
+                                input block, input injection (remote control),
+                                software (msiexec, registry, shutdown.exe),
                                 DPAPI, ACLs (mod.rs explains how they fit together)
 ```
 
@@ -293,7 +326,9 @@ target/debug/smp-agent status
 `~/.local/state/smp-agent`), `SMP_AGENT_USER` the reported user, `RUST_LOG=debug`
 shows every picture sent ("thumb: 8049 bytes" / "thumb: unchanged"). There is no real
 lock on Linux: a locked fake screen shows the lock picture (background and logo, no
-text) and the log says "LOCKED", so locking can be tried on the Monitoring page too. Several fake PCs
+text) and the log says "LOCKED", so locking can be tried on the Monitoring page too.
+Remote control works too: the fake screen shows a black square where the teacher's
+pointer is, and `RUST_LOG=debug` logs every input event. Several fake PCs
 can run as containers with `--hostname LAB-PC02` and their own state directory.
 `SMP_AGENT_FAKE_SOFTWARE=1` pretends to install software (nothing runs; the log says what
 would, and SMP shows the results), `SMP_AGENT_FAKE_SOFTWARE_EXIT=1603` makes every

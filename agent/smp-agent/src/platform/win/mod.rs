@@ -27,6 +27,7 @@
 mod capture;
 pub mod helper;
 mod input_block;
+mod input_inject;
 mod lock_window;
 mod security;
 mod session;
@@ -147,6 +148,16 @@ pub fn lock_target() -> Box<dyn LockTarget> {
 /// Installing and removing programs (capabilities/software): msiexec, the registry, shutdown.exe.
 pub fn software_installer() -> Box<dyn crate::capabilities::software::Installer> {
     Box::new(software::WindowsInstaller)
+}
+
+/// Remote control goes through the same session helper: pictures with the pointer,
+/// the tray's "controlled" state, and the teacher's input (its own pipe).
+pub fn remote_screen() -> Box<dyn crate::capabilities::remote::RemoteScreen> {
+    Box::new(session::start())
+}
+
+pub fn input_sink() -> Box<dyn crate::capabilities::remote::InputSink> {
+    Box::new(session::start())
 }
 
 /// Is Windows' display language Hungarian? (The tray tooltip is Hungarian or English;

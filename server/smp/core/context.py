@@ -274,6 +274,32 @@ async def get_ctx(
     return Ctx(request, db, principal, principal.org_id)
 
 
+def websocket_origin_ok(websocket: Any) -> bool:
+    """A browser WebSocket must come from a page of ours. WebSockets aren't covered by
+    CORS, so (unlike check_origin for requests) a missing Origin is refused too:
+    browsers always send one."""
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return False
+    allowed = {o.strip() for o in get_settings().cors_origins.split(",") if o.strip()}
+    return origin in allowed or urlsplit(origin).netloc == websocket.headers.get("host")
+
+
+async def websocket_ctx(websocket: Any, db: AsyncSession) -> Ctx | None:
+    """The signed-in user of a browser WebSocket (session cookie, our own Origin), as a
+    Ctx for permission checks and audit entries; None if not allowed. `websocket` is a
+    Starlette WebSocket: it has the headers, cookies, client and app a Ctx uses."""
+    if not websocket_origin_ok(websocket):
+        return None
+    cookie = websocket.cookies.get(get_settings().session_cookie_name)
+    if not cookie:
+        return None
+    principal = await _principal_from_cookie(db, cookie, websocket.app.state.registry)
+    if principal is None or principal.must_change_password:
+        return None
+    return Ctx(websocket, db, principal, principal.org_id)
+
+
 def require(*perms: str, any_room: bool = False) -> Callable[..., Awaitable[Ctx]]:
     """Dependency factory: authenticate and check permissions.
 

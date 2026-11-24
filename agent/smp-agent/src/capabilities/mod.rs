@@ -5,6 +5,7 @@
 //! Everything the agent can do, each in its own module (see core/capability.rs).
 
 pub mod lock;
+pub mod remote;
 pub mod screen;
 pub mod software;
 pub mod update;
@@ -20,6 +21,7 @@ pub fn all(client: Arc<Client>, state_dir: PathBuf) -> Vec<Box<dyn Capability>> 
     vec![
         Box::new(screen::Screen::new(client.clone(), crate::platform::screen_source())),
         Box::new(lock::Lock::new(client.clone(), crate::platform::lock_target())),
+        Box::new(remote::Remote::new(client.clone(), crate::platform::remote_screen(), crate::platform::input_sink())),
         Box::new(software::Software::new(client.clone(), state_dir.clone(), crate::platform::software_installer())),
         Box::new(update::Updater::new(client, state_dir)),
     ]
