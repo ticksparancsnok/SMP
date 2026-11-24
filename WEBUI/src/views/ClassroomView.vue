@@ -14,6 +14,9 @@
 // Screen lock: teachers lock the whole room or single PCs with a message; the PCs show
 // it with the school's logo and block keyboard and mouse until unlocked. Unlike
 // watching, a lock stays when this page closes (it's stored on the server).
+//
+// Remote control (🖱): one PC's screen live, with mouse and keyboard, in its own view
+// (components/RemoteControl.vue); it ends when that view closes.
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, api, errorText } from '../api/client'
 import type {
@@ -27,6 +30,7 @@ import type {
   WatchOut,
 } from '../api/types'
 import Modal from '../components/Modal.vue'
+import RemoteControl from '../components/RemoteControl.vue'
 import { fmtRelative } from '../format'
 import { t } from '../i18n'
 
@@ -252,6 +256,23 @@ function toggleLock(d: ScreenDevice) {
   else openLock(d)
 }
 
+// ---------------------------------------------------------------- remote control
+const controlling = ref<ScreenDevice | null>(null)
+
+function controlledBy(d: ScreenDevice): string | null {
+  return (live.value[d.id] ?? d).controlled_by ?? null
+}
+
+/** Offered for PCs that are on, not locked, and whose agent can do it. */
+function canControl(d: ScreenDevice): boolean {
+  return !!view.value?.can_control && (live.value[d.id] ?? d).can_remote && isOnline(d) && !isLocked(d)
+}
+
+function startControl(d: ScreenDevice) {
+  enlarged.value = null
+  controlling.value = d
+}
+
 // ---------------------------------------------------------------- seating plan editor
 const editing = ref(false)
 const draft = reactive<ClassroomLayout>({ mode: 'auto', rows: 4, cols: 6, positions: {} })
@@ -400,6 +421,8 @@ async function setMode(mode: 'auto' | 'grid') {
                      :class="{ stale: isStale(live[cellDevice(r - 1, c - 1)!.id]!.thumb!) }" alt="" />
                 <span v-else class="placeholder">{{ isOnline(cellDevice(r - 1, c - 1)!) ? '…' : t('classroom.offline') }}</span>
                 <span v-if="isLocked(cellDevice(r - 1, c - 1)!)" class="lock-badge" :title="t('classroom.locked')">🔒</span>
+                <span v-else-if="controlledBy(cellDevice(r - 1, c - 1)!)" class="lock-badge"
+                      :title="t('classroom.controlled_by', { name: controlledBy(cellDevice(r - 1, c - 1)!)! })">🖱</span>
               </div>
               <figcaption>
                 <strong class="mono">{{ cellDevice(r - 1, c - 1)!.hostname }}</strong>
@@ -408,6 +431,8 @@ async function setMode(mode: 'auto' | 'grid') {
                 <button v-else-if="view.can_lock" class="ghost small lock-toggle"
                         :title="isLocked(cellDevice(r - 1, c - 1)!) ? t('classroom.unlock') : t('classroom.lock')"
                         @click.stop="toggleLock(cellDevice(r - 1, c - 1)!)">{{ isLocked(cellDevice(r - 1, c - 1)!) ? '🔓' : '🔒' }}</button>
+                <button v-if="!editing && canControl(cellDevice(r - 1, c - 1)!)" class="ghost small lock-toggle"
+                        :title="t('classroom.control')" @click.stop="startControl(cellDevice(r - 1, c - 1)!)">🖱</button>
               </figcaption>
             </figure>
           </template>
@@ -430,6 +455,7 @@ async function setMode(mode: 'auto' | 'grid') {
                  :class="{ stale: isStale(live[d.id]!.thumb!) }" alt="" />
             <span v-else class="placeholder">{{ isOnline(d) ? '…' : t('classroom.offline') }}</span>
             <span v-if="isLocked(d)" class="lock-badge" :title="t('classroom.locked')">🔒</span>
+            <span v-else-if="controlledBy(d)" class="lock-badge" :title="t('classroom.controlled_by', { name: controlledBy(d)! })">🖱</span>
           </div>
           <figcaption>
             <strong class="mono">{{ d.hostname }}</strong>
@@ -437,6 +463,8 @@ async function setMode(mode: 'auto' | 'grid') {
             <button v-if="view.can_lock && !editing" class="ghost small lock-toggle"
                     :title="isLocked(d) ? t('classroom.unlock') : t('classroom.lock')"
                     @click.stop="toggleLock(d)">{{ isLocked(d) ? '🔓' : '🔒' }}</button>
+            <button v-if="!editing && canControl(d)" class="ghost small lock-toggle" :title="t('classroom.control')"
+                    @click.stop="startControl(d)">🖱</button>
           </figcaption>
         </figure>
       </div>
@@ -455,11 +483,18 @@ async function setMode(mode: 'auto' | 'grid') {
         <template v-if="live[enlarged.id]?.detail"> · {{ fmtRelative(new Date(Date.now() - live[enlarged.id]!.detail!.age_s * 1000).toISOString()) }}</template>
         <template v-if="isLocked(enlarged)"> · 🔒 {{ t('classroom.locked') }}</template>
       </p>
-      <button v-if="view?.can_lock" class="small" :class="{ ghost: isLocked(enlarged) }" @click="toggleLock(enlarged)">
-        {{ isLocked(enlarged) ? t('classroom.unlock') : t('classroom.lock') }}
-      </button>
+      <div class="actions">
+        <button v-if="canControl(enlarged)" class="ghost small" @click="startControl(enlarged)">
+          🖱 {{ t('classroom.control') }}
+        </button>
+        <button v-if="view?.can_lock" class="small" :class="{ ghost: isLocked(enlarged) }" @click="toggleLock(enlarged)">
+          {{ isLocked(enlarged) ? t('classroom.unlock') : t('classroom.lock') }}
+        </button>
+      </div>
     </div>
   </Modal>
+
+  <RemoteControl v-if="controlling" :device="controlling" @close="controlling = null" />
 
   <Modal v-if="lockTarget" :title="lockTarget.device
            ? t('classroom.lock_title_one', { hostname: lockTarget.device.hostname })

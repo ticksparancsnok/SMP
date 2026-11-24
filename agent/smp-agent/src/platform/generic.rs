@@ -142,6 +142,28 @@ pub fn lock_target() -> Box<dyn crate::capabilities::lock::LockTarget> {
     Box::new(crate::capabilities::lock::LogLock { shared: fake_lock() })
 }
 
+/// Remote control without Windows: the fake screen (if there is one) with the teacher's
+/// pointer drawn in, and input only logged (RUST_LOG=debug) and used to move it.
+pub fn remote_screen() -> Box<dyn crate::capabilities::remote::RemoteScreen> {
+    use crate::capabilities::screen::source::FakeScreen;
+    let screen = std::env::var("SMP_AGENT_FAKE_SCREEN").ok().and_then(|s| FakeScreen::parse(&s)).map(|mut fake| {
+        fake.locked = fake_lock();
+        fake
+    });
+    Box::new(crate::capabilities::remote::FakeRemote { screen, pointer: fake_pointer() })
+}
+
+pub fn input_sink() -> Box<dyn crate::capabilities::remote::InputSink> {
+    Box::new(crate::capabilities::remote::LogInput { pointer: fake_pointer() })
+}
+
+/// Where the teacher's pointer is on the fake screen (one per process).
+fn fake_pointer() -> std::sync::Arc<std::sync::Mutex<(u16, u16)>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static SHARED: OnceLock<Arc<Mutex<(u16, u16)>>> = OnceLock::new();
+    SHARED.get_or_init(|| Arc::new(Mutex::new((32768, 32768)))).clone()
+}
+
 /// The lock state the fake screen and the lock share (one per process).
 fn fake_lock() -> std::sync::Arc<std::sync::Mutex<Option<crate::capabilities::lock::LockScreen>>> {
     use std::sync::{Arc, Mutex, OnceLock};

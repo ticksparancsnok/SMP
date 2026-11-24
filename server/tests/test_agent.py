@@ -68,11 +68,13 @@ class FakeAgent:
     async def status(self) -> str:
         return (await self.post("/api/v1/agent/join/status", {})).json()["status"]
 
-    async def heartbeat(self, user: str | None = "diak01", wait: bool = False, platform: str | None = None) -> httpx.Response:
+    async def heartbeat(self, user: str | None = "diak01", wait: bool = False, platform: str | None = None,
+                        capabilities: list[str] | None = None) -> httpx.Response:
         r = await self.post("/api/v1/agent/heartbeat", {
             "hostname": self.hostname, "user": user, "agent_version": "0.1.0",
             "config_version": self.config_version, "wait": wait, "platform": platform,
             **({"address": self.address} if self.address else {}),
+            **({"capabilities": capabilities} if capabilities is not None else {}),
         })
         if r.status_code == 200:
             self.config_version = r.json()["config_version"]

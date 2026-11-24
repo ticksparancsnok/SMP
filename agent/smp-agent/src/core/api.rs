@@ -10,7 +10,7 @@
 use std::fmt;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -70,10 +70,13 @@ impl ApiError {
     }
 }
 
-/// A screen picture to upload (see capabilities/screen).
+/// A screen picture to upload (see capabilities/screen and capabilities/remote).
 pub struct FrameUpload<'a> {
-    /// "thumb" or "detail"
+    /// "thumb", "detail" or "remote"
     pub kind: &'a str,
+    /// Remote control: the session the picture belongs to (the server drops pictures
+    /// of a session that has ended).
+    pub session: Option<&'a str>,
     /// The JPEG, or None: "same picture as last time" (a few bytes instead of the JPEG).
     pub jpeg: Option<&'a [u8]>,
     pub width: u32,
@@ -118,6 +121,9 @@ pub struct HeartbeatIn {
     /// The server shows it as the device's address and uses it for "by network" rooms;
     /// it can't see it itself when the computer is behind a NAT.
     pub address: Option<String>,
+    /// What this agent can do (its capabilities' names): SMP offers features, such as
+    /// remote control, only to computers whose agent has them.
+    pub capabilities: Vec<&'static str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +142,8 @@ pub struct Client {
     verifier: Arc<PinningVerifier>,
     /// server clock minus our clock, seconds (signatures must be within 5 minutes)
     clock_offset: AtomicI64,
+    /// Counts requests made with `unique` (see there).
+    request_counter: AtomicU64,
 }
 
 impl Client {
@@ -147,6 +155,7 @@ impl Client {
             identity,
             verifier,
             clock_offset: AtomicI64::new(0),
+            request_counter: AtomicU64::new(0),
         }
     }
 
@@ -202,6 +211,9 @@ impl Client {
         ];
         if frame.jpeg.is_none() {
             headers.push(("x-smp-frame-unchanged", "1".to_string()));
+        }
+        if let Some(session) = frame.session {
+            headers.push(("x-smp-remote-session", session.to_string()));
         }
         let body = frame.jpeg.unwrap_or(&[]);
         self.send("PUT", path, "image/jpeg", &headers, body, Duration::from_secs(30))?;
@@ -330,6 +342,27 @@ impl Client {
         self.send_on(&http, method, path, "application/octet-stream", headers, &[], None)
     }
 
+    /// `path` made unique with a request number (`?n=17` or `&n=17`), for requests that
+    /// may repeat several times a second (remote control).
+    ///
+    /// Why: our signatures are deterministic (the same key signing the same message
+    /// always gives the same signature, RFC 6979), and the message is method, path,
+    /// time (in seconds) and body. Two identical requests within one second would carry
+    /// identical signatures, and the server refuses the second as a replay. The number
+    /// is part of the signed path, so every request is different.
+    pub fn unique(&self, path: &str) -> String {
+        let n = self.request_counter.fetch_add(1, Ordering::Relaxed);
+        let separator = if path.contains('?') { '&' } else { '?' };
+        format!("{path}{separator}n={n}")
+    }
+
+    /// A signed GET answered with JSON; `timeout` for the whole request (a long poll
+    /// needs more than the server holds it).
+    pub fn get_json<R: DeserializeOwned>(&self, path: &str, timeout: Duration) -> Result<R, ApiError> {
+        let resp = self.send("GET", path, "application/json", &[], &[], timeout)?;
+        resp.into_json::<R>().map_err(|e| ApiError::Transport(format!("bad response: {e}")))
+    }
+
     /// A signed JSON POST the server answers without a body (204), e.g. status reports.
     pub fn post_no_answer<B: Serialize>(&self, path: &str, body: &B) -> Result<(), ApiError> {
         let raw = serde_json::to_vec(body).map_err(|e| ApiError::Transport(e.to_string()))?;
@@ -430,6 +463,11 @@ fn new_http(verifier: &Arc<PinningVerifier>) -> ureq::Agent {
     ureq::AgentBuilder::new()
         .tls_config(client_config(verifier.clone()))
         .timeout_connect(Duration::from_secs(10))
+        // Kept-open connections to the server, for reuse. Several requests run at once
+        // (the heartbeat's long poll, and during remote control an input poll and
+        // several pictures a second); with ureq's default of one, each picture would
+        // need a new TLS handshake.
+        .max_idle_connections_per_host(4)
         .user_agent(&format!("smp-agent/{AGENT_VERSION}"))
         .build()
 }
@@ -456,6 +494,13 @@ fn unix_now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unique_paths() {
+        let c = Client::new("https://smp.example", Identity::generate(), None);
+        assert_eq!(c.unique("/api/x"), "/api/x?n=0");
+        assert_eq!(c.unique("/api/x?session=ab"), "/api/x?session=ab&n=1");
+    }
 
     #[test]
     fn only_quick_answers_set_the_clock() {

@@ -38,7 +38,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -340,6 +340,8 @@ class HeartbeatIn(BaseModel):
     platform: str | None = Field(default=None, max_length=32)  # e.g. "windows-x86_64": which build updates it
     # The machine's own IP (the one its system uses to reach SMP); see reported_address().
     address: str | None = Field(default=None, max_length=64)
+    # What this agent can do (its capabilities' names); None from agents before 1.0.4.
+    capabilities: list[Annotated[str, Field(max_length=32)]] | None = Field(default=None, max_length=32)
 
 
 class HeartbeatOut(BaseModel):
@@ -403,6 +405,8 @@ async def heartbeat(request: Request):
         device.last_ip = reported or observed  # older agents don't report theirs
         device.observed_ip = observed
         device.logged_in_user = body.user or None
+        if body.capabilities is not None:
+            device.agent_capabilities = sorted(set(body.capabilities))
         for field in ("hostname", "agent_version", "os_name", "os_version"):
             if (value := getattr(body, field)) is not None:
                 setattr(device, field, value)

@@ -1,6 +1,6 @@
 # SMP – School Management Portal
 
-One platform for managing school computers: DNS-based site blocking with automatic classification, user directory, classroom screen monitoring/locking, software deployment for Windows 10/11, and a link shortener.
+One platform for managing school computers: DNS-based site blocking with automatic classification, user directory, classroom screen monitoring, locking and remote control, software deployment for Windows 10/11, and a link shortener.
 
 - `server/`: control plane (Python, FastAPI): core + modules. See [server/README.md](server/README.md)
 - `WEBUI/`: web interface (Vue 3 + TypeScript). See [WEBUI/readme.md](WEBUI/readme.md)

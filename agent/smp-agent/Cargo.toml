@@ -54,6 +54,7 @@ windows = { version = "0.62", features = [
     "Win32_System_SystemInformation",         # boot time (software: restart pending?)
     "Win32_System_Threading",                 # start the helper in the user's session
     "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",        # remote control: SendInput
     "Win32_UI_Shell",                         # tray icon
     "Win32_UI_WindowsAndMessaging",           # windows, tray, screen lock (window + input hooks)
 ] }

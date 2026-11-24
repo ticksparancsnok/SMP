@@ -8,7 +8,7 @@
 # Only nginx and the DNS port are published; the server and the block page are
 # reachable inside the docker network only.
 #
-# Later services (dns, agent gateway) are added here. The DNS container needs
+# Later services (kerberos, ldap, smb) will be added here. The DNS container needs
 # `network_mode: host` (or macvlan) to own port 53, and must keep working when
 # `server` is down, so it will cache policies locally.
 services:

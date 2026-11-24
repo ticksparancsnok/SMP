@@ -66,6 +66,26 @@ impl FakeScreen {
         Some(Self { width, height, locked: Arc::default() })
     }
 
+    /// The test picture (or the lock picture) with a black square where `pointer` is
+    /// (0..=65535 each, like Windows' absolute coordinates): remote control on test PCs.
+    pub fn capture_with_pointer(&mut self, max_width: u32, quality: u8, pointer: Option<(u16, u16)>) -> Result<Picture> {
+        let step = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 10).unwrap_or(0);
+        let mut px = match self.locked.lock().unwrap().as_ref() {
+            Some(lock) => locked_screen(self.width, self.height, lock.logo_png()),
+            None => self.pixels(step),
+        };
+        if let Some((x, y)) = pointer {
+            let (w, h) = (self.width as usize, self.height as usize);
+            let (cx, cy) = (x as usize * (w - 1) / 65535, y as usize * (h - 1) / 65535);
+            for row in cy..(cy + 12).min(h) {
+                for col in cx..(cx + 12).min(w) {
+                    px[(row * w + col) * 4..(row * w + col) * 4 + 3].copy_from_slice(&[0, 0, 0]);
+                }
+            }
+        }
+        encode(&px, self.width, self.height, max_width, quality)
+    }
+
     fn pixels(&self, step: u64) -> Vec<u8> {
         const BARS: [[u8; 3]; 7] = [[255, 255, 255], [0, 255, 255], [255, 255, 0], [0, 255, 0], [255, 0, 255], [0, 0, 255], [255, 0, 0]];
         let (w, h) = (self.width as usize, self.height as usize);
@@ -89,12 +109,7 @@ impl FakeScreen {
 
 impl ScreenSource for FakeScreen {
     fn capture(&mut self, max_width: u32, quality: u8) -> Result<Picture> {
-        if let Some(lock) = self.locked.lock().unwrap().as_ref() {
-            let pixels = locked_screen(self.width, self.height, lock.logo_png());
-            return encode(&pixels, self.width, self.height, max_width, quality);
-        }
-        let step = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 10).unwrap_or(0);
-        encode(&self.pixels(step), self.width, self.height, max_width, quality)
+        self.capture_with_pointer(max_width, quality, None)
     }
 
     fn set_indicator(&mut self, monitoring: bool) {

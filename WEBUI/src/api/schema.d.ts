@@ -2435,6 +2435,8 @@ export interface components {
             can_edit_layout: boolean;
             /** Can Lock */
             can_lock: boolean;
+            /** Can Control */
+            can_control: boolean;
             /** Lock Message */
             lock_message: string;
             /** Lock Default */
@@ -2497,6 +2499,13 @@ export interface components {
              * @default false
              */
             locked: boolean;
+            /**
+             * Can Remote
+             * @default false
+             */
+            can_remote: boolean;
+            /** Controlled By */
+            controlled_by?: string | null;
         };
         /** SoftwareAssignmentIn */
         SoftwareAssignmentIn: {
@@ -3017,6 +3026,13 @@ export interface components {
              * @default false
              */
             locked: boolean;
+            /**
+             * Can Remote
+             * @default false
+             */
+            can_remote: boolean;
+            /** Controlled By */
+            controlled_by?: string | null;
             thumb: components["schemas"]["FrameInfo"] | null;
             detail: components["schemas"]["FrameInfo"] | null;
         };

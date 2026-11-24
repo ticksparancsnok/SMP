@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Attribution required in modified versions: see NOTICE
 
-//! Blocking keyboard and mouse while the screen is locked.
+//! Blocking keyboard and mouse: everything while the screen is locked, or only the
+//! student's own during remote control when the teacher asks for it.
 //!
 //! "Low-level" hooks (WH_KEYBOARD_LL, WH_MOUSE_LL): Windows asks our hook about every
 //! key press and mouse event on this desktop before any program sees it; we answer
@@ -24,8 +25,17 @@
 //!   * A hook belongs to the thread that installed it and is called through that
 //!     thread's message loop; the thread ending removes it. Dropping `InputBlock`
 //!     ends the thread: keyboard and mouse work again.
+//!
+//! Letting the teacher through (Mode::OnlyTeacher, remote control): Windows marks
+//! input that a program made up (SendInput) as "injected", but any program can do
+//! that, also a student's. So the helper picks a random number when it starts
+//! (`teacher_stamp`) and puts it on every event it injects for the teacher (the
+//! events' dwExtraInfo, input_inject.rs); the hooks let through injected events that
+//! carry exactly that number. A student can't read the number: it exists only in the
+//! memory of this SYSTEM process.
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, OnceLock};
 use std::thread::JoinHandle;
 
 use anyhow::{anyhow, Context, Result};
@@ -34,12 +44,43 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW, SetTimer,
-    SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, MSG, PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID,
-    WM_QUIT, WM_TIMER, WM_USER,
+    SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG,
+    MSLLHOOKSTRUCT, PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOWS_HOOK_ID, WM_QUIT, WM_TIMER, WM_USER,
 };
 
 /// How often the hooks are installed again (milliseconds).
 const REINSTALL_EVERY_MS: u32 = 5000;
+
+/// What gets through while an `InputBlock` exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Nothing (the screen lock).
+    All,
+    /// Only the teacher's remote control input (see the top of this file).
+    OnlyTeacher,
+}
+
+/// The stamp injected events must carry to pass in Mode::OnlyTeacher; 0 = none passes.
+/// A static because the hook procedures are plain functions without any context.
+static LET_THROUGH: AtomicUsize = AtomicUsize::new(0);
+
+/// This process's random stamp for the teacher's input (never 0), made once.
+pub fn teacher_stamp() -> usize {
+    static STAMP: OnceLock<usize> = OnceLock::new();
+    *STAMP.get_or_init(|| {
+        use rand_core::{OsRng, RngCore};
+        (OsRng.next_u64() as usize).max(1)
+    })
+}
+
+/// Switch what gets through (takes effect with the next key or mouse event).
+pub fn set_mode(mode: Mode) {
+    let stamp = match mode {
+        Mode::All => 0,
+        Mode::OnlyTeacher => teacher_stamp(),
+    };
+    LET_THROUGH.store(stamp, Ordering::SeqCst);
+}
 
 /// Keyboard and mouse are blocked while this exists.
 pub struct InputBlock {
@@ -149,19 +190,45 @@ impl Drop for Hooks {
 }
 
 fn install(id: WINDOWS_HOOK_ID) -> Result<HHOOK> {
-    // SAFETY: `swallow` is a 'static function with the hook signature; low-level hooks
-    // need our module's handle but no DLL (they're called in this thread, not injected).
+    let procedure: HOOKPROC = if id == WH_KEYBOARD_LL { Some(keyboard_hook) } else { Some(mouse_hook) };
+    // SAFETY: the hook procedures are 'static functions with the hook signature;
+    // low-level hooks need our module's handle but no DLL (they're called in this
+    // thread, not injected into others).
     unsafe {
         let module = GetModuleHandleW(None)?;
-        Ok(SetWindowsHookExW(id, Some(swallow), Some(module.into()), 0)?)
+        Ok(SetWindowsHookExW(id, procedure, Some(module.into()), 0)?)
     }
 }
 
-/// The hook: every key and mouse event ends here. `code` < 0 means "not for you,
-/// pass it on" (Windows' rule for hooks); everything else is swallowed.
-unsafe extern "system" fn swallow(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+/// Does an event with these properties get through? Only the teacher's: injected, and
+/// carrying this process's stamp, while that is allowed (LET_THROUGH not 0).
+fn lets_through(injected: bool, extra_info: usize) -> bool {
+    let stamp = LET_THROUGH.load(Ordering::Relaxed);
+    stamp != 0 && injected && extra_info == stamp
+}
+
+/// The keyboard hook: every key ends here. `code` < 0 means "not for you, pass it on"
+/// (Windows' rule for hooks); anything else is swallowed unless `lets_through`.
+unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
-        return LRESULT(1);
+        // SAFETY: for WH_KEYBOARD_LL, lparam points to a KBDLLHOOKSTRUCT during the call.
+        let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        if !lets_through(event.flags.contains(LLKHF_INJECTED), event.dwExtraInfo) {
+            return LRESULT(1);
+        }
+    }
+    // SAFETY: forwarding exactly what Windows gave us.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+/// The mouse hook, the same for every mouse event (moves, buttons, wheel).
+unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        // SAFETY: for WH_MOUSE_LL, lparam points to an MSLLHOOKSTRUCT during the call.
+        let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        if !lets_through(event.flags & LLMHF_INJECTED != 0, event.dwExtraInfo) {
+            return LRESULT(1);
+        }
     }
     // SAFETY: forwarding exactly what Windows gave us.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

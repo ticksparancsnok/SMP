@@ -3,7 +3,8 @@
 // Attribution required in modified versions: see NOTICE
 
 //! The lock screen: a window over every monitor with the school's logo and the
-//! teacher's message, while keyboard and mouse are blocked (input_block.rs).
+//! teacher's message. Keyboard and mouse are blocked meanwhile by the helper
+//! (helper.rs decides all input blocking; input_block.rs does it).
 //!
 //! It runs in the session helper (helper.rs), which runs as SYSTEM on the user's
 //! desktop: the student can't close or kill it (Task Manager can't end SYSTEM
@@ -52,7 +53,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_POPUP,
 };
 
-use super::input_block::InputBlock;
 use crate::capabilities::lock::picture::{self, Image, BACKGROUND, TEXT};
 
 const WM_UPDATE: u32 = WM_APP + 1; // the message or logo changed
@@ -72,8 +72,6 @@ pub struct LockWindow {
     window: isize, // HWND as a number: HWND itself may not cross threads
     content: Arc<Mutex<Content>>,
     thread: Option<JoinHandle<()>>,
-    /// Declared last: dropped after the window is gone (fields drop in order).
-    _input: Option<InputBlock>,
 }
 
 impl LockWindow {
@@ -94,10 +92,8 @@ impl LockWindow {
             }
         })?;
         let window = result.recv().map_err(|_| anyhow!("the lock window thread ended"))??;
-        // Without the input block the screen is still covered; say so and carry on.
-        let input = InputBlock::start().map_err(|e| log::error!("keyboard and mouse stay usable: {e:#}")).ok();
         log::info!("lock screen shown");
-        Ok(Self { window, content, thread: Some(thread), _input: input })
+        Ok(Self { window, content, thread: Some(thread) })
     }
 
     /// Show another message or logo.
