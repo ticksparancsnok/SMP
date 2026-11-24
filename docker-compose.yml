@@ -68,6 +68,12 @@ services:
       SMP_SECRET_KEY: ${SMP_SECRET_KEY:?set SMP_SECRET_KEY in .env (see .env.example)}
       SMP_DNS_SINKHOLE_URL: ${SMP_DNS_SINKHOLE_URL:-http://dns-sinkhole:8080}
       SMP_DNS_SYNC_TOKEN: ${SMP_DNS_SYNC_TOKEN:?set SMP_DNS_SYNC_TOKEN in .env (see .env.example)}
+      # Software deployment: uploaded installers live on their own volume (not in the
+      # database, so database backups stay small; upgrade.sh doesn't back them up).
+      SMP_SOFTWARE_DIR: /app/data/software
+      SMP_SOFTWARE_MAX_UPLOAD_BYTES: ${SMP_SOFTWARE_MAX_UPLOAD_BYTES:-8589934592}
+    volumes:
+      - softwaredata:/app/data/software
     expose:
       - "8000"  # nginx only; not published on the host
     depends_on:
@@ -118,3 +124,4 @@ networks:
 volumes:
   pgdata:
   dnsdata:
+  softwaredata:

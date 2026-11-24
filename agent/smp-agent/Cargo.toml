@@ -27,6 +27,8 @@ gethostname = "0.5"
 mac_address = "1"
 # Screen pictures: pure-Rust JPEG encoder (shrinking is our own code, capabilities/screen/encode.rs)
 jpeg-encoder = "0.7"
+# The school's logo on the lock screen (SMP stores it as PNG): pure-Rust decoder
+png = "0.18"
 
 [dev-dependencies]
 tempfile = "3"
@@ -36,19 +38,22 @@ tempfile = "3"
 windows-service = "0.8"                       # register with / run under the Service Control Manager
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_System_ApplicationInstallationAndServicing", # Windows Installer (software: .msi product codes)
     "Win32_Globalization",                    # system UI language (tray tooltip HU/EN)
     "Win32_Graphics_Gdi",                     # screen capture (BitBlt)
     "Win32_Security",                         # tokens, file ACLs
     "Win32_Security_Authorization",           # ACLs written as SDDL strings
     "Win32_Security_Cryptography",            # DPAPI (key wrapping)
     "Win32_Storage_FileSystem",
+    "Win32_System_Environment",               # %ProgramFiles% etc. in software rules
     "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_Pipes",                     # service <-> session helper
     "Win32_System_Registry",                  # Windows version
     "Win32_System_RemoteDesktop",             # sessions, logged-in user (WTS)
+    "Win32_System_SystemInformation",         # boot time (software: restart pending?)
     "Win32_System_Threading",                 # start the helper in the user's session
     "Win32_UI_HiDpi",
     "Win32_UI_Shell",                         # tray icon
-    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_WindowsAndMessaging",           # windows, tray, screen lock (window + input hooks)
 ] }

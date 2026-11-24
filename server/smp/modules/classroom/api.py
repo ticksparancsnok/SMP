@@ -5,20 +5,28 @@
 """Classroom endpoints (mounted at /api/v1/classroom).
 
 Agents:   PUT  /frames                      latest screen of a PC (signed, JPEG body)
+          GET  /agent/lock-logo             the school's lock screen logo (signed, PNG)
 Viewers:  GET  /rooms                       rooms the caller may watch
           GET  /rooms/{id}                  room, layout, PCs, current parameters
           POST /rooms/{id}/watch            start / keep watching (every few seconds)
           DELETE /rooms/{id}/watch          stop watching
           GET  /devices/{id}/frame          the latest JPEG (thumb | detail)
 Editors:  PUT  /rooms/{id}/layout           auto order or seating-plan grid
+Lockers:  POST /rooms/{id}/lock             lock all / some PCs of a room, with a message
+          POST /rooms/{id}/unlock           unlock all / some
+Admins:   GET|POST|DELETE /lock-logo        the school's logo on locked screens (PNG)
+          GET  /lock-logo/info              its size and fingerprint, or null
 
-Every viewing session is audited (start, stop or time-out, which PC was enlarged).
+Every viewing session is audited (start, stop or time-out, which PC was enlarged),
+and so is every lock, unlock and logo change.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import struct
 import time
 import uuid
 from datetime import UTC, datetime
@@ -26,7 +34,8 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert
 
 from smp.core import db
 from smp.core.context import Ctx, require
@@ -34,9 +43,10 @@ from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
 from smp.core.events import Event
 from smp.core.models import AuditLog, Device, Room
+from smp.core.uploads import read_limited
 from smp.modules.agent.api import authenticate_agent
-from smp.modules.classroom import screen_params
-from smp.modules.classroom.models import ClassroomLayout
+from smp.modules.classroom import ClassroomSettings, lock_default_text, screen_params
+from smp.modules.classroom.models import ClassroomLayout, ClassroomLock, ClassroomLockLogo
 from smp.modules.classroom.watch import Frame
 
 router = APIRouter()
@@ -44,7 +54,10 @@ log = logging.getLogger(__name__)
 
 VIEW = "classroom.screens.view"
 EDIT = "classroom.layout.edit"
+LOCK = "classroom.screens.lock"
 MAX_FRAME_BYTES = 3 * 1024 * 1024
+MAX_LOGO_BYTES = 1024 * 1024  # the web UI shrinks logos to 1024 px before uploading: far less
+MAX_LOGO_SIDE = 2048  # the agent accepts at most this (capabilities/lock/picture.rs)
 
 
 def _mod(request: Request):
@@ -169,6 +182,7 @@ class ScreenDevice(BaseModel):
     display_name: str
     user: str | None
     online: bool
+    locked: bool = False  # screen lock on (the PC shows it once it gets the config)
 
 
 class RoomView(BaseModel):
@@ -177,6 +191,9 @@ class RoomView(BaseModel):
     layout: LayoutModel
     devices: list[ScreenDevice]
     can_edit_layout: bool
+    can_lock: bool
+    lock_message: str  # the school's suggested lock text (settings), to start the lock dialog with
+    lock_default: str  # what locked PCs show without a message (block page language)
     params: dict  # interval_s, thumb_width, ..., enabled
 
 
@@ -192,11 +209,19 @@ async def _devices(ctx: Ctx, room_id: uuid.UUID) -> list[Device]:
     )).scalars())
 
 
-def _screen_device(d: Device) -> ScreenDevice:
+async def _locked(ctx: Ctx, room_id: uuid.UUID) -> set[uuid.UUID]:
+    """The room's locked PCs (locks of PCs that left the room don't count; see ClassroomLock)."""
+    return set((await ctx.db.execute(
+        select(ClassroomLock.device_id).join(Device, Device.id == ClassroomLock.device_id)
+        .where(ClassroomLock.org_id == ctx.org_id, ClassroomLock.room_id == room_id, Device.room_id == room_id)
+    )).scalars())
+
+
+def _screen_device(d: Device, locked: set[uuid.UUID]) -> ScreenDevice:
     online = d.last_seen_at is not None and d.last_seen_at >= datetime.now(UTC) - ONLINE_WINDOW
     # The last reported user only means something while the PC still reports.
     return ScreenDevice(id=d.id, hostname=d.hostname, display_name=d.display_name,
-                        user=d.logged_in_user if online else None, online=online)
+                        user=d.logged_in_user if online else None, online=online, locked=d.id in locked)
 
 
 @router.get("/rooms/{room_id}", response_model=RoomView)
@@ -205,10 +230,16 @@ async def get_room(room_id: uuid.UUID, ctx: Ctx = Depends(require(VIEW, any_room
     row = (await ctx.db.execute(ctx.select(ClassroomLayout).where(ClassroomLayout.room_id == room.id))).scalar_one_or_none()
     layout = LayoutModel() if row is None else LayoutModel(mode=row.mode, rows=row.rows, cols=row.cols,
                                                           positions={uuid.UUID(k): tuple(v) for k, v in row.positions.items()})
+    locked = await _locked(ctx, room.id)
+    settings = await ctx.settings("classroom")
+    assert isinstance(settings, ClassroomSettings)
     return RoomView(
         id=room.id, name=room.name, layout=layout,
-        devices=[_screen_device(d) for d in await _devices(ctx, room.id)],
+        devices=[_screen_device(d, locked) for d in await _devices(ctx, room.id)],
         can_edit_layout=ctx.principal.can(EDIT, room.id),
+        can_lock=ctx.principal.can(LOCK, room.id),
+        lock_message=settings.lock_message,
+        lock_default=await lock_default_text(ctx.db, ctx.org_id),
         params=await screen_params(ctx.db, ctx.org_id, room_id=room.id),
     )
 
@@ -268,8 +299,9 @@ async def watch(room_id: uuid.UUID, body: WatchIn, request: Request, ctx: Ctx = 
     if new or detail_changed:
         await _config_changed(request, ctx.org_id, "watching changed")
     params = await screen_params(ctx.db, ctx.org_id, room_id=room.id)
+    locked = await _locked(ctx, room.id)
     return WatchOut(
-        devices=[WatchDevice(**_screen_device(d).model_dump(),
+        devices=[WatchDevice(**_screen_device(d, locked).model_dump(),
                              thumb=_info(mod.frames.get(d.id, "thumb")), detail=_info(mod.frames.get(d.id, "detail")))
                  for d in devices],
         enabled=params["enabled"], interval_s=params["interval_s"], detail_interval_s=params["detail_interval_s"],
@@ -326,3 +358,172 @@ async def put_layout(room_id: uuid.UUID, body: LayoutModel, request: Request,
     await ctx.commit()
     return body
 
+
+
+# --------------------------------------------------------------------------- screen lock
+
+
+class LockIn(BaseModel):
+    message: str = Field("", max_length=500)  # empty: the agent's built-in sentence
+    device_ids: list[uuid.UUID] | None = None  # None: every computer in the room
+
+
+class UnlockIn(BaseModel):
+    device_ids: list[uuid.UUID] | None = None  # None: every computer in the room
+
+
+class LockOut(BaseModel):
+    locked: list[uuid.UUID]  # the room's locked computers now
+
+
+def _chosen(devices: list[Device], ids: list[uuid.UUID] | None) -> list[Device]:
+    if ids is None:
+        return devices
+    by_id = {d.id: d for d in devices}
+    if missing := [i for i in ids if i not in by_id]:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", f"device {missing[0]} not in this room", entity="Device")
+    return [by_id[i] for i in dict.fromkeys(ids)]
+
+
+def _lock_details(devices: list[Device], **extra) -> dict:
+    return {"count": len(devices), "hostnames": [d.hostname for d in devices][:100], **extra}
+
+
+@router.post("/rooms/{room_id}/lock", response_model=LockOut)
+async def lock_screens(room_id: uuid.UUID, body: LockIn, request: Request,
+                       ctx: Ctx = Depends(require(LOCK, any_room=True))):
+    """Lock the room's computers (or `device_ids`): they show `message` with the school's
+    logo and block keyboard and mouse until unlocked. Locking a locked one again changes
+    its message. Stays until someone unlocks it (also across server restarts), while
+    the computer is in this room."""
+    room = await _room(ctx, room_id, LOCK)
+    devices = _chosen(await _devices(ctx, room.id), body.device_ids)
+    message = body.message.replace("\r\n", "\n").strip()
+    if devices:
+        stmt = insert(ClassroomLock).values([
+            {"id": uuid.uuid4(), "org_id": ctx.org_id, "room_id": room.id, "device_id": d.id, "message": message,
+             "locked_by": ctx.principal.name}
+            for d in devices
+        ])
+        # One lock per computer: locking again (also from another room) replaces it.
+        await ctx.db.execute(stmt.on_conflict_do_update(
+            index_elements=[ClassroomLock.device_id],
+            set_={"room_id": stmt.excluded.room_id, "message": stmt.excluded.message,
+                  "locked_by": stmt.excluded.locked_by, "updated_at": func.now()},
+        ))
+        ctx.audit("classroom.lock", room, _lock_details(devices, message=message))
+    await ctx.commit()
+    if devices:
+        await _config_changed(request, ctx.org_id, "screens locked")
+    return LockOut(locked=sorted(await _locked(ctx, room.id)))
+
+
+@router.post("/rooms/{room_id}/unlock", response_model=LockOut)
+async def unlock_screens(room_id: uuid.UUID, body: UnlockIn, request: Request,
+                         ctx: Ctx = Depends(require(LOCK, any_room=True))):
+    room = await _room(ctx, room_id, LOCK)
+    stmt = delete(ClassroomLock).where(ClassroomLock.org_id == ctx.org_id, ClassroomLock.room_id == room.id)
+    if body.device_ids is not None:
+        stmt = stmt.where(ClassroomLock.device_id.in_(body.device_ids))
+    unlocked = set((await ctx.db.execute(stmt.returning(ClassroomLock.device_id))).scalars())
+    if unlocked:
+        devices = [d for d in await _devices(ctx, room.id) if d.id in unlocked]
+        ctx.audit("classroom.unlock", room, _lock_details(devices) | {"count": len(unlocked)})
+    await ctx.commit()
+    if unlocked:
+        await _config_changed(request, ctx.org_id, "screens unlocked")
+    return LockOut(locked=sorted(await _locked(ctx, room.id)))
+
+
+# --------------------------------------------------------------------------- lock screen logo
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _bad_logo(why: str) -> AppError:
+    return AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "classroom.bad_logo", f"the logo must be a PNG image: {why}",
+                    max_side=MAX_LOGO_SIDE)
+
+
+def png_size(data: bytes) -> tuple[int, int]:
+    """Width and height of a complete PNG file (from its header; the agent decodes the
+    rest, and rejects anything damaged on its own)."""
+    if not data.startswith(PNG_SIGNATURE) or len(data) < 45 or data[12:16] != b"IHDR":
+        raise _bad_logo("not a PNG file")
+    if data[-8:-4] != b"IEND":
+        raise _bad_logo("the file is incomplete")
+    width, height = struct.unpack(">II", data[16:24])
+    if not (1 <= width <= MAX_LOGO_SIDE and 1 <= height <= MAX_LOGO_SIDE):
+        raise _bad_logo(f"{width}x{height} is larger than {MAX_LOGO_SIDE}x{MAX_LOGO_SIDE}")
+    return width, height
+
+
+class LogoInfo(BaseModel):
+    sha256: str
+    size: int
+    width: int
+    height: int
+    updated_at: datetime
+
+
+async def _logo(ctx: Ctx) -> ClassroomLockLogo | None:
+    return (await ctx.db.execute(ctx.select(ClassroomLockLogo))).scalar_one_or_none()
+
+
+@router.get("/lock-logo/info", response_model=LogoInfo | None)
+async def lock_logo_info(ctx: Ctx = Depends(require("core.settings.read"))):
+    """The school's lock screen logo, or null: locked screens show the SMP logo."""
+    row = await _logo(ctx)
+    return None if row is None else LogoInfo(sha256=row.sha256, size=row.size, width=row.width, height=row.height,
+                                             updated_at=row.updated_at)
+
+
+@router.get("/lock-logo", responses={200: {"content": {"image/png": {}}}})
+async def get_lock_logo(ctx: Ctx = Depends(require("core.settings.read"))):
+    row = await _logo(ctx)
+    if row is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "classroom.no_logo", "no lock screen logo", entity="Logo")
+    return Response(row.png, media_type="image/png", headers={"Cache-Control": "private, no-cache"})
+
+
+@router.post("/lock-logo", response_model=LogoInfo,
+             openapi_extra={"requestBody": {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}})
+async def upload_lock_logo(request: Request, ctx: Ctx = Depends(require("core.settings.write"))):
+    """Replace the logo on locked screens (raw PNG body, at most 1 MB and 2048x2048).
+    Locked computers switch to it right away."""
+    data = await read_limited(request, MAX_LOGO_BYTES)
+    width, height = png_size(data)
+    sha256 = hashlib.sha256(data).hexdigest()
+    row = await _logo(ctx)
+    if row is None:
+        row = ClassroomLockLogo(org_id=ctx.org_id)
+        ctx.db.add(row)
+    row.png, row.sha256, row.size, row.width, row.height = data, sha256, len(data), width, height
+    ctx.audit("classroom.lock_logo.update", None, {"size": len(data), "width": width, "height": height, "sha256": sha256},
+              target_type="lock_logo")
+    await ctx.commit()
+    await ctx.db.refresh(row)
+    await _config_changed(request, ctx.org_id, "lock screen logo changed")
+    return LogoInfo(sha256=sha256, size=len(data), width=width, height=height, updated_at=row.updated_at)
+
+
+@router.delete("/lock-logo", status_code=204)
+async def delete_lock_logo(request: Request, ctx: Ctx = Depends(require("core.settings.write"))):
+    """Back to the SMP logo on locked screens."""
+    row = await _logo(ctx)
+    if row is not None:
+        await ctx.db.delete(row)
+        ctx.audit("classroom.lock_logo.delete", None, target_type="lock_logo")
+        await ctx.commit()
+        await _config_changed(request, ctx.org_id, "lock screen logo removed")
+
+
+@router.get("/agent/lock-logo", include_in_schema=False)
+async def agent_lock_logo(request: Request):
+    """For locked computers (a signed request): the logo their config names by SHA-256."""
+    device, _ = await authenticate_agent(request)
+    async with db.sessionmaker()() as s:
+        png = (await s.execute(select(ClassroomLockLogo.png).where(ClassroomLockLogo.org_id == device.org_id))).scalar_one_or_none()
+    if png is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "classroom.no_logo", "no lock screen logo", entity="Logo")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})

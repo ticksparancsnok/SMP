@@ -7,7 +7,13 @@
 //! A manager thread checks every 2 seconds which session is in front of the screen
 //! (wts.rs) and keeps exactly one helper running there: it starts one after logon,
 //! and replaces it when the user logs off, switches, or the helper dies. Then it
-//! tells the new helper the current indicator state, so the tray icon is right.
+//! tells the new helper the current state: the indicator (so the tray icon is right)
+//! and the screen lock (so logging off and on again doesn't unlock the computer).
+//!
+//! Two capabilities use the helper: screen monitoring (pictures, the indicator) and
+//! the screen lock. Everything that talks to the helper holds one mutex (`Inner`),
+//! so requests never mix on the pipe, and a new helper gets the latest state before
+//! anyone else can send it something.
 //!
 //! The pipe is private: a new random name each time, only SYSTEM and administrators
 //! may open it, at most one client, and we check that the client is the very
@@ -17,7 +23,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -33,6 +39,7 @@ use windows::Win32::System::Pipes::{
 use windows::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
 
 use super::wts;
+use crate::capabilities::lock::{LockScreen, LockTarget};
 use crate::capabilities::screen::encode::Picture;
 use crate::capabilities::screen::source::ScreenSource;
 use crate::platform::helper_protocol::{self as protocol, Request};
@@ -58,15 +65,44 @@ impl Connection {
         protocol::write_request(&mut self.writer, &Request::Indicator { monitoring })?;
         protocol::read_ok(&mut self.reader)
     }
+
+    fn set_lock(&mut self, lock: Option<&LockScreen>) -> std::io::Result<()> {
+        let request = match lock {
+            // an empty logo: the helper shows SMP's (saves sending it each time)
+            Some(l) => Request::Lock { text: l.message.clone(), png: l.logo.as_deref().cloned().unwrap_or_default() },
+            None => Request::Unlock,
+        };
+        protocol::write_request(&mut self.writer, &request)?;
+        protocol::read_ok(&mut self.reader)
+    }
+
+    /// Bring a new helper up to date.
+    fn send_state(&mut self, inner: &Inner) -> std::io::Result<()> {
+        self.set_indicator(inner.monitoring)?;
+        self.set_lock(inner.lock.as_ref())
+    }
 }
 
-/// State shared by the manager thread and the screen capability.
+/// What the capabilities want the helper to show, and the pipe to it.
+struct Inner {
+    connection: Option<Connection>,
+    monitoring: bool,
+    lock: Option<LockScreen>,
+}
+
+/// State shared by the manager thread and the capabilities.
 struct Shared {
-    connection: Mutex<Option<Connection>>,
-    monitoring: AtomicBool,
+    inner: Mutex<Inner>,
 }
 
-/// What the screen capability holds: a `ScreenSource` backed by the helper.
+impl Shared {
+    fn inner(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap()
+    }
+}
+
+/// What the screen and lock capabilities hold: a `ScreenSource` and a `LockTarget`
+/// backed by the helper.
 pub struct HelperLink {
     shared: Arc<Shared>,
 }
@@ -75,7 +111,7 @@ pub struct HelperLink {
 pub fn start() -> HelperLink {
     static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
     let shared = SHARED.get_or_init(|| {
-        let shared = Arc::new(Shared { connection: Mutex::new(None), monitoring: AtomicBool::new(false) });
+        let shared = Arc::new(Shared { inner: Mutex::new(Inner { connection: None, monitoring: false, lock: None }) });
         let for_thread = shared.clone();
         std::thread::Builder::new()
             .name("session-helper".into())
@@ -88,28 +124,42 @@ pub fn start() -> HelperLink {
 
 impl ScreenSource for HelperLink {
     fn capture(&mut self, max_width: u32, quality: u8) -> Result<Picture> {
-        let mut connection = self.shared.connection.lock().unwrap();
-        let link = connection.as_mut().context("no user session to capture yet (login screen?)")?;
+        let mut inner = self.shared.inner();
+        let link = inner.connection.as_mut().context("no user session to capture yet (login screen?)")?;
         match link.ask_picture(max_width, quality) {
             Ok(Ok(picture)) => Ok(picture),
             Ok(Err(message)) => Err(anyhow!("the screen can't be captured now: {message}")),
             Err(e) => {
-                *connection = None; // the manager restarts the helper
+                inner.connection = None; // the manager restarts the helper
                 Err(e).context("lost the session helper")
             }
         }
     }
 
     fn set_indicator(&mut self, monitoring: bool) {
-        self.shared.monitoring.store(monitoring, Ordering::SeqCst);
-        let mut connection = self.shared.connection.lock().unwrap();
-        if let Some(link) = connection.as_mut() {
+        let mut inner = self.shared.inner();
+        inner.monitoring = monitoring;
+        if let Some(link) = inner.connection.as_mut() {
             if let Err(e) = link.set_indicator(monitoring) {
                 log::warn!("couldn't update the tray icon: {e}");
-                *connection = None;
+                inner.connection = None;
             }
         }
         // No helper right now: the manager sends the state when it starts one.
+    }
+}
+
+impl LockTarget for HelperLink {
+    fn set_lock(&mut self, lock: Option<&LockScreen>) {
+        let mut inner = self.shared.inner();
+        inner.lock = lock.cloned();
+        if let Some(link) = inner.connection.as_mut() {
+            if let Err(e) = link.set_lock(lock) {
+                log::warn!("couldn't {} the screen: {e}", if lock.is_some() { "lock" } else { "unlock" });
+                inner.connection = None; // the manager starts a new helper and sends it the lock
+            }
+        }
+        // No helper right now (login screen): the manager sends the lock when it starts one.
     }
 }
 
@@ -137,21 +187,23 @@ fn manage(shared: &Shared) {
     loop {
         let wanted = wts::interactive_session();
         if let Some(h) = &helper {
-            let lost_link = shared.connection.lock().unwrap().is_none();
+            let lost_link = shared.inner().connection.is_none();
             if !h.is_running() || lost_link || Some(h.session) != wanted {
                 log::info!("session helper in session {} stopped or no longer needed", h.session);
                 h.kill();
-                *shared.connection.lock().unwrap() = None;
+                shared.inner().connection = None;
                 helper = None;
             }
         }
         if let (None, Some(session)) = (&helper, wanted) {
             match launch(session) {
                 Ok((h, mut connection)) => {
-                    let monitoring = shared.monitoring.load(Ordering::SeqCst);
-                    if connection.set_indicator(monitoring).is_ok() {
+                    // Under the lock: nobody changes the state while the new helper
+                    // learns it, so it can't miss a change.
+                    let mut inner = shared.inner();
+                    if connection.send_state(&inner).is_ok() {
                         log::info!("session helper running in session {session}");
-                        *shared.connection.lock().unwrap() = Some(connection);
+                        inner.connection = Some(connection);
                         helper = Some(h);
                         last_error.clear();
                     } else {

@@ -249,3 +249,205 @@ async def test_offline_pcs_show_no_user_and_the_list_follows_moves(app, admin, m
     d = (await watch()).json()["devices"][0]
     assert d["online"] is False and d["user"] is None
     assert (await admin.get(f"/api/v1/classroom/rooms/{room['id']}")).json()["devices"][0]["user"] is None
+
+
+# --------------------------------------------------------------------------- screen lock
+
+
+def make_png(width: int = 4, height: int = 3) -> bytes:
+    """A small, valid RGBA PNG (built by hand: the server has no image library)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + b"\x10\x20\x30\xff" * width for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+async def signed_get(agent: FakeAgent, path: str) -> httpx.Response:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    from smp.modules.agent.crypto import signed_message
+    from tests.test_agent import b64url
+
+    headers = agent.headers(path, b"")
+    der = agent.key.sign(signed_message("GET", path, headers["x-smp-time"], b""), ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    headers["x-smp-signature"] = b64url(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+    transport = httpx.ASGITransport(app=agent.app, client=(agent.ip, 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        return await c.get(path, headers=headers)
+
+
+async def lock_of(agent: FakeAgent) -> dict | None:
+    return (await agent.heartbeat()).json()["config"]["classroom"].get("lock")
+
+
+async def test_lock_and_unlock_a_room(app, admin):
+    room, (pc1, pc2) = await setup_room(app, admin)
+    assert await lock_of(pc1) is None  # unlocked PCs get no "lock" key at all
+
+    async with login_as(app, admin, "teacher.l", [{"role": "teacher", "room_id": room["id"]}]) as t:
+        view = (await t.get(f"/api/v1/classroom/rooms/{room['id']}")).json()
+        assert view["can_lock"] is True and view["lock_message"] == ""
+        assert view["lock_default"] == "A számítógépet a tanár zárolta."  # the block page's language: hu
+        assert not any(d["locked"] for d in view["devices"])
+        ids = [d["id"] for d in view["devices"]]
+
+        r = await t.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={"message": "  Figyelj a táblára!\r\n "})
+        assert r.status_code == 200 and sorted(r.json()["locked"]) == sorted(ids)
+        assert await lock_of(pc1) == {"message": "Figyelj a táblára!", "language": "hu", "logo": None}
+        assert (await lock_of(pc2))["message"] == "Figyelj a táblára!"
+        # a lock doesn't need anyone watching: the screen part stays off
+        assert (await pc1.heartbeat()).json()["config"]["classroom"]["active"] is False
+
+        w = (await t.post(f"/api/v1/classroom/rooms/{room['id']}/watch", json={"session": session()})).json()
+        assert all(d["locked"] for d in w["devices"])
+
+        # locking again changes the message; unlocking one leaves the other locked
+        await t.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={"message": "", "device_ids": [ids[1]]})
+        assert (await lock_of(pc2))["message"] == "A számítógépet a tanár zárolta."  # empty: the built-in one
+        r = await t.post(f"/api/v1/classroom/rooms/{room['id']}/unlock", json={"device_ids": [ids[0]]})
+        assert r.json()["locked"] == [ids[1]]
+        assert await lock_of(pc1) is None and await lock_of(pc2) is not None
+
+        r = await t.post(f"/api/v1/classroom/rooms/{room['id']}/unlock", json={})
+        assert r.json()["locked"] == [] and await lock_of(pc2) is None
+
+    entries = (await admin.get("/api/v1/audit", params={"action": "classroom."})).json()
+    locks = [e for e in entries if e["action"] == "classroom.lock"]
+    assert len(locks) == 2 and {"LabA-PC1", "LabA-PC2"} <= set(locks[-1]["details"]["hostnames"])
+    assert locks[-1]["details"]["message"] == "Figyelj a táblára!"
+    assert len([e for e in entries if e["action"] == "classroom.unlock"]) == 2
+
+
+async def test_only_teachers_of_the_room_lock_it(app, admin):
+    room_a, (pc_a,) = await setup_room(app, admin, "Lab A", n=1)
+    room_b, (pc_b,) = await setup_room(app, admin, "Lab B", n=1)
+    b_device = (await admin.get(f"/api/v1/classroom/rooms/{room_b['id']}")).json()["devices"][0]["id"]
+    async with login_as(app, admin, "teacher.b", [{"role": "teacher", "room_id": room_b["id"]}]) as t:
+        r = await t.post(f"/api/v1/classroom/rooms/{room_a['id']}/lock", json={})
+        assert r.status_code == 403 and r.json()["code"] == "permission.missing"
+        assert (await t.post(f"/api/v1/classroom/rooms/{room_a['id']}/unlock", json={})).status_code == 403
+        # a PC of another room can't be named into this room's lock
+        r = await t.post(f"/api/v1/classroom/rooms/{room_b['id']}/lock", json={"device_ids": [str(uuid.uuid4())]})
+        assert r.status_code == 404
+        assert (await t.post(f"/api/v1/classroom/rooms/{room_b['id']}/lock", json={"device_ids": [b_device]})).status_code == 200
+        r = await t.post(f"/api/v1/classroom/rooms/{room_b['id']}/lock", json={"message": "x" * 501})
+        assert r.status_code == 422
+    assert await lock_of(pc_a) is None and await lock_of(pc_b) is not None
+
+
+async def test_a_lock_holds_only_in_its_room(app, admin):
+    room, (pc1,) = await setup_room(app, admin, n=1)
+    other = (await admin.post("/api/v1/rooms", json={"name": "Lab B"})).json()
+    device_id = (await admin.get(f"/api/v1/classroom/rooms/{room['id']}")).json()["devices"][0]["id"]
+    await admin.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={"message": "stop"})
+    assert await lock_of(pc1) is not None
+
+    # the laptop leaves the room: free there; nobody in the other room sees it locked
+    await admin.patch(f"/api/v1/devices/{device_id}", json={"room_id": other["id"]})
+    assert await lock_of(pc1) is None
+    assert not (await admin.get(f"/api/v1/classroom/rooms/{other['id']}")).json()["devices"][0]["locked"]
+    # ...and back before anyone unlocked it: locked again
+    await admin.patch(f"/api/v1/devices/{device_id}", json={"room_id": room["id"]})
+    assert (await lock_of(pc1))["message"] == "stop"
+    # deleting the room frees it for good (no lock without its room)
+    await admin.patch(f"/api/v1/devices/{device_id}", json={"room_id": other["id"]})
+    assert (await admin.delete(f"/api/v1/rooms/{room['id']}")).status_code in (200, 204)
+    assert await lock_of(pc1) is None
+
+
+async def test_locking_wakes_waiting_agents(app, admin, monkeypatch):
+    monkeypatch.setattr(get_settings(), "agent_longpoll_seconds", 5)
+    room, (pc1,) = await setup_room(app, admin, n=1)
+    await pc1.heartbeat()  # has the current config
+
+    async def lock_soon():
+        await asyncio.sleep(0.3)
+        await admin.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={"message": "now"})
+
+    t0 = time.monotonic()
+    r, _ = await asyncio.gather(pc1.heartbeat(wait=True), lock_soon())
+    assert r.json()["config"]["classroom"]["lock"]["message"] == "now" and time.monotonic() - t0 < 3
+
+
+async def test_lock_screen_logo(app, admin):
+    room, (pc1,) = await setup_room(app, admin, n=1)
+    assert (await admin.get("/api/v1/classroom/lock-logo/info")).json() is None
+    assert (await admin.get("/api/v1/classroom/lock-logo")).status_code == 404
+
+    png = make_png(40, 30)
+    up = lambda data: admin.post("/api/v1/classroom/lock-logo", content=data, headers={"content-type": "image/png"})  # noqa: E731
+    r = await up(png)
+    assert r.status_code == 200, r.text
+    info = r.json()
+    assert (info["width"], info["height"], info["size"]) == (40, 30, len(png))
+    assert (await admin.get("/api/v1/classroom/lock-logo/info")).json()["sha256"] == info["sha256"]
+    assert (await admin.get("/api/v1/classroom/lock-logo")).content == png
+
+    # a locked PC's config names the logo by fingerprint; it fetches it with a signed request
+    await admin.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={})
+    logo = (await lock_of(pc1))["logo"]
+    assert logo == {"sha256": info["sha256"], "size": len(png), "url": "/api/v1/classroom/agent/lock-logo"}
+    r = await signed_get(pc1, logo["url"])
+    assert r.status_code == 200 and r.content == png and r.headers["content-type"] == "image/png"
+    stranger = FakeAgent(app, hostname="NOT-APPROVED", mac="aa:bb:cc:ff:ff:ff")
+    assert (await signed_get(stranger, logo["url"])).status_code == 401
+
+    # only PNGs of a sane size
+    for bad in (b"GIF89a" + b"\x00" * 100, png[:-12], make_png(2049, 1), b""):
+        r = await up(bad)
+        assert r.status_code == 422 and r.json()["code"] == "classroom.bad_logo", bad[:10]
+    assert (await up(b"\x89PNG" + b"\x00" * (1024 * 1024 + 1))).status_code == 413
+
+    # teachers lock screens, but don't change the school's logo
+    async with login_as(app, admin, "teacher.logo", [{"role": "teacher", "room_id": room["id"]}]) as t:
+        r = await t.post("/api/v1/classroom/lock-logo", content=png, headers={"content-type": "image/png"})
+        assert r.status_code == 403
+
+    assert (await admin.delete("/api/v1/classroom/lock-logo")).status_code == 204
+    assert (await lock_of(pc1))["logo"] is None  # back to the SMP logo
+    assert (await signed_get(pc1, "/api/v1/classroom/agent/lock-logo")).status_code == 404
+    actions = [e["action"] for e in (await admin.get("/api/v1/audit", params={"action": "classroom.lock_logo."})).json()]
+    assert {"classroom.lock_logo.update", "classroom.lock_logo.delete"} <= set(actions)
+
+
+def test_png_size():
+    from smp.core.errors import AppError
+    from smp.modules.classroom.api import png_size
+
+    assert png_size(make_png(7, 5)) == (7, 5)
+    for bad in (b"", b"\x89PNG\r\n\x1a\n", make_png(1, 1)[:30], make_png(3000, 1)):
+        try:
+            png_size(bad)
+        except AppError as e:
+            assert e.code == "classroom.bad_logo"
+        else:
+            raise AssertionError(f"accepted {bad[:16]!r}")
+
+
+async def test_lock_text_follows_the_block_page_language(app, admin):
+    """No message: the school's suggestion, else the built-in sentence in the block
+    page's language (DNS settings), not each PC's Windows language."""
+    room, (pc1,) = await setup_room(app, admin, n=1)
+    await admin.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={})
+    assert await lock_of(pc1) == {"message": "A számítógépet a tanár zárolta.", "language": "hu", "logo": None}
+
+    assert (await admin.put("/api/v1/modules/dns/settings", json={"block_page_language": "en"})).status_code == 200
+    assert (await lock_of(pc1))["message"] == "This computer was locked by the teacher."
+    assert (await lock_of(pc1))["language"] == "en"
+    assert (await admin.get(f"/api/v1/classroom/rooms/{room['id']}")).json()["lock_default"] == \
+        "This computer was locked by the teacher."
+
+    r = await admin.put("/api/v1/modules/classroom/settings", json={"lock_message": "Kérlek, figyelj!"})
+    assert r.status_code == 200
+    assert (await lock_of(pc1))["message"] == "Kérlek, figyelj!"
+    # a teacher's own text wins
+    await admin.post(f"/api/v1/classroom/rooms/{room['id']}/lock", json={"message": "Szünet!"})
+    assert (await lock_of(pc1))["message"] == "Szünet!"

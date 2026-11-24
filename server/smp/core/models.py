@@ -258,7 +258,8 @@ class Schedule(UUIDPk, Timestamps, OrgScoped, Base):
 class Policy(UUIDPk, Timestamps, OrgScoped, Base):
     """A named bundle of settings for one module ("kind" = module name).
     The module validates `data` with its policy_model, e.g. a 'dns' policy holds
-    blocked categories, a 'software' policy holds the desired package set."""
+    blocked categories, a 'classroom' policy the monitoring frame rate. (Software has
+    its own admin-only assignments instead: see smp/modules/software/__init__.py.)"""
 
     __tablename__ = "policies"
     __table_args__ = (UniqueConstraint("org_id", "kind", "name"),)
@@ -279,7 +280,7 @@ class TargetType(enum.StrEnum):
 
 class PolicyAssignment(UUIDPk, Timestamps, OrgScoped, Base):
     """Applies a policy to a target, optionally only during a schedule and/or a fixed
-    time range. "Exam mode" for a room = several assignments (dns, classroom, software)
+    time range. "Exam mode" for a room = several assignments (dns, classroom, ...)
     with the same label, a high priority and an ends_at."""
 
     __tablename__ = "policy_assignments"

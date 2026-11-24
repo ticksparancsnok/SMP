@@ -1213,6 +1213,248 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/classroom/rooms/{room_id}/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lock Screens
+         * @description Lock the room's computers (or `device_ids`): they show `message` with the school's
+         *     logo and block keyboard and mouse until unlocked. Locking a locked one again changes
+         *     its message. Stays until someone unlocks it (also across server restarts), while
+         *     the computer is in this room.
+         */
+        post: operations["lock_screens_api_v1_classroom_rooms__room_id__lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/rooms/{room_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlock Screens */
+        post: operations["unlock_screens_api_v1_classroom_rooms__room_id__unlock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/lock-logo/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lock Logo Info
+         * @description The school's lock screen logo, or null: locked screens show the SMP logo.
+         */
+        get: operations["lock_logo_info_api_v1_classroom_lock_logo_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/classroom/lock-logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lock Logo */
+        get: operations["get_lock_logo_api_v1_classroom_lock_logo_get"];
+        put?: never;
+        /**
+         * Upload Lock Logo
+         * @description Replace the logo on locked screens (raw PNG body, at most 1 MB and 2048x2048).
+         *     Locked computers switch to it right away.
+         */
+        post: operations["upload_lock_logo_api_v1_classroom_lock_logo_post"];
+        /**
+         * Delete Lock Logo
+         * @description Back to the SMP logo on locked screens.
+         */
+        delete: operations["delete_lock_logo_api_v1_classroom_lock_logo_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload
+         * @description The installer file as the raw request body (not a form). Stored once per content.
+         */
+        post: operations["upload_api_v1_software_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Packages */
+        get: operations["list_packages_api_v1_software_packages_get"];
+        put?: never;
+        /** Create Package */
+        post: operations["create_package_api_v1_software_packages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/packages/{package_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Package */
+        get: operations["get_package_api_v1_software_packages__package_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Package */
+        delete: operations["delete_package_api_v1_software_packages__package_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Package */
+        patch: operations["update_package_api_v1_software_packages__package_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/software/packages/{package_id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Assignments
+         * @description Teachers see the school-wide ones and those for their rooms and their computers.
+         */
+        get: operations["list_assignments_api_v1_software_packages__package_id__assignments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Assignment */
+        post: operations["create_assignment_api_v1_software_assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/assignments/{assignment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Assignment
+         * @description The program stays where it is installed (assign "remove" to uninstall it).
+         */
+        delete: operations["delete_assignment_api_v1_software_assignments__assignment_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Assignment */
+        patch: operations["update_assignment_api_v1_software_assignments__assignment_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/software/packages/{package_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Package Devices
+         * @description Every computer (that the caller can see) this package is assigned to or that has
+         *     reported about it, by hostname.
+         */
+        get: operations["package_devices_api_v1_software_packages__package_id__devices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/software/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Device Packages
+         * @description One computer: the packages assigned to it or that it reported about.
+         */
+        get: operations["device_packages_api_v1_software_devices__device_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1502,6 +1744,20 @@ export interface components {
             active: boolean;
             /** Inactivereason */
             inactiveReason?: string | null;
+        };
+        /**
+         * FileDetection
+         * @description Installed = this file exists. %ProgramFiles%, %ProgramFiles(x86)%, %SystemRoot%
+         *     and the like are expanded on the computer.
+         */
+        FileDetection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "file";
+            /** Path */
+            path: string;
         };
         /** FrameInfo */
         FrameInfo: {
@@ -1821,6 +2077,21 @@ export interface components {
             /** Disabled */
             disabled?: boolean | null;
         };
+        /** LockIn */
+        LockIn: {
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Device Ids */
+            device_ids?: string[] | null;
+        };
+        /** LockOut */
+        LockOut: {
+            /** Locked */
+            locked: string[];
+        };
         /** LoginIn */
         LoginIn: {
             /** Username */
@@ -1829,6 +2100,22 @@ export interface components {
             password: string;
             /** Org */
             org?: string | null;
+        };
+        /** LogoInfo */
+        LogoInfo: {
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** MeOut */
         MeOut: {
@@ -1883,6 +2170,20 @@ export interface components {
             username: string;
             /** Display Name */
             display_name: string;
+        };
+        /**
+         * MsiDetection
+         * @description Installed = Windows Installer knows the product code. Without one, the agent
+         *     reads it from the .msi file itself. Only for .msi packages.
+         */
+        MsiDetection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "msi";
+            /** Product Code */
+            product_code?: string | null;
         };
         /** Page[DeviceOut] */
         Page_DeviceOut_: {
@@ -2016,6 +2317,25 @@ export interface components {
             locale?: ("hu" | "en") | null;
         };
         /**
+         * RegistryDetection
+         * @description Installed = this key exists under HKEY_LOCAL_MACHINE (the agent looks in the 64-
+         *     and the 32-bit view). With `value`: that value exists in it; with `equals` too: its
+         *     data is exactly that (e.g. DisplayVersion = 24.08, so a new version reinstalls).
+         */
+        RegistryDetection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "registry";
+            /** Key */
+            key: string;
+            /** Value */
+            value?: string | null;
+            /** Equals */
+            equals?: string | null;
+        };
+        /**
          * Role
          * @enum {string}
          */
@@ -2113,6 +2433,12 @@ export interface components {
             devices: components["schemas"]["ScreenDevice"][];
             /** Can Edit Layout */
             can_edit_layout: boolean;
+            /** Can Lock */
+            can_lock: boolean;
+            /** Lock Message */
+            lock_message: string;
+            /** Lock Default */
+            lock_default: string;
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -2166,6 +2492,283 @@ export interface components {
             user: string | null;
             /** Online */
             online: boolean;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
+        };
+        /** SoftwareAssignmentIn */
+        SoftwareAssignmentIn: {
+            /**
+             * Package Id
+             * Format: uuid
+             */
+            package_id: string;
+            /**
+             * Target Type
+             * @enum {string}
+             */
+            target_type: "org" | "room" | "device";
+            /** Target Id */
+            target_id?: string | null;
+            /**
+             * Action
+             * @default install
+             * @enum {string}
+             */
+            action: "install" | "remove";
+        };
+        /** SoftwareAssignmentOut */
+        SoftwareAssignmentOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Package Id
+             * Format: uuid
+             */
+            package_id: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: string | null;
+            /** Target Name */
+            target_name: string | null;
+            /** Action */
+            action: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** SoftwareAssignmentUpdate */
+        SoftwareAssignmentUpdate: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "install" | "remove";
+        };
+        /** SoftwareDeviceStateOut */
+        SoftwareDeviceStateOut: {
+            /**
+             * Device Id
+             * Format: uuid
+             */
+            device_id: string;
+            /** Hostname */
+            hostname: string;
+            /** Room Id */
+            room_id: string | null;
+            /** Room Name */
+            room_name: string | null;
+            /** Online */
+            online: boolean;
+            /** Action */
+            action: string | null;
+            /** State */
+            state: string | null;
+            /** Exit Code */
+            exit_code?: number | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** SoftwarePackageIn */
+        SoftwarePackageIn: {
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Version
+             * @default
+             */
+            version: string;
+            /**
+             * Publisher
+             * @default
+             */
+            publisher: string;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
+             * Install Args
+             * @default
+             */
+            install_args: string;
+            /**
+             * Uninstall Command
+             * @default
+             */
+            uninstall_command: string;
+            /** Detection */
+            detection?: (components["schemas"]["MsiDetection"] | components["schemas"]["RegistryDetection"] | components["schemas"]["FileDetection"]) | null;
+            /**
+             * Reboot
+             * @default never
+             * @enum {string}
+             */
+            reboot: "never" | "if_required" | "always";
+            /** Success Codes */
+            success_codes?: number[];
+            /**
+             * Timeout S
+             * @default 3600
+             */
+            timeout_s: number;
+        };
+        /** SoftwarePackageOut */
+        SoftwarePackageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Publisher */
+            publisher: string;
+            /** Notes */
+            notes: string;
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Kind */
+            kind: string;
+            /** File Name */
+            file_name: string;
+            /** Size */
+            size: number;
+            /** Sha256 */
+            sha256: string;
+            /** Install Args */
+            install_args: string;
+            /** Uninstall Command */
+            uninstall_command: string;
+            /** Detection */
+            detection: {
+                [key: string]: unknown;
+            };
+            /** Reboot */
+            reboot: string;
+            /** Success Codes */
+            success_codes: number[];
+            /** Timeout S */
+            timeout_s: number;
+            /** Removable */
+            removable: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Assignments
+             * @default 0
+             */
+            assignments: number;
+            /**
+             * Counts
+             * @default {}
+             */
+            counts: {
+                [key: string]: number;
+            };
+        };
+        /** SoftwarePackageStateOut */
+        SoftwarePackageStateOut: {
+            /**
+             * Package Id
+             * Format: uuid
+             */
+            package_id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Action */
+            action: string | null;
+            /** State */
+            state: string | null;
+            /** Exit Code */
+            exit_code?: number | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** SoftwarePackageUpdate */
+        SoftwarePackageUpdate: {
+            /** Upload Id */
+            upload_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Version */
+            version?: string | null;
+            /** Publisher */
+            publisher?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Install Args */
+            install_args?: string | null;
+            /** Uninstall Command */
+            uninstall_command?: string | null;
+            /** Detection */
+            detection?: (components["schemas"]["MsiDetection"] | components["schemas"]["RegistryDetection"] | components["schemas"]["FileDetection"]) | null;
+            /** Reboot */
+            reboot?: ("never" | "if_required" | "always") | null;
+            /** Success Codes */
+            success_codes?: number[] | null;
+            /** Timeout S */
+            timeout_s?: number | null;
+        };
+        /** SoftwareUploadOut */
+        SoftwareUploadOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** File Name */
+            file_name: string;
+            /** Size */
+            size: number;
+            /** Sha256 */
+            sha256: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** SyncStatusOut */
         SyncStatusOut: {
@@ -2252,6 +2855,11 @@ export interface components {
             last_used_at: string | null;
             /** Revoked At */
             revoked_at: string | null;
+        };
+        /** UnlockIn */
+        UnlockIn: {
+            /** Device Ids */
+            device_ids?: string[] | null;
         };
         /** UserCreate */
         UserCreate: {
@@ -2404,6 +3012,11 @@ export interface components {
             user: string | null;
             /** Online */
             online: boolean;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
             thumb: components["schemas"]["FrameInfo"] | null;
             detail: components["schemas"]["FrameInfo"] | null;
         };
@@ -5226,6 +5839,529 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LayoutModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lock_screens_api_v1_classroom_rooms__room_id__lock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LockIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlock_screens_api_v1_classroom_rooms__room_id__unlock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lock_logo_info_api_v1_classroom_lock_logo_info_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoInfo"] | null;
+                };
+            };
+        };
+    };
+    get_lock_logo_api_v1_classroom_lock_logo_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "image/png": unknown;
+                };
+            };
+        };
+    };
+    upload_lock_logo_api_v1_classroom_lock_logo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "image/png": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoInfo"];
+                };
+            };
+        };
+    };
+    delete_lock_logo_api_v1_classroom_lock_logo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    upload_api_v1_software_uploads_post: {
+        parameters: {
+            query: {
+                /** @description the installer's file name (.msi or .exe) */
+                filename: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareUploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_packages_api_v1_software_packages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwarePackageOut"][];
+                };
+            };
+        };
+    };
+    create_package_api_v1_software_packages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SoftwarePackageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwarePackageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_package_api_v1_software_packages__package_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwarePackageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_package_api_v1_software_packages__package_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_package_api_v1_software_packages__package_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SoftwarePackageUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwarePackageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_assignments_api_v1_software_packages__package_id__assignments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareAssignmentOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_assignment_api_v1_software_assignments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SoftwareAssignmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareAssignmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_assignment_api_v1_software_assignments__assignment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_assignment_api_v1_software_assignments__assignment_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SoftwareAssignmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareAssignmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    package_devices_api_v1_software_packages__package_id__devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareDeviceStateOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_packages_api_v1_software_devices__device_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwarePackageStateOut"][];
                 };
             };
             /** @description Validation Error */

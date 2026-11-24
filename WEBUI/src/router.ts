@@ -33,6 +33,11 @@ const router = createRouter({
       meta: { perm: 'classroom.screens.view' },
     },
     {
+      path: '/software',
+      component: () => import('./views/SoftwareView.vue'),
+      meta: { perm: 'software.status.read' },
+    },
+    {
       path: '/dns',
       component: () => import('./views/DnsView.vue'),
       meta: { perm: 'dns.blocklist.read' },

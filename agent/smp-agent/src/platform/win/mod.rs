@@ -15,15 +15,22 @@
 //!   helper.rs    The helper: grabs the screen when asked (capture.rs) and always
 //!                shows the SMP tray icon (tray.rs): grey = agent running,
 //!                coloured = a teacher is watching. The icon is the GDPR notice.
+//!                It also shows the lock screen when a teacher locks the computer
+//!                (lock_window.rs, with keyboard and mouse blocked by input_block.rs).
 //!   tray_visibility.rs  keeps that icon on the taskbar (not in the "^" overflow)
 //!   wts.rs       Windows sessions: which one is active, who is logged in, starting
 //!                a process in it.
 //!   security.rs  DPAPI for the key file, and file permissions (SYSTEM + admins only).
+//!   software.rs  installing software for capabilities/software: msiexec, detection
+//!                rules (Windows Installer, registry), restarts (shutdown.exe).
 
 mod capture;
 pub mod helper;
+mod input_block;
+mod lock_window;
 mod security;
 mod session;
+mod software;
 pub mod service;
 mod tray;
 mod tray_visibility;
@@ -35,6 +42,9 @@ use std::path::{Path, PathBuf};
 use windows::core::HSTRING;
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ};
 
+use windows::Win32::Globalization::GetSystemDefaultUILanguage;
+
+use crate::capabilities::lock::LockTarget;
 use crate::capabilities::screen::source::ScreenSource;
 
 pub use security::{protect, restrict_file, unprotect};
@@ -126,6 +136,24 @@ pub fn console_user() -> Option<String> {
 /// also puts the tray icon on the screen, whether or not anyone ever watches.
 pub fn screen_source() -> Box<dyn ScreenSource> {
     Box::new(session::start())
+}
+
+/// The screen lock is shown by the same session helper (the same one helper: the
+/// manager thread is started only once).
+pub fn lock_target() -> Box<dyn LockTarget> {
+    Box::new(session::start())
+}
+
+/// Installing and removing programs (capabilities/software): msiexec, the registry, shutdown.exe.
+pub fn software_installer() -> Box<dyn crate::capabilities::software::Installer> {
+    Box::new(software::WindowsInstaller)
+}
+
+/// Is Windows' display language Hungarian? (The tray tooltip is Hungarian or English;
+/// the lock screen follows SMP's block page language instead, see capabilities/lock.)
+pub fn system_language_is_hungarian() -> bool {
+    // SAFETY: plain query.
+    unsafe { GetSystemDefaultUILanguage() & 0x3FF == 0x0E } // LANG_HUNGARIAN
 }
 
 const CURRENT_VERSION: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";

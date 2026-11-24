@@ -20,7 +20,6 @@ use std::sync::mpsc;
 use anyhow::{anyhow, Context, Result};
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Globalization::GetSystemDefaultUILanguage;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, NOTIFY_ICON_MESSAGE,
@@ -153,7 +152,7 @@ fn create_window() -> Result<HWND> {
         // We run as SYSTEM; let Explorer (the user's, lower privilege) reach us.
         let _ = ChangeWindowMessageFilterEx(window, taskbar_created, MSGFLT_ALLOW, None);
 
-        let hungarian = GetSystemDefaultUILanguage() & 0x3FF == 0x0E; // LANG_HUNGARIAN
+        let hungarian = super::system_language_is_hungarian();
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
                 monitoring: false,

@@ -7,6 +7,7 @@
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { api, errorText } from '../api/client'
 import type { Token, TokenCreated } from '../api/types'
+import LockLogoSettings from '../components/LockLogoSettings.vue'
 import Pager from '../components/Pager.vue'
 import SchemaForm from '../components/SchemaForm.vue'
 import { fmtDate, fmtRelative, fromLocalInput, moduleTitle } from '../format'
@@ -95,6 +96,8 @@ async function revoke(token: Token) {
       <div v-if="status[m.name]" class="alert" :class="status[m.name]!.ok ? 'ok' : 'err'">{{ status[m.name]!.text }}</div>
       <SchemaForm v-if="values[m.name]" v-model="values[m.name]!" :schema="m.settings_schema!" :disabled="!canWrite" :i18n-prefix="`settings.${m.name}`" />
       <div v-if="canWrite"><button>{{ t('common.save') }}</button></div>
+      <!-- not a setting field: its own upload, saved at once (the buttons don't submit this form) -->
+      <LockLogoSettings v-if="m.name === 'classroom'" :disabled="!canWrite" />
     </form>
   </div>
 

@@ -10,6 +10,10 @@
 // every few seconds, and only then do the room's PCs send screens (thumbnails; full
 // size only for the one enlarged). Hidden tab / leaving the page stops watching at
 // once, so PCs stop sending and the server drops the frames (it keeps none).
+//
+// Screen lock: teachers lock the whole room or single PCs with a message; the PCs show
+// it with the school's logo and block keyboard and mouse until unlocked. Unlike
+// watching, a lock stays when this page closes (it's stored on the server).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ApiError, api, errorText } from '../api/client'
 import type {
@@ -17,6 +21,7 @@ import type {
   ClassroomRoom,
   ClassroomRoomView,
   FrameInfo,
+  LockOut,
   ScreenDevice,
   WatchDevice,
   WatchOut,
@@ -192,6 +197,61 @@ function closeEnlarged() {
   tick()
 }
 
+// ---------------------------------------------------------------- screen lock
+const lockTarget = ref<{ device: ScreenDevice | null } | null>(null) // device null: the whole room
+const lockMessage = ref('')
+const lockError = ref('')
+const lockBusy = ref(false)
+
+function isLocked(d: ScreenDevice): boolean {
+  return (live.value[d.id] ?? d).locked
+}
+const lockedCount = computed(() => devices.value.filter(isLocked).length)
+
+function openLock(device: ScreenDevice | null) {
+  lockMessage.value = view.value?.lock_message ?? '' // the school's suggestion (settings)
+  lockError.value = ''
+  lockTarget.value = { device }
+}
+
+/** Show the server's answer at once, without waiting for the next keep-alive. */
+function showLocked(out: LockOut) {
+  const locked = new Set(out.locked)
+  for (const d of [...(view.value?.devices ?? []), ...Object.values(live.value)]) d.locked = locked.has(d.id)
+}
+
+async function lock() {
+  if (!lockTarget.value) return
+  const device = lockTarget.value.device
+  lockBusy.value = true
+  try {
+    showLocked(await api.post<LockOut>(`/classroom/rooms/${roomId.value}/lock`, {
+      message: lockMessage.value,
+      device_ids: device ? [device.id] : null,
+    }))
+    lockTarget.value = null
+  } catch (e) {
+    lockError.value = errorText(e)
+  } finally {
+    lockBusy.value = false
+  }
+}
+
+async function unlock(device: ScreenDevice | null) {
+  try {
+    showLocked(await api.post<LockOut>(`/classroom/rooms/${roomId.value}/unlock`, {
+      device_ids: device ? [device.id] : null,
+    }))
+  } catch (e) {
+    error.value = errorText(e)
+  }
+}
+
+function toggleLock(d: ScreenDevice) {
+  if (isLocked(d)) unlock(d)
+  else openLock(d)
+}
+
 // ---------------------------------------------------------------- seating plan editor
 const editing = ref(false)
 const draft = reactive<ClassroomLayout>({ mode: 'auto', rows: 4, cols: 6, positions: {} })
@@ -290,7 +350,12 @@ async function setMode(mode: 'auto' | 'grid') {
       <span v-else-if="status" class="badge ok" :title="t('classroom.privacy_note')">
         ● {{ t('classroom.live', { seconds: status.interval_s }) }}
       </span>
+      <span v-if="lockedCount" class="badge warning">{{ t('classroom.locked_count', { count: lockedCount }) }}</span>
       <span class="grow"></span>
+      <template v-if="!editing && view.can_lock && devices.length">
+        <button class="small" @click="openLock(null)">{{ t('classroom.lock_all') }}</button>
+        <button v-if="lockedCount" class="ghost small" @click="unlock(null)">{{ t('classroom.unlock_all') }}</button>
+      </template>
       <template v-if="!editing">
         <div class="segmented">
           <button class="ghost small" :class="{ active: view.layout.mode === 'auto' }" :disabled="!view.can_edit_layout"
@@ -334,11 +399,15 @@ async function setMode(mode: 'auto' | 'grid') {
                      :src="frameUrl(cellDevice(r - 1, c - 1)!.id, 'thumb', live[cellDevice(r - 1, c - 1)!.id]!.thumb!)"
                      :class="{ stale: isStale(live[cellDevice(r - 1, c - 1)!.id]!.thumb!) }" alt="" />
                 <span v-else class="placeholder">{{ isOnline(cellDevice(r - 1, c - 1)!) ? '…' : t('classroom.offline') }}</span>
+                <span v-if="isLocked(cellDevice(r - 1, c - 1)!)" class="lock-badge" :title="t('classroom.locked')">🔒</span>
               </div>
               <figcaption>
                 <strong class="mono">{{ cellDevice(r - 1, c - 1)!.hostname }}</strong>
                 <span class="muted">👤 {{ userOf(cellDevice(r - 1, c - 1)!) ?? '–' }}</span>
                 <button v-if="editing" class="ghost small" @click.stop="unplace(cellDevice(r - 1, c - 1)!.id)">✕</button>
+                <button v-else-if="view.can_lock" class="ghost small lock-toggle"
+                        :title="isLocked(cellDevice(r - 1, c - 1)!) ? t('classroom.unlock') : t('classroom.lock')"
+                        @click.stop="toggleLock(cellDevice(r - 1, c - 1)!)">{{ isLocked(cellDevice(r - 1, c - 1)!) ? '🔓' : '🔒' }}</button>
               </figcaption>
             </figure>
           </template>
@@ -360,10 +429,14 @@ async function setMode(mode: 'auto' | 'grid') {
             <img v-if="live[d.id]?.thumb" draggable="false" :src="frameUrl(d.id, 'thumb', live[d.id]!.thumb!)"
                  :class="{ stale: isStale(live[d.id]!.thumb!) }" alt="" />
             <span v-else class="placeholder">{{ isOnline(d) ? '…' : t('classroom.offline') }}</span>
+            <span v-if="isLocked(d)" class="lock-badge" :title="t('classroom.locked')">🔒</span>
           </div>
           <figcaption>
             <strong class="mono">{{ d.hostname }}</strong>
             <span class="muted">👤 {{ userOf(d) ?? '–' }}</span>
+            <button v-if="view.can_lock && !editing" class="ghost small lock-toggle"
+                    :title="isLocked(d) ? t('classroom.unlock') : t('classroom.lock')"
+                    @click.stop="toggleLock(d)">{{ isLocked(d) ? '🔓' : '🔒' }}</button>
           </figcaption>
         </figure>
       </div>
@@ -376,10 +449,39 @@ async function setMode(mode: 'auto' | 'grid') {
       <img v-else-if="live[enlarged.id]?.thumb" :src="frameUrl(enlarged.id, 'thumb', live[enlarged.id]!.thumb!)" alt="" />
       <span v-else class="placeholder">…</span>
     </div>
-    <p class="muted small" style="margin: 8px 0 0">
-      👤 {{ userOf(enlarged) ?? t('classroom.nobody') }}
-      <template v-if="live[enlarged.id]?.detail"> · {{ fmtRelative(new Date(Date.now() - live[enlarged.id]!.detail!.age_s * 1000).toISOString()) }}</template>
-    </p>
+    <div class="spread" style="margin: 8px 0 0">
+      <p class="muted small" style="margin: 0">
+        👤 {{ userOf(enlarged) ?? t('classroom.nobody') }}
+        <template v-if="live[enlarged.id]?.detail"> · {{ fmtRelative(new Date(Date.now() - live[enlarged.id]!.detail!.age_s * 1000).toISOString()) }}</template>
+        <template v-if="isLocked(enlarged)"> · 🔒 {{ t('classroom.locked') }}</template>
+      </p>
+      <button v-if="view?.can_lock" class="small" :class="{ ghost: isLocked(enlarged) }" @click="toggleLock(enlarged)">
+        {{ isLocked(enlarged) ? t('classroom.unlock') : t('classroom.lock') }}
+      </button>
+    </div>
+  </Modal>
+
+  <Modal v-if="lockTarget" :title="lockTarget.device
+           ? t('classroom.lock_title_one', { hostname: lockTarget.device.hostname })
+           : t('classroom.lock_title_room', { room: view?.name ?? '' })" @close="lockTarget = null">
+    <form class="stack" @submit.prevent="lock">
+      <div v-if="lockError" class="alert err">{{ lockError }}</div>
+      <div class="field">
+        <label>{{ t('classroom.lock_message') }}</label>
+        <!-- lock_default: what the PCs show without a text, in the school's block page
+             language (not this browser's): the server decides it -->
+        <textarea v-model="lockMessage" maxlength="500" rows="3" autofocus
+                  :placeholder="view?.lock_default"></textarea>
+        <span v-if="!lockMessage.trim()" class="muted small">
+          {{ t('classroom.lock_default_hint', { text: view?.lock_default ?? '' }) }}
+        </span>
+      </div>
+      <p class="muted small" style="margin: 0">{{ t('classroom.lock_hint') }}</p>
+      <div class="actions">
+        <button type="button" class="ghost" @click="lockTarget = null">{{ t('common.cancel') }}</button>
+        <button :disabled="lockBusy">🔒 {{ t('classroom.lock') }}</button>
+      </div>
+    </form>
   </Modal>
 </template>
 
@@ -435,11 +537,25 @@ async function setMode(mode: 'auto' | 'grid') {
   opacity: 0.5;
 }
 .shot {
+  position: relative; /* for the lock badge */
   background: #000;
   display: grid;
   place-items: center;
   width: 100%;
   overflow: hidden;
+}
+.lock-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.65);
+  font-size: 14px;
+  line-height: 1.3;
+}
+.lock-toggle {
+  padding: 0 6px;
 }
 .shot img {
   width: 100%;

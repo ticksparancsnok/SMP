@@ -4,7 +4,7 @@ One platform for managing school computers: DNS-based site blocking with automat
 
 - `server/`: control plane (Python, FastAPI): core + modules. See [server/README.md](server/README.md)
 - `WEBUI/`: web interface (Vue 3 + TypeScript). See [WEBUI/readme.md](WEBUI/readme.md)
-- `agent/`: the program on the school's Windows 10/11 computers (Rust): screen monitoring, later lock and software. See [agent/README.md](agent/README.md)
+- `agent/`: the program on the school's Windows 10/11 computers (Rust): screen monitoring, screen lock, software installation. See [agent/README.md](agent/README.md)
 - `docs/architecture.md`: design decisions, domain model, policy resolution, permissions
 - `docs/writing-a-module.md`: how to add a service module (backend + UI page)
 - `docs/security.md`: operator checklist (secret key, reverse proxy, rate limits) and security review decisions
@@ -88,6 +88,13 @@ icon all the time, in colour while their screen is being viewed. After that firs
 install the agents update themselves to the version SMP offers (it comes with every SMP
 update; **Settings → Device agents** can switch it off), and reconnect by themselves
 when SMP was away. See [agent/README.md](agent/README.md).
+
+**Software.** In **Software deployment**, admins upload a program's installer (`.msi` or
+`.exe`, kept on the server's `softwaredata` volume) with its silent-install arguments,
+how to recognise it as installed, how to remove it and whether to restart afterwards,
+then assign it to the whole school, a room or one computer. The PCs install it by
+themselves (a few download at once, so a 100 Mbps network isn't flooded) and SMP shows
+each computer's state; teachers see their rooms'. Only a "remove" assignment uninstalls.
 
 ## License
 

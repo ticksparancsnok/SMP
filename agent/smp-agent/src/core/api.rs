@@ -12,7 +12,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,9 @@ use crate::core::tls::{client_config, PinningVerifier};
 
 /// [agent] version of Version.toml in the repository root, compiled in by build.rs.
 pub const AGENT_VERSION: &str = env!("SMP_AGENT_VERSION");
+
+/// Only answers that came back within this tell us the server's time (see `clock_offset`).
+const CLOCK_ANSWER_WITHIN: Duration = Duration::from_secs(3);
 
 /// Which build of the agent this is; the server offers updates for it (heartbeat).
 #[cfg(all(windows, target_arch = "x86_64"))]
@@ -39,7 +42,8 @@ pub enum ApiError {
     /// The server doesn't accept this device (not approved, reset, or a bad signature).
     Unauthorized,
     /// The server answered with an error; `code` is SMP's error code (e.g. "classroom.not_watched").
-    Http { status: u16, code: Option<String>, message: String },
+    /// `retry_after`: seconds, when the server said when to come back (e.g. "software.busy").
+    Http { status: u16, code: Option<String>, message: String, retry_after: Option<u64> },
     /// Couldn't reach the server (network down, DNS, TLS, timeout, ...).
     Transport(String),
 }
@@ -234,6 +238,105 @@ impl Client {
         Ok((size, hex(&hasher.finalize())))
     }
 
+    /// A small file only approved devices may fetch (e.g. the lock screen's logo): a
+    /// signed GET, at most `max_bytes`. Unlike `download` it's held in memory.
+    pub fn get_bytes(&self, path: &str, max_bytes: u64) -> Result<Vec<u8>, ApiError> {
+        let resp = self.send("GET", path, "application/octet-stream", &[], &[], Duration::from_secs(60))?;
+        let mut bytes = Vec::new();
+        resp.into_reader()
+            .take(max_bytes + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| ApiError::Transport(format!("reading {path}: {e}")))?;
+        if bytes.len() as u64 > max_bytes {
+            return Err(ApiError::Transport(format!("{path} is larger than {max_bytes} bytes")));
+        }
+        Ok(bytes)
+    }
+
+    /// Download a large file only approved devices may fetch (a software installer) to
+    /// `dest`, a signed GET. If `dest` already holds the start of it (an earlier attempt
+    /// was cut off), only the rest is asked for (Range) and appended. Returns the whole
+    /// file's size and SHA-256 (hex); the caller compares them with what the server
+    /// announced. At most `max_bytes`.
+    ///
+    /// No overall time limit that a slow network could hit: a stalled connection fails
+    /// after `STALL` without data, and the next attempt continues where this one stopped.
+    pub fn download_resumable(&self, path: &str, dest: &Path, max_bytes: u64) -> Result<(u64, String), ApiError> {
+        const STALL: Duration = Duration::from_secs(60);
+        let io = |what: &str, e: std::io::Error| ApiError::Transport(format!("{what} {}: {e}", dest.display()));
+        // What we already have: hash it again (the hash can't be saved halfway).
+        let (mut hasher, mut have) = (Sha256::new(), 0u64);
+        if let Ok(mut f) = std::fs::File::open(dest) {
+            let mut buf = vec![0u8; 256 * 1024];
+            loop {
+                let n = f.read(&mut buf).map_err(|e| io("reading", e))?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buf[..n]);
+                have += n as u64;
+            }
+        }
+        if have >= max_bytes {
+            // Complete already (the agent stopped between downloading and using it):
+            // nothing to ask for; the caller checks the hash as always.
+            return Ok((have, hex(&hasher.finalize())));
+        }
+        let range = (have > 0).then(|| ("range", format!("bytes={have}-")));
+        let resp = self.send_with_stall_timeout("GET", path, range.as_slice(), STALL)?;
+        let mut file = if resp.status() == 206 {
+            std::fs::OpenOptions::new().append(true).open(dest).map_err(|e| io("opening", e))?
+        } else {
+            // A whole file (no range asked, or the server ignored it): start over.
+            (hasher, have) = (Sha256::new(), 0);
+            std::fs::File::create(dest).map_err(|e| io("creating", e))?
+        };
+        let mut reader = resp.into_reader().take(max_bytes.saturating_sub(have) + 1);
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| ApiError::Transport(format!("the download was interrupted: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            have += n as u64;
+            if have > max_bytes {
+                return Err(ApiError::Transport(format!("{path} is larger than the {max_bytes} bytes expected")));
+            }
+            hasher.update(&buf[..n]);
+            file.write_all(&buf[..n]).map_err(|e| io("writing", e))?;
+        }
+        file.sync_all().map_err(|e| io("writing", e))?;
+        Ok((have, hex(&hasher.finalize())))
+    }
+
+    /// A signed request whose answer may take long to read (a big download): instead of
+    /// one deadline for the whole request, each read may wait at most `stall`.
+    fn send_with_stall_timeout(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, String)],
+        stall: Duration,
+    ) -> Result<ureq::Response, ApiError> {
+        // ureq's per-request timeout covers the whole body; a separate agent with a
+        // read timeout (same TLS settings and pin) only limits the pauses.
+        let http = ureq::AgentBuilder::new()
+            .tls_config(client_config(self.verifier.clone()))
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(stall)
+            .timeout_write(stall)
+            .user_agent(&format!("smp-agent/{AGENT_VERSION}"))
+            .build();
+        self.send_on(&http, method, path, "application/octet-stream", headers, &[], None)
+    }
+
+    /// A signed JSON POST the server answers without a body (204), e.g. status reports.
+    pub fn post_no_answer<B: Serialize>(&self, path: &str, body: &B) -> Result<(), ApiError> {
+        let raw = serde_json::to_vec(body).map_err(|e| ApiError::Transport(e.to_string()))?;
+        self.send("POST", path, "application/json", &[], &raw, Duration::from_secs(30))?;
+        Ok(())
+    }
+
     fn post<B: Serialize, R: DeserializeOwned>(&self, path: &str, body: &B, timeout: Duration) -> Result<R, ApiError> {
         let raw = serde_json::to_vec(body).map_err(|e| ApiError::Transport(e.to_string()))?;
         let resp = self.send("POST", path, "application/json", &[], &raw, timeout)?;
@@ -250,28 +353,49 @@ impl Client {
         body: &[u8],
         timeout: Duration,
     ) -> Result<ureq::Response, ApiError> {
+        let http = self.http.read().unwrap().clone(); // a cheap handle to the pool
+        self.send_on(&http, method, path, content_type, headers, body, Some(timeout))
+    }
+
+    /// `send` with a given ureq agent; `timeout`: for the whole request (None: the
+    /// agent's own read/write timeouts only).
+    #[allow(clippy::too_many_arguments)]
+    fn send_on(
+        &self,
+        http: &ureq::Agent,
+        method: &str,
+        path: &str,
+        content_type: &str,
+        headers: &[(&str, String)],
+        body: &[u8],
+        timeout: Option<Duration>,
+    ) -> Result<ureq::Response, ApiError> {
         for attempt in 0..2 {
             let offset_used = self.clock_offset.load(Ordering::Relaxed);
             let ts = unix_now() + offset_used;
-            let http = self.http.read().unwrap().clone(); // a cheap handle to the pool
+            let started = Instant::now();
             let mut request = http
                 .request(method, &format!("{}{}", self.server, path))
-                .timeout(timeout)
                 .set("content-type", content_type)
                 .set("x-smp-key", &self.identity.fingerprint())
                 .set("x-smp-time", &ts.to_string())
                 .set("x-smp-signature", &self.identity.sign(method, path, ts, body));
+            if let Some(timeout) = timeout {
+                request = request.timeout(timeout);
+            }
             for (name, value) in headers {
                 request = request.set(name, value);
             }
-            match request.send_bytes(body) {
+            // A GET has no body (an empty one is still what's signed).
+            let sent = if method == "GET" { request.call() } else { request.send_bytes(body) };
+            match sent {
                 Ok(resp) => {
-                    self.learn_clock(resp.header("date"));
+                    self.learn_clock(resp.header("date"), started.elapsed());
                     return Ok(resp);
                 }
                 Err(ureq::Error::Status(401, resp)) => {
                     // Maybe only our clock is wrong: learn the server's time and retry once.
-                    self.learn_clock(resp.header("date"));
+                    self.learn_clock(resp.header("date"), started.elapsed());
                     let corrected = (self.clock_offset.load(Ordering::Relaxed) - offset_used).abs() > 60;
                     if attempt == 0 && corrected {
                         log::warn!("this computer's clock is off by {} s; retrying with the server's time",
@@ -281,12 +405,13 @@ impl Client {
                     return Err(ApiError::Unauthorized);
                 }
                 Err(ureq::Error::Status(status, resp)) => {
+                    let retry_after = resp.header("retry-after").and_then(|v| v.trim().parse().ok());
                     // SMP errors look like {"detail": "...", "code": "...", "params": {...}}
                     let text = resp.into_string().unwrap_or_default();
                     let json: Option<serde_json::Value> = serde_json::from_str(&text).ok();
                     let field = |name: &str| json.as_ref().and_then(|j| j.get(name)?.as_str().map(str::to_string));
                     let message = field("detail").unwrap_or_else(|| text.chars().take(300).collect());
-                    return Err(ApiError::Http { status, code: field("code"), message });
+                    return Err(ApiError::Http { status, code: field("code"), message, retry_after });
                 }
                 Err(ureq::Error::Transport(t)) => return Err(ApiError::Transport(t.to_string())),
             }
@@ -294,10 +419,10 @@ impl Client {
         Err(ApiError::Unauthorized)
     }
 
-    fn learn_clock(&self, date_header: Option<&str>) {
-        let Some(server) = date_header.and_then(|d| httpdate::parse_http_date(d).ok()) else { return };
-        let Ok(server) = server.duration_since(UNIX_EPOCH) else { return };
-        self.clock_offset.store(server.as_secs() as i64 - unix_now(), Ordering::Relaxed);
+    fn learn_clock(&self, date_header: Option<&str>, took: Duration) {
+        if let Some(offset) = clock_offset(date_header, took, unix_now()) {
+            self.clock_offset.store(offset, Ordering::Relaxed);
+        }
     }
 }
 
@@ -309,6 +434,38 @@ fn new_http(verifier: &Arc<PinningVerifier>) -> ureq::Agent {
         .build()
 }
 
+/// The server's clock minus ours (seconds), from an answer's Date header, or None when
+/// the answer can't tell. Only quick answers count: the server (uvicorn) dates an
+/// answer when the request *arrived*, so a long-poll heartbeat held for 25 s says the
+/// server is 25 s behind. Believing that, the next heartbeat (often the very same
+/// request) was signed with the previous one's time: an identical signature, which the
+/// server rightly refuses as a replay, and the agent re-joined every half minute.
+/// (nginx in front replaces the Date header with its own, which hid this.)
+fn clock_offset(date_header: Option<&str>, took: Duration, now: i64) -> Option<i64> {
+    if took > CLOCK_ANSWER_WITHIN {
+        return None;
+    }
+    let server = httpdate::parse_http_date(date_header?).ok()?;
+    Some(server.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64 - now)
+}
+
 fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_quick_answers_set_the_clock() {
+        let date = "Tue, 24 Nov 2026 07:19:23 GMT"; // 1795504763
+        let quick = Duration::from_millis(80);
+        assert_eq!(clock_offset(Some(date), quick, 1_795_504_763), Some(0));
+        assert_eq!(clock_offset(Some(date), quick, 1_795_504_863), Some(-100), "our clock is 100 s fast");
+        // a long poll held for 25 s: its Date is from when it arrived, not the time now
+        assert_eq!(clock_offset(Some(date), Duration::from_secs(25), 1_795_504_788), None);
+        assert_eq!(clock_offset(None, quick, 0), None);
+        assert_eq!(clock_offset(Some("yesterday"), quick, 0), None);
+    }
 }
