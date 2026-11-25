@@ -1,22 +1,41 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[missing-copyright-notice, undocumented-public-module]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
+import asyncio
 import logging
-import uuid
+import time
 from datetime import timedelta
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from smp.core.config import get_settings
-from smp.core.context import Ctx, check_origin, client_ip, get_ctx, principal_for_user
+from smp.core.context import (
+    Ctx,
+    check_origin,
+    client_ip,
+    get_ctx,
+    principal_for_user,
+)
 from smp.core.db import get_session, utcnow
 from smp.core.errors import AppError
-from smp.core.models import AuditLog, AuthSession, AuthSource, Organization, User
+from smp.core.models import (
+    AuditLog,
+    AuthSession,
+    AuthSource,
+    Organization,
+    User,
+)
 from smp.core.otp import clear_otp
 from smp.core.passwords import password_problem
 from smp.core.security import (
@@ -26,13 +45,20 @@ from smp.core.security import (
     password_needs_rehash,
     verify_password_async,
 )
-from smp.core.throttle import LoginThrottle
+
+if TYPE_CHECKING:
+    import uuid
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from smp.core.throttle import LoginThrottle
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger(__name__)
 
 
-class LoginIn(BaseModel):
+class LoginIn(BaseModel):  # ruff: ignore[undocumented-public-class]
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=1024)
     org: str | None = None  # org slug; defaults to SMP_DEFAULT_ORG
@@ -40,40 +66,45 @@ class LoginIn(BaseModel):
 
 # The rows-per-page choices the UI offers (WEBUI/src/paging.ts PAGE_SIZES).
 PageSize = Literal[10, 50, 100, 500]
+
 # The UI languages (WEBUI/src/i18n/index.ts LOCALES).
 Locale = Literal["hu", "en"]
+
 # A list's key in the UI, e.g. "dns.blocklist" or "users".
 PrefKey = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_.-]{1,64}$")]
-MAX_PAGE_SIZE_KEYS = 100  # far more lists than the UI has; keeps the stored JSON small
+
+# Far more lists than the UI has; keeps the stored JSON small
+MAX_PAGE_SIZE_KEYS = 100
 
 
 class PreferencesOut(BaseModel):
-    """A user's own UI settings, stored on their account (users.preferences)."""
+    """A user's own UI settings, stored on their account (users.preferences)."""  # ruff: ignore[line-too-long]
 
     page_size: dict[str, PageSize] = {}
-    # None = not chosen on this account yet (the UI then keeps the browser's choice).
+    # None = not chosen on this account yet (the UI then keeps the browser's choice).  # ruff: ignore[line-too-long]
     locale: Locale | None = None
 
 
 class PreferencesPatch(BaseModel):
     """Merged into the stored preferences: only the fields sent change. A null page size
-    removes that list's choice; "locale": null forgets the language."""
+    removes that list's choice; "locale": null forgets the language.
+    """  # ruff: ignore[line-too-long, missing-blank-line-after-summary]
 
     model_config = ConfigDict(extra="forbid")
 
-    page_size: dict[PrefKey, PageSize | None] = Field(default={}, max_length=MAX_PAGE_SIZE_KEYS)
+    page_size: dict[PrefKey, PageSize | None] = Field(default={}, max_length=MAX_PAGE_SIZE_KEYS)  # ruff: ignore[line-too-long]
     locale: Locale | None = None
 
 
 def _preferences(user: User | None) -> PreferencesOut:
-    # Unknown or no-longer-valid stored values are dropped rather than failing /auth/me.
+    # Unknown or no-longer-valid stored values are dropped rather than failing /auth/me.  # ruff: ignore[line-too-long]
     raw = (user.preferences if user else None) or {}
     sizes = raw.get("page_size") if isinstance(raw.get("page_size"), dict) else {}
-    locale = raw.get("locale") if raw.get("locale") in ("hu", "en") else None
-    return PreferencesOut(page_size={k: v for k, v in sizes.items() if v in (10, 50, 100, 500)}, locale=locale)
+    locale = raw.get("locale") if raw.get("locale") in {"hu", "en"} else None
+    return PreferencesOut(page_size={k: v for k, v in sizes.items() if v in {10, 50, 100, 500}}, locale=locale)  # ruff: ignore[line-too-long]
 
 
-class MeOut(BaseModel):
+class MeOut(BaseModel):  # ruff: ignore[undocumented-public-class]
     id: uuid.UUID
     kind: str
     username: str
@@ -87,12 +118,20 @@ class MeOut(BaseModel):
     preferences: PreferencesOut = PreferencesOut()
 
 
-class PasswordChangeIn(BaseModel):
+class PasswordChangeIn(BaseModel):  # ruff: ignore[undocumented-public-class]
     current_password: str
     new_password: str = Field(min_length=8, max_length=1024)
 
 
-def _audit_login(db: AsyncSession, request: Request, org_id, user: User | None, username: str, ok: bool, reason=""):
+def _audit_login(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    db: AsyncSession,
+    request: Request,
+    org_id,
+    user: User | None,
+    username: str,
+    ok: bool,
+    reason=""
+) -> None:
     db.add(
         AuditLog(
             org_id=org_id,
@@ -134,27 +173,36 @@ async def _start_session(db: AsyncSession, request: Request, response: Response,
     )
 
 
+# How many seconds it takes to send a response for any kind of invalid login.
+# This shoud be slower successful login on purpose.
+# All invalid paths login can take should take the same time.
+LOGIN_PENALTY_SECONDS: float = 1.0
+
+
 @router.post("/login", response_model=MeOut)
-async def login(body: LoginIn, request: Request, response: Response, db: AsyncSession = Depends(get_session)):
+async def login(body: LoginIn, request: Request, response: Response, db: Annotated[AsyncSession, Depends(get_session)]) -> MeOut:  # ruff: ignore[line-too-long, undocumented-public-function]
+    deadline = time.perf_counter() + LOGIN_PENALTY_SECONDS
+
     settings = get_settings()
     registry = request.app.state.registry
     throttle: LoginThrottle = request.app.state.login_throttle
-    bad = AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_credentials", "invalid username or password")
+    bad = AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_credentials", "invalid username or password")  # ruff: ignore[line-too-long]
     ip = client_ip(request) or "unknown"
 
-    # Checked before any DB work or hashing, and identical for existing and unknown
-    # usernames, so it's no enumeration oracle. A locked account refuses even the
+    # Checked before any DB work or hashing, and identical for existing and unknown  # ruff: ignore[line-too-long]
+    # usernames, so it's no enumeration oracle. A locked account refuses even the  # ruff: ignore[line-too-long]
     # right password (see smp/core/throttle.py for the lockout trade-off).
     if not throttle.allowed(ip, body.username):
-        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts", "too many login attempts, try again later")
+        await asyncio.sleep(deadline - time.perf_counter())
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts", "too many login attempts, try again later")  # ruff: ignore[line-too-long]
     throttle.record_attempt(ip)
 
     org = (
         await db.execute(select(Organization).where(Organization.slug == (body.org or settings.default_org)))
     ).scalar_one_or_none()
     if org is None:
-        await verify_password_async(None, body.password)  # same cost as a real check
         throttle.record_failure(body.username)
+        await asyncio.sleep(deadline - time.perf_counter())
         raise bad
     user = (
         await db.execute(select(User).where(User.org_id == org.id, User.username == body.username))
@@ -162,16 +210,13 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
 
     now = utcnow()
     ok, reason = False, "unknown or disabled user"
-    if user is None or user.disabled:
-        await verify_password_async(None, body.password)
-    else:
+    if (user is not None) and (not user.disabled):
         provider = request.app.state.identity_providers.get(user.auth_source)
-        # TODO(evaluate, issue #4): OTP hashes verify faster than _DUMMY_HASH (timing oracle for
-        # not-yet-activated accounts); see the note at _otp_hasher in core/security.py.
         ok = provider is not None and await provider.verify_password(user, body.password)
         reason = "bad password"
         if ok and user.otp_expires_at is not None and user.otp_expires_at <= now:
             ok, reason = False, "one-time password expired"
+
     if not ok:
         throttle.record_failure(body.username)
         _audit_login(db, request, org.id, user, body.username, False, reason)
@@ -182,8 +227,11 @@ async def login(body: LoginIn, request: Request, response: Response, db: AsyncSe
             # fall back to the server log, still answer like any failed login.
             log.exception("could not write login_failed audit entry: user=%r ip=%s reason=%s", body.username, ip, reason)
             await db.rollback()
+        await asyncio.sleep(deadline - time.perf_counter())
         raise bad
-    assert user is not None
+
+    # This should be the case :D
+    assert user is not None  # ruff: ignore[assert]
     throttle.record_success(body.username)
 
     user.last_login_at = now
