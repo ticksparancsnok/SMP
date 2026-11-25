@@ -19,6 +19,7 @@ dependencies = [
     "cryptography>=43",  # encrypts one-time passwords at rest (Fernet)
     "httpx>=0.27",  # dns module: pushes the blocklist to the Go sinkhole
     "tldextract>=5.1",  # dns module: Public Suffix List (bundled snapshot, used offline)
+    "pillow>=13.0.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
     "ruff>=0.6",
+    "asyncpg-stubs>=0.32.0",
 ]
 
 [project.scripts]
