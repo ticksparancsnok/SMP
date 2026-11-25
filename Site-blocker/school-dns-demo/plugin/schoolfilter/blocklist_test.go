@@ -5,6 +5,7 @@
 package schoolfilter
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,6 +76,61 @@ fe80::1 ignored.example
 	want := []string{"example.com", "example.net", "one.test", "two.test"}
 	if !reflect.DeepEqual(domains, want) {
 		t.Fatalf("ParseHosts() = %#v, want %#v", domains, want)
+	}
+}
+
+func TestParseCommonBlocklistFormats(t *testing.T) {
+	content := "\uFEFFplain.example\n" + `# hosts format
+0.0.0.0 hosts.example
+! domain-list comment
+||adblock.example^$third-party
+@@||allowed.example^
+`
+	domains, err := ParseHosts(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"plain.example", "hosts.example", "adblock.example"}
+	if !reflect.DeepEqual(domains, want) {
+		t.Fatalf("ParseHosts() = %#v, want %#v", domains, want)
+	}
+}
+
+func TestPrivateDNSDefaultsAreBlockedAndAllowlistCanOverride(t *testing.T) {
+	list := &Blocklist{}
+	if err := list.Replace(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, domain := range []string{"dns.google", "mozilla.cloudflare-dns.com", "mask.icloud.com", "sub.mask-h2.icloud.com"} {
+		if _, blocked := list.Match(domain); !blocked {
+			t.Errorf("%s should be blocked by default", domain)
+		}
+	}
+	if err := list.Replace(nil, []Entry{{Domain: "mask.icloud.com", IncludeSubdomains: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, blocked := list.Match("mask.icloud.com"); blocked {
+		t.Error("an explicit allowlist entry should override the default")
+	}
+}
+
+func BenchmarkBlocklistMatch(b *testing.B) {
+	for _, size := range []int{1_000, 100_000} {
+		b.Run(fmt.Sprintf("%d_entries", size), func(b *testing.B) {
+			entries := make([]Entry, size)
+			for i := range entries {
+				entries[i] = Entry{Domain: fmt.Sprintf("site%d.example", i)}
+			}
+			list := &Blocklist{}
+			if err := list.Replace(entries, nil); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				list.Match("not-listed.example")
+			}
+		})
 	}
 }
 

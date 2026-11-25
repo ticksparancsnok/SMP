@@ -108,6 +108,8 @@ class ImportJobOut(BaseModel):
     id: str
     state: Literal["checking", "ready", "saving", "syncing", "done", "failed"]
     progress: float  # of the current state, 0..1
+    progress_current: int
+    progress_total: int
     file_bytes: int
     new: int  # domains the import adds
     existing: int  # already on the blocklist
@@ -347,6 +349,7 @@ def _jobs(request: Request) -> imports.ImportJobs:
 def _job_out(job: imports.ImportJob) -> ImportJobOut:
     return ImportJobOut(
         id=job.id, state=job.state, progress=round(job.progress, 3), file_bytes=job.file_bytes,
+        progress_current=job.progress_current, progress_total=job.progress_total,
         new=len(job.new) if job.added is None else job.added, existing=len(job.existing), skipped=len(job.skipped),
         added=job.added, sync_ok=job.sync_ok, error=ImportErrorOut(**job.error) if job.error else None,
     )
@@ -361,8 +364,8 @@ def _own_job(request: Request, ctx: Ctx, job_id: str) -> imports.ImportJob:
 
 @router.post("/blocklist/imports", response_model=ImportJobOut, status_code=202)
 async def start_import(request: Request, ctx: Ctx = Depends(require(WRITE))):
-    """Upload a hosts file (raw body). Checking runs in the background; poll the job.
-    One import per person: this replaces their unconfirmed one (see imports.py)."""
+    """Upload a hosts, domain-only or Adblock list (raw body). Checking runs in the
+    background; poll the job. One import per person (see imports.py)."""
     content = await read_limited(request, imports.MAX_IMPORT_BYTES)
     job = imports.ImportJob(org_id=ctx.org_id, owner_id=ctx.principal.id, owner_name=ctx.principal.name,
                             file_bytes=len(content))

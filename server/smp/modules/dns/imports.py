@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
-"""Hosts-file imports as background jobs, so a big list (StevenBlack's: 76k domains)
+"""Blocklist imports as background jobs, so a big list (StevenBlack's: 76k domains)
 never stalls the rest of SMP, and the UI can show how far it got.
 
     POST   /dns/blocklist/imports               the file (raw body) -> a job, checking
@@ -78,6 +78,8 @@ class ImportJob:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     state: str = "checking"
     progress: float = 0.0  # of the current state, 0..1
+    progress_current: int = 0
+    progress_total: int = 0
     new: list[str] = field(default_factory=list)
     existing: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
@@ -158,8 +160,10 @@ async def check(job: ImportJob, content: bytes) -> None:
         def work() -> None:
             def parsing(done: int, total: int) -> None:
                 job.progress = 0.8 * done / max(total, 1)
+                job.progress_current, job.progress_total = done, total
 
             domains = parse_hosts(content, progress=parsing)
+            job.progress_current, job.progress_total = 0, len(domains)
             allow = by_domain(allow_rows)  # rows have .domain and .include_subdomains
             for i, domain in enumerate(domains):
                 if is_public_suffix(domain) or match(domain, allow) is not None:
@@ -168,8 +172,11 @@ async def check(job: ImportJob, content: bytes) -> None:
                     job.existing.append(domain)
                 else:
                     job.new.append(domain)
-                if i % 5000 == 0:
-                    job.progress = 0.8 + 0.2 * i / max(len(domains), 1)
+                if i % 1000 == 0 or i == len(domains) - 1:
+                    job.progress = 0.8 + 0.2 * (i + 1) / max(len(domains), 1)
+                    job.progress_current = i + 1
+            if not domains:
+                job.progress = 1.0
 
         await run_in_threadpool(work)
         job.state, job.progress = "ready", 1.0
@@ -187,6 +194,7 @@ async def save(job: ImportJob, actor: Actor, bus, sync_org) -> None:
     """Insert the new domains in chunks (one transaction), audit, then sync the sinkhole."""
     added_by = f"imported by: {job.owner_name}"
     now = datetime.now(UTC)
+    job.progress_current, job.progress_total = 0, len(job.new)
     try:
         async with db.sessionmaker()() as s:
             await s.execute(select(1))  # opens the transaction the raw statements below run in
@@ -196,7 +204,8 @@ async def save(job: ImportJob, actor: Actor, bus, sync_org) -> None:
             for start in range(0, len(job.new), CHUNK):
                 chunk = job.new[start:start + CHUNK]
                 await pg.copy_records_to_table("dns_import", records=[(d,) for d in chunk], columns=["domain"])
-                job.progress = 0.9 * (start + len(chunk)) / len(job.new)
+                job.progress_current = start + len(chunk)
+                job.progress = 0.9 * job.progress_current / len(job.new)
             result = await pg.execute(
                 f"""INSERT INTO {DnsBlocklistEntry.__tablename__}
                       (id, org_id, domain, include_subdomains, reason, added_by, confidence, added_at, created_at, updated_at)

@@ -63,7 +63,8 @@ func (s *SchoolFilter) Name() string { return "schoolfilter" }
 func (s *SchoolFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 	_, blocked := s.blocklist.Match(state.Name())
-	if !blocked || (state.QType() != dns.TypeA && state.QType() != dns.TypeAAAA) {
+	qtype := state.QType()
+	if !blocked || (qtype != dns.TypeA && qtype != dns.TypeAAAA && qtype != dns.TypeHTTPS && qtype != dns.TypeSVCB) {
 		return plugin.NextOrFailure(s.Name(), s.Next, ctx, w, r)
 	}
 
@@ -71,8 +72,14 @@ func (s *SchoolFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dn
 	reply.SetReply(r)
 	reply.Authoritative = true
 	reply.RecursionAvailable = true
+	if qtype == dns.TypeHTTPS || qtype == dns.TypeSVCB {
+		if err := w.WriteMsg(reply); err != nil {
+			return dns.RcodeServerFailure, err
+		}
+		return dns.RcodeSuccess, nil
+	}
 	header := dns.RR_Header{Name: state.Name(), Class: dns.ClassINET, Ttl: 60}
-	switch state.QType() {
+	switch qtype {
 	case dns.TypeA:
 		header.Rrtype = dns.TypeA
 		reply.Answer = []dns.RR{&dns.A{Hdr: header, A: s.sinkhole.To4()}}

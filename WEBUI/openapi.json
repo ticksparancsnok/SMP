@@ -3221,7 +3221,7 @@
      "dns"
     ],
     "summary": "Start Import",
-    "description": "Upload a hosts file (raw body). Checking runs in the background; poll the job.\nOne import per person: this replaces their unconfirmed one (see imports.py).",
+    "description": "Upload a hosts, domain-only or Adblock list (raw body). Checking runs in the\nbackground; poll the job. One import per person (see imports.py).",
     "operationId": "start_import_api_v1_dns_blocklist_imports_post",
     "responses": {
      "202": {
@@ -6099,6 +6099,14 @@
       "type": "number",
       "title": "Progress"
      },
+     "progress_current": {
+      "type": "integer",
+      "title": "Progress Current"
+     },
+     "progress_total": {
+      "type": "integer",
+      "title": "Progress Total"
+     },
      "file_bytes": {
       "type": "integer",
       "title": "File Bytes"
@@ -6153,6 +6161,8 @@
      "id",
      "state",
      "progress",
+     "progress_current",
+     "progress_total",
      "file_bytes",
      "new",
      "existing",

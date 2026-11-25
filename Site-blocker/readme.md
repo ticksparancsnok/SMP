@@ -195,9 +195,10 @@ visitor's choice wins: `?lang=hu` or `?lang=en`.
 curl -H 'Host: example-blocked.com' 'http://127.0.0.1:8080/?lang=en'
 ```
 
-### Importing a hosts blocklist
+### Importing a blocklist
 
-The import API accepts an uploaded `hosts` file. It only accepts calls with the
+The import API accepts `hosts` files, newline-separated domains, and common Adblock
+`||domain^` rules. Allow rules are ignored. It only accepts calls with the
 `DNS_SYNC_TOKEN` Bearer token, and the uploading user's name must be sent in the
 `X-Username` HTTP header. (The SMP web UI does not call this endpoint: the Python
 API imports the file and then synchronizes.)
@@ -305,10 +306,14 @@ cd ~/school-dns-demo
 go test ./...
 ```
 
-The tests cover exact and subdomain matching, domains with a trailing dot or in
-uppercase, loading the AI `confidence` field from JSON, and that the
-`/api/blocklist/*` endpoints reject requests with no token, a wrong token, or no
-`DNS_SYNC_TOKEN` configured, while the block page stays public.
+The tests cover exact and subdomain matching, default private-DNS blocks, empty
+HTTPS/SVCB responses for blocked domains, common import formats, and API
+authentication. The resolution benchmark compares lookups in 1,000-entry and
+100,000-entry blocklists:
+
+```bash
+go test ./plugin/schoolfilter -run '^$' -bench '^BenchmarkBlocklistMatch$' -benchmem
+```
 
 ### Common errors
 
@@ -524,7 +529,12 @@ Unknown domains are classified in a separate worker process, so classification d
 In a school environment students actively try to get around filtering. The service uses these protections:
 
 1. **Blocking DoH (DNS-over-HTTPS):**
-   * The built-in blocklists contain the domains of every known public DoH/DoT server (e.g. `dns.google`, `cloudflare-dns.com`, `dns.quad9.net`).
+   * The sinkhole blocks common public DoH endpoints and Apple's iCloud Private Relay
+     endpoints by default (`dns.google`, `cloudflare-dns.com`, `dns.quad9.net`,
+     `mask.icloud.com`, `mask-h2.icloud.com`, and others). An explicit allowlist entry
+     can override these defaults.
+   * Blocked HTTPS (SVCB/HTTPS) DNS queries receive an authoritative empty `NOERROR`
+     answer, so HTTPS records cannot advertise an alternate endpoint.
    * To stop Firefox/Chrome from switching to DoH automatically, the server answers `NXDOMAIN` for `use-application-dns.net`.
 2. **Firewall rules (documented requirement):**
    * The school gateway (router/firewall) must block all outbound **UDP/TCP 53** and **TCP 853 (DoT)** traffic, except from the DNS sinkhole server itself.

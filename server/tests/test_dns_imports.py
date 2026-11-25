@@ -81,6 +81,7 @@ async def test_import_job_from_upload_to_sinkhole(admin, synced):
     content = hosts_file(5000)
     job = await upload(admin, content)
     assert job["file_bytes"] == len(content) and job["progress"] == 1.0
+    assert job["progress_current"] == job["progress_total"] == 5000
     assert (job["new"], job["existing"], job["skipped"]) == (4998, 1, 1)  # localhost.localdomain isn't a site
     assert await domains_of(admin, job, "new", limit=3) == ["ads0.example", "ads1.example", "ads2.example"]
     assert await domains_of(admin, job, "new", limit=2, offset=4996) == ["ads4998.example", "ads4999.example"]
@@ -90,6 +91,7 @@ async def test_import_job_from_upload_to_sinkhole(admin, synced):
 
     done = await run_import(admin, job)
     assert done["added"] == 4998 and done["new"] == 4998 and done["sync_ok"] is True
+    assert done["progress_current"] == done["progress_total"] == 4998
     assert (await admin.get("/api/v1/dns/blocklist", params={"limit": 1})).json()["total"] == 4999
     entry = (await admin.get("/api/v1/dns/blocklist", params={"q": "ads4999."})).json()["items"][0]
     assert entry["addedBy"] == "imported by: admin" and entry["reason"] == "imported"

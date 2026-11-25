@@ -788,8 +788,8 @@ export interface paths {
         put?: never;
         /**
          * Start Import
-         * @description Upload a hosts file (raw body). Checking runs in the background; poll the job.
-         *     One import per person: this replaces their unconfirmed one (see imports.py).
+         * @description Upload a hosts, domain-only or Adblock list (raw body). Checking runs in the
+         *     background; poll the job. One import per person (see imports.py).
          */
         post: operations["start_import_api_v1_dns_blocklist_imports_post"];
         delete?: never;
@@ -1895,6 +1895,10 @@ export interface components {
             state: "checking" | "ready" | "saving" | "syncing" | "done" | "failed";
             /** Progress */
             progress: number;
+            /** Progress Current */
+            progress_current: number;
+            /** Progress Total */
+            progress_total: number;
             /** File Bytes */
             file_bytes: number;
             /** New */

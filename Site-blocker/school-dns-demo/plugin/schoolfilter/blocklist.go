@@ -49,6 +49,28 @@ type Blocklist struct {
 	language string // the block page's default language
 }
 
+var defaultPrivateDNSDomains = func() map[string]Entry {
+	domains := []string{
+		"cloudflare-dns.com",
+		"dns.adguard-dns.com",
+		"dns.adguard.com",
+		"dns.google",
+		"dns.nextdns.io",
+		"dns.quad9.net",
+		"doh.cleanbrowsing.org",
+		"doh.opendns.com",
+		"mask-h2.icloud.com",
+		"mask.icloud.com",
+		"mozilla.cloudflare-dns.com",
+		"one.one.one.one",
+	}
+	entries := make(map[string]Entry, len(domains))
+	for _, domain := range domains {
+		entries[domain] = Entry{Domain: domain, IncludeSubdomains: true, Reason: "Private DNS endpoint blocked by default", AddedBy: "built-in"}
+	}
+	return entries
+}()
+
 // SetLanguage sets the block page's default language; "" means DefaultLanguage.
 func (b *Blocklist) SetLanguage(lang string) error {
 	if lang == "" {
@@ -211,6 +233,9 @@ func (b *Blocklist) Match(domain string) (Entry, bool) {
 
 	if _, allowed := lookup(b.allow, normalized); allowed {
 		return Entry{}, false
+	}
+	if entry, blocked := lookup(defaultPrivateDNSDomains, normalized); blocked {
+		return entry, true
 	}
 	return lookup(b.entries, normalized)
 }

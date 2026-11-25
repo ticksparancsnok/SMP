@@ -18,8 +18,8 @@ func ParseHosts(reader io.Reader) ([]string, error) {
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "\uFEFF"))
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
 			continue
 		}
 		if comment := strings.IndexByte(line, '#'); comment >= 0 {
@@ -30,18 +30,20 @@ func ParseHosts(reader io.Reader) ([]string, error) {
 		}
 
 		tokens := strings.Fields(line)
-		if len(tokens) < 2 {
-			continue
+		firstDomain := 0
+		lastDomain := len(tokens)
+		if ip := net.ParseIP(strings.TrimSpace(tokens[0])); ip != nil {
+			if shouldSkipHostsAddress(strings.ToLower(ip.String())) {
+				continue
+			}
+			firstDomain = 1
+		} else {
+			lastDomain = 1
+			if strings.HasPrefix(tokens[0], "@@") {
+				continue
+			}
 		}
-		ip := net.ParseIP(strings.TrimSpace(tokens[0]))
-		if ip == nil {
-			continue
-		}
-		ipText := strings.ToLower(ip.String())
-		if shouldSkipHostsAddress(ipText) {
-			continue
-		}
-		for _, token := range tokens[1:] {
+		for _, token := range tokens[firstDomain:lastDomain] {
 			domain, ok := normalizeImportedDomain(token)
 			if !ok {
 				continue
@@ -83,6 +85,15 @@ func shouldSkipHostsAddress(address string) bool {
 
 func normalizeImportedDomain(domain string) (string, bool) {
 	domain = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(domain, ".")))
+	domain = strings.TrimPrefix(domain, "||")
+	domain = strings.TrimPrefix(domain, "|")
+	if modifier := strings.IndexByte(domain, '$'); modifier >= 0 {
+		domain = domain[:modifier]
+	}
+	if ruleEnd := strings.IndexByte(domain, '^'); ruleEnd >= 0 {
+		domain = domain[:ruleEnd]
+	}
+	domain = strings.TrimSuffix(domain, ".")
 	if domain == "" {
 		return "", false
 	}

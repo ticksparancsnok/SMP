@@ -139,6 +139,18 @@ def test_dns_hosts_parser_on_real_list():
     assert not {"localhost", "local", "broadcasthost", "ip6-localhost", "ip6-allnodes", "0.0.0.0"} & set(domains)
 
 
+def test_dns_import_parser_supports_domain_and_adblock_lists():
+    from smp.modules.dns.domains import parse_hosts
+
+    content = b"""\xef\xbb\xbfplain.example
+# domain list
+||adblock.example^$third-party
+@@||allowed.example^
+0.0.0.0 hosts.example
+"""
+    assert parse_hosts(content) == ["plain.example", "adblock.example", "hosts.example"]
+
+
 def test_dns_decision_order():
     from types import SimpleNamespace as E
 

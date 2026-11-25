@@ -13,8 +13,15 @@ import { intlLocale, t } from '../i18n'
 import { PAGE_SIZES } from '../paging'
 
 const props = withDefaults(
-  defineProps<{ total: number | null; offset: number; limit: number; hasMore?: boolean; shown?: number }>(),
-  { hasMore: false, shown: 0 },
+  defineProps<{
+    total: number | null
+    offset: number
+    limit: number
+    hasMore?: boolean
+    shown?: number
+    pageSizes?: readonly number[]
+  }>(),
+  { hasMore: false, shown: 0, pageSizes: () => PAGE_SIZES },
 )
 const emit = defineEmits<{ 'update:offset': [value: number]; 'update:limit': [value: number] }>()
 
@@ -27,8 +34,8 @@ const canNext = computed(() =>
 // Hidden while everything fits on the smallest page (nothing to page or resize).
 const visible = computed(() =>
   props.total === null
-    ? canPrev.value || canNext.value || props.shown > PAGE_SIZES[0]
-    : props.total > PAGE_SIZES[0],
+    ? canPrev.value || canNext.value || props.shown > props.pageSizes[0]
+    : props.total > props.pageSizes[0],
 )
 
 const fmt = (n: number) => n.toLocaleString(intlLocale())
@@ -56,7 +63,7 @@ function setLimit(e: Event) {
     <label class="muted">
       {{ t('pager.per_page') }}
       <select :value="props.limit" :aria-label="t('pager.per_page')" @change="setLimit">
-        <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }}</option>
+        <option v-for="size in props.pageSizes" :key="size" :value="size">{{ size }}</option>
       </select>
     </label>
     <button v-if="pages !== null" class="ghost small" :disabled="!canPrev" :title="t('pager.first')" @click="go(0)">«</button>

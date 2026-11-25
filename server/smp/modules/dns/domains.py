@@ -132,36 +132,46 @@ _HOSTS_SYSTEM_NAMES = frozenset({"localhost.localdomain", "localhost6.localdomai
 
 
 def parse_hosts(content: bytes, progress: Callable[[int, int], None] | None = None) -> list[str]:
-    """Domains to block from a hosts file (e.g. StevenBlack's), in file order, without
-    duplicates. Only lines mapping a domain to a sink address count: 0.0.0.0 or
-    127.0.0.1 (the usual "block" targets), or any normal unicast address. Comments,
-    the file's own system entries (localhost, localhost.localdomain, ::1, fe80::/ff02::
-    names, broadcasthost) and malformed names are skipped.
+    """Domains to block from hosts files and plain/adblock domain lists, in file order,
+    without duplicates. Hosts mappings must use a block or normal unicast address.
+    Comments, allow rules, system entries and malformed names are skipped.
 
     `progress(lines_done, lines_total)` is called every few thousand lines (imports run
     this in a worker thread and show how far it got)."""
     found: list[str] = []
     seen: set[str] = set()
-    lines = content.decode("utf-8", errors="replace").splitlines()
+    lines = content.decode("utf-8", errors="replace").removeprefix("\ufeff").splitlines()
     for number, raw_line in enumerate(lines):
         if progress is not None and number % 5000 == 0:
             progress(number, len(lines))
         line = raw_line.split("#", 1)[0].strip()
-        if not line:
+        if not line or line.startswith("!"):
             continue
         tokens = line.split()
-        if len(tokens) < 2:
-            continue
+        first_domain = 0
+        last_domain = len(tokens)
         try:
             ip = ipaddress.ip_address(tokens[0])
         except ValueError:
-            continue
-        if str(ip) not in {"0.0.0.0", "127.0.0.1"} and (
-            ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local
-        ):
-            continue
-        for token in tokens[1:]:
-            domain = normalize_domain(token)
+            if tokens[0].startswith("@@"):
+                continue
+            last_domain = 1
+        else:
+            if str(ip) not in {"0.0.0.0", "127.0.0.1"} and (
+                ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local
+            ):
+                continue
+            first_domain = 1
+        for token in tokens[first_domain:last_domain]:
+            if token.startswith("@@"):
+                continue
+            rule = token.lower().strip()
+            if rule.startswith("||"):
+                rule = rule[2:]
+            elif rule.startswith("|"):
+                rule = rule[1:]
+            rule = rule.split("$", 1)[0].split("^", 1)[0]
+            domain = normalize_domain(rule)
             if domain and domain not in seen and domain not in _HOSTS_SYSTEM_NAMES:
                 seen.add(domain)
                 found.append(domain)
