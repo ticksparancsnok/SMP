@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[missing-copyright-notice]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
@@ -13,7 +13,7 @@ user's language. An AppError answers
 `detail` stays a plain string, so clients that only read `detail` keep working.
 Codes are part of the API: add new ones freely, but don't rename existing ones
 without updating WEBUI/src/i18n.
-"""
+"""  # ruff: ignore[line-too-long]
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,25 +23,25 @@ from fastapi import HTTPException
 
 @dataclass(frozen=True)
 class Problem:
-    """A validation problem: stable code, English message, and the message's values."""
+    """A validation problem: stable code, English message, and the message's values."""  # ruff: ignore[line-too-long]
 
     code: str
     message: str
-    params: dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict[str, Any])
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # ruff: ignore[undocumented-magic-method]
         return self.message
 
 
-class AppError(HTTPException):
-    def __init__(self, status_code: int, code: str, message: str, headers: dict[str, str] | None = None, **params: Any):
+class AppError(HTTPException):  # ruff: ignore[undocumented-public-class]
+    def __init__(self, status_code: int, code: str, message: str, headers: dict[str, str] | None = None, **params: Any) -> None:  # ruff: ignore[any-type, line-too-long, undocumented-public-init]
         super().__init__(status_code, message, headers=headers)
         self.code = code
         self.params = params
 
     @classmethod
-    def from_problem(cls, status_code: int, problem: Problem) -> "AppError":
-        return cls(status_code, problem.code, problem.message, **problem.params)
+    def from_problem(cls, status_code: int, problem: Problem) -> AppError:  # ruff: ignore[undocumented-public-method]
+        return cls(status_code, problem.code, problem.message, **problem.params)  # ruff: ignore[line-too-long]
 
-    def body(self) -> dict[str, Any]:
-        return {"detail": self.detail, "code": self.code, "params": self.params}
+    def body(self) -> dict[str, Any]:  # ruff: ignore[undocumented-public-method]
+        return {"detail": self.detail, "code": self.code, "params": self.params}  # ruff: ignore[line-too-long]

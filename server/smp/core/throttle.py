@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 
 # Failures older than this no longer count towards a lockout.
 FAILURE_MEMORY_SECONDS = 15 * 60
-MIN_THROTTLE_SECONDS: int = 60
 
 
 class LoginThrottle:  # ruff: ignore[undocumented-public-class]
@@ -93,7 +92,7 @@ class LoginThrottle:  # ruff: ignore[undocumented-public-class]
             return
         for store, horizon in (
             (self._failures, FAILURE_MEMORY_SECONDS),
-            (self._attempts, MIN_THROTTLE_SECONDS)
+            (self._attempts, 60)
         ):
             for k in list(store):
                 self._prune(store[k], now - horizon)
@@ -161,7 +160,7 @@ async def seed_throttle_from_audit(throttle: LoginThrottle, db: AsyncSession) ->
 
     for action, ip_, username, at in rows:
         ago = (now - at).total_seconds()
-        if ago <= MIN_THROTTLE_SECONDS:
+        if ago <= 60:
             throttle.record_attempt(ip_ or "unknown", seconds_ago=ago)
         # One counter per account
         if action in {"core.auth.login_failed", "core.auth.password_change_failed"}:  # ruff: ignore[line-too-long]
