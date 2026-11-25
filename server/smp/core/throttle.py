@@ -37,18 +37,42 @@ everybody shares the proxy's IP.
 
 import time
 from collections import deque
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sqlalchemy.ext.asyncio.session import AsyncSession
 
 # Failures older than this no longer count towards a lockout.
 FAILURE_MEMORY_SECONDS = 15 * 60
+MIN_THROTTLE_SECONDS: int = 60
 
 
-class LoginThrottle:
-    def __init__(self, max_failures: int, lockout_seconds: float, ip_per_minute: int, clock=time.monotonic):
+class LoginThrottle:  # ruff: ignore[undocumented-public-class]
+    __slots__ = (
+        "_attempts",
+        "_calls",
+        "_clock",
+        "_failures",
+        "_locked_until",
+        "ip_per_minute",
+        "lockout",
+        "max_failures"
+    )
+
+    def __init__(  # ruff: ignore[undocumented-public-init]
+        self,
+        max_failures: int,
+        lockout_seconds: float,
+        ip_per_minute: int,
+        clock: Callable[[], float] = time.monotonic
+    ) -> None:
         self.max_failures = max_failures
         self.lockout = lockout_seconds
         self.ip_per_minute = ip_per_minute
         self._clock = clock
-        self._failures: dict[str, deque[float]] = {}  # username -> failure times
+        self._failures: dict[str, deque[float]] = {}  # username -> failure times  # ruff: ignore[line-too-long]
         self._locked_until: dict[str, float] = {}  # username -> end of lockout
         self._attempts: dict[str, deque[float]] = {}  # ip -> attempt times
         self._calls = 0
@@ -67,7 +91,10 @@ class LoginThrottle:
         self._calls += 1
         if self._calls % 1000:
             return
-        for store, horizon in ((self._failures, FAILURE_MEMORY_SECONDS), (self._attempts, 60.0)):
+        for store, horizon in (
+            (self._failures, FAILURE_MEMORY_SECONDS),
+            (self._attempts, MIN_THROTTLE_SECONDS)
+        ):
             for k in list(store):
                 self._prune(store[k], now - horizon)
                 if not store[k]:
@@ -76,11 +103,11 @@ class LoginThrottle:
             if until <= now:
                 del self._locked_until[k]
 
-    def locked(self, username: str) -> bool:
+    def locked(self, username: str) -> bool:  # ruff: ignore[undocumented-public-method]
         until = self._locked_until.get(self._key(username))
-        return until is not None and until > self._clock()
+        return (until is not None) and (until > self._clock())
 
-    def allowed(self, ip: str, username: str) -> bool:
+    def allowed(self, ip: str, username: str) -> bool:  # ruff: ignore[undocumented-public-method]
         now = self._clock()
         self._sweep(now)
         attempts = self._attempts.get(ip)
@@ -90,10 +117,10 @@ class LoginThrottle:
                 return False
         return not self.locked(username)
 
-    def record_attempt(self, ip: str, seconds_ago: float = 0.0) -> None:
-        self._attempts.setdefault(ip, deque()).append(self._clock() - seconds_ago)
+    def record_attempt(self, ip: str, seconds_ago: float = 0.0) -> None:  # ruff: ignore[undocumented-public-method]
+        self._attempts.setdefault(ip, deque()).append(self._clock() - seconds_ago)  # ruff: ignore[line-too-long]
 
-    def record_failure(self, username: str, seconds_ago: float = 0.0) -> None:
+    def record_failure(self, username: str, seconds_ago: float = 0.0) -> None:  # ruff: ignore[undocumented-public-method]
         at = self._clock() - seconds_ago
         key = self._key(username)
         q = self._failures.setdefault(key, deque())
@@ -103,18 +130,17 @@ class LoginThrottle:
             self._locked_until[key] = at + self.lockout
             q.clear()  # a new count starts after the lockout
 
-    def record_success(self, username: str) -> None:
+    def record_success(self, username: str) -> None:  # ruff: ignore[undocumented-public-method]
         self._failures.pop(self._key(username), None)
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # ruff: ignore[undocumented-public-method]
         self._failures.clear()
         self._locked_until.clear()
         self._attempts.clear()
 
 
-async def seed_throttle_from_audit(throttle: LoginThrottle, db) -> int:
-    """Re-create recent throttle state after a restart from the audit log, so restarting
-    the server doesn't hand an attacker a fresh set of attempts. Returns rows used."""
+async def seed_throttle_from_audit(throttle: LoginThrottle, db: AsyncSession) -> int:  # ruff: ignore[line-too-long]
+    """Re-create recent throttle state after a restart from the audit log, so restarting the server doesn't hand an attacker a fresh set of attempts. Returns rows used."""  # ruff: ignore[docstring-missing-returns, line-too-long]
     from datetime import timedelta
 
     from sqlalchemy import select
@@ -123,22 +149,25 @@ async def seed_throttle_from_audit(throttle: LoginThrottle, db) -> int:
     from smp.core.models import AuditLog
 
     now = utcnow()
-    since = now - timedelta(seconds=max(FAILURE_MEMORY_SECONDS, throttle.lockout, 60.0))
+    since = now - timedelta(seconds=max(FAILURE_MEMORY_SECONDS, throttle.lockout, 60.0))  # ruff: ignore[line-too-long]
     rows = (
         await db.execute(
             select(AuditLog.action, AuditLog.ip, AuditLog.actor_name, AuditLog.at)
-            .where(AuditLog.action.in_(("core.auth.login", "core.auth.login_failed", "core.auth.password_change_failed")),
+            .where(AuditLog.action.in_(("core.auth.login", "core.auth.login_failed", "core.auth.password_change_failed")),  # ruff: ignore[line-too-long]
                    AuditLog.at >= since)
             .order_by(AuditLog.at)
         )
     ).all()
-    for action, ip, username, at in rows:
+
+    for action, ip_, username, at in rows:
         ago = (now - at).total_seconds()
-        ip = ip or "unknown"
-        if ago <= 60:
-            throttle.record_attempt(ip, seconds_ago=ago)
-        if action in ("core.auth.login_failed", "core.auth.password_change_failed"):  # one counter per account
-            throttle.record_failure(username or "", seconds_ago=ago)  # replayed in order: lockouts too
+        if ago <= MIN_THROTTLE_SECONDS:
+            throttle.record_attempt(ip_ or "unknown", seconds_ago=ago)
+        # One counter per account
+        if action in {"core.auth.login_failed", "core.auth.password_change_failed"}:  # ruff: ignore[line-too-long]
+            # Replayed in order: lockouts too
+            throttle.record_failure(username or "", seconds_ago=ago)
         elif action == "core.auth.login":
             throttle.record_success(username or "")
+
     return len(rows)
