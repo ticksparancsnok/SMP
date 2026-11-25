@@ -81,6 +81,7 @@ async def test_import_job_from_upload_to_sinkhole(admin, synced):
     content = hosts_file(5000)
     job = await upload(admin, content)
     assert job["file_bytes"] == len(content) and job["progress"] == 1.0
+    assert job["progress_current"] == job["progress_total"] == 5000
     assert (job["new"], job["existing"], job["skipped"]) == (4998, 1, 1)  # localhost.localdomain isn't a site
     assert await domains_of(admin, job, "new", limit=3) == ["ads0.example", "ads1.example", "ads2.example"]
     assert await domains_of(admin, job, "new", limit=2, offset=4996) == ["ads4998.example", "ads4999.example"]
@@ -90,6 +91,7 @@ async def test_import_job_from_upload_to_sinkhole(admin, synced):
 
     done = await run_import(admin, job)
     assert done["added"] == 4998 and done["new"] == 4998 and done["sync_ok"] is True
+    assert done["progress_current"] == done["progress_total"] == 4998
     assert (await admin.get("/api/v1/dns/blocklist", params={"limit": 1})).json()["total"] == 4999
     entry = (await admin.get("/api/v1/dns/blocklist", params={"q": "ads4999."})).json()["items"][0]
     assert entry["addedBy"] == "imported by: admin" and entry["reason"] == "imported"
@@ -201,7 +203,10 @@ async def test_big_lists_stay_light(admin, synced):
     r = await admin.post("/api/v1/dns/blocklist", json={"domain": "games.example"})
     assert r.status_code == 201 and len(synced[0]["entries"]) == 3001
     check = (await admin.get("/api/v1/dns/check", params={"domain": "x.y.games.example"})).json()
-    assert check == {"domain": "x.y.games.example", "blocked": True, "blocked_by": "games.example", "allowed_by": None}
+    assert check == {"domain": "x.y.games.example", "blocked": True, "blocked_by": "games.example", "builtin": False,
+                     "allowed_by": None}
+    doh = (await admin.get("/api/v1/dns/check", params={"domain": "dns.google"})).json()
+    assert doh["blocked"] is True and doh["builtin"] is True and doh["blocked_by"] == "dns.google"
     assert (await admin.get("/api/v1/dns/check", params={"domain": "t17.example"})).json()["blocked"] is True
     assert (await admin.get("/api/v1/dns/check", params={"domain": "nothing.example"})).json()["blocked"] is False
 
@@ -209,6 +214,7 @@ async def test_big_lists_stay_light(admin, synced):
 async def test_block_page_language_setting_goes_to_the_sinkhole(app, admin, synced):
     status = (await admin.get("/api/v1/dns/status")).json()
     assert status["block_page_language"] == "hu"  # nothing chosen: Hungarian
+    assert "dns.google" in status["builtin_blocklist"]
 
     r = await admin.put("/api/v1/modules/dns/settings", json={"block_page_language": "en"})
     assert r.status_code == 200, r.text

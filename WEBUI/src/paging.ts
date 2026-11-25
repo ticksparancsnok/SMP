@@ -13,19 +13,20 @@ import { computed, ref, shallowRef, toValue, watch, type MaybeRefOrGetter, type 
 import { savePreferences, session } from './session'
 
 export const PAGE_SIZES = [10, 50, 100, 500] as const
+export const DNS_PAGE_SIZES = [10, 50, 100] as const
 export type PageSize = (typeof PAGE_SIZES)[number]
 export const DEFAULT_PAGE_SIZE: PageSize = 50
 
-const isPageSize = (n: unknown): n is PageSize => PAGE_SIZES.includes(n as PageSize)
+const isPageSize = (n: unknown, sizes: readonly PageSize[]): n is PageSize => sizes.includes(n as PageSize)
 
 // ---------------------------------------------------------------- saved page sizes
 
 /** Rows per page for one list: starts from the user's saved choice and saves changes. */
-export function usePageSize(key: string): Ref<number> {
+export function usePageSize(key: string, sizes: readonly PageSize[] = PAGE_SIZES): Ref<number> {
   const saved = session.me?.preferences.page_size[key]
-  const size = ref<number>(isPageSize(saved) ? saved : DEFAULT_PAGE_SIZE)
+  const size = ref<number>(isPageSize(saved, sizes) ? saved : DEFAULT_PAGE_SIZE)
   watch(size, (v) => {
-    if (isPageSize(v) && session.me?.preferences.page_size[key] !== v) savePreferences({ page_size: { [key]: v } })
+    if (isPageSize(v, sizes) && session.me?.preferences.page_size[key] !== v) savePreferences({ page_size: { [key]: v } })
   })
   return size
 }

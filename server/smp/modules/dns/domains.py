@@ -6,9 +6,10 @@
 
 Decision order for a query (the Go schoolfilter implements the same in Match):
 
-    1. allowlist      -> allowed   (user entries; exact, or a parent with include_subdomains)
-    2. blocklist      -> blocked
-    3. anything else  -> allowed
+    1. allowlist           -> allowed   (user entries; exact, or a parent with include_subdomains)
+    2. built-in blocklist  -> blocked   (BUILTIN_BLOCKLIST: ways around SMP's DNS)
+    3. blocklist           -> blocked
+    4. anything else       -> allowed
 
 Public suffixes (com, co.uk, hu, ...) are a built-in part of the allowlist: they can
 never be put on the blocklist or the allowlist, because one such entry would block
@@ -26,6 +27,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from functools import cache
 from typing import Protocol
 
@@ -101,6 +103,38 @@ class _Entry(Protocol):
     include_subdomains: bool
 
 
+# The built-in part of the blocklist: public DNS-over-HTTPS servers and Apple's iCloud
+# Private Relay. A browser or phone using one of them resolves names without asking
+# SMP's DNS, so nothing else on the blocklist would apply to it. Always blocked with
+# their subdomains, unless an allowlist entry covers them (a school that wants one).
+# The sinkhole has the same list built in (defaultPrivateDNSDomains in
+# Site-blocker/school-dns-demo/plugin/schoolfilter/blocklist.go), so it blocks them even
+# before its first sync; test_units.py keeps the two lists equal.
+BUILTIN_BLOCKLIST: tuple[str, ...] = (
+    "cloudflare-dns.com",
+    "dns.adguard-dns.com",
+    "dns.adguard.com",
+    "dns.google",
+    "dns.nextdns.io",
+    "dns.quad9.net",
+    "doh.cleanbrowsing.org",
+    "doh.opendns.com",
+    "mask-h2.icloud.com",
+    "mask.icloud.com",
+    "mozilla.cloudflare-dns.com",
+    "one.one.one.one",
+)
+
+
+@dataclass(frozen=True)
+class BuiltinBlock:
+    domain: str
+    include_subdomains: bool = True
+
+
+_BUILTIN = {d: BuiltinBlock(d) for d in BUILTIN_BLOCKLIST}
+
+
 def match(domain: str, entries: Mapping[str, _Entry]) -> _Entry | None:
     """The entry covering `domain`: itself, or the nearest parent with include_subdomains."""
     if (e := entries.get(domain)) is not None:
@@ -114,9 +148,12 @@ def match(domain: str, entries: Mapping[str, _Entry]) -> _Entry | None:
 
 
 def blocked_by(domain: str, allow: Mapping[str, _Entry], block: Mapping[str, _Entry]) -> _Entry | None:
-    """The blocklist entry that blocks `domain`, applying the decision order above."""
+    """The entry that blocks `domain` (a BuiltinBlock for the built-in part), applying
+    the decision order above."""
     if is_public_suffix(domain) or match(domain, allow) is not None:
         return None
+    if (builtin := match(domain, _BUILTIN)) is not None:
+        return builtin
     entry = match(domain, block)
     if entry is not None and is_public_suffix(entry.domain):
         return None  # legacy entry for a whole TLD: never applied
@@ -130,38 +167,65 @@ def by_domain(entries: Iterable[_Entry]) -> dict[str, _Entry]:
 # Names hosts files list for the machine itself (StevenBlack's header has them), not sites.
 _HOSTS_SYSTEM_NAMES = frozenset({"localhost.localdomain", "localhost6.localdomain6", "ip6-localhost.localdomain"})
 
+# A "#" starts a comment only at the start of a line or after whitespace:
+# "0.0.0.0 ads.example # tracker" is a comment, "example.com##.banner" is not.
+_COMMENT = re.compile(r"(^|\s)#.*$")
+# Browser ad-blocker rules that hide parts of a page (element hiding, scriptlets:
+# "example.com##.banner", "example.com#@#.ad", "#?#", "#$#", "#%#", ...). They name the
+# site the rule works on, not a site to block, so the whole line is skipped.
+# TODO(evaluate): such per-site rules could become something other than a DNS block.
+_COSMETIC = re.compile(r"#@?[$?%]{0,2}#")
+
+
+def _is_badfilter(rule: str) -> bool:
+    """`||example.com^$badfilter` withdraws the list's own rule for example.com; it
+    never means "block"."""
+    _, sep, modifiers = rule.partition("$")
+    return bool(sep) and "badfilter" in (m.strip().lower() for m in modifiers.split(","))
+
 
 def parse_hosts(content: bytes, progress: Callable[[int, int], None] | None = None) -> list[str]:
-    """Domains to block from a hosts file (e.g. StevenBlack's), in file order, without
-    duplicates. Only lines mapping a domain to a sink address count: 0.0.0.0 or
-    127.0.0.1 (the usual "block" targets), or any normal unicast address. Comments,
-    the file's own system entries (localhost, localhost.localdomain, ::1, fe80::/ff02::
-    names, broadcasthost) and malformed names are skipped.
+    """Domains to block from hosts files and plain/adblock domain lists, in file order,
+    without duplicates. Hosts mappings must use a block or normal unicast address.
+    Comments, allow rules (@@), withdrawn rules ($badfilter), element-hiding rules
+    (example.com##...), system entries and malformed names are skipped.
 
     `progress(lines_done, lines_total)` is called every few thousand lines (imports run
     this in a worker thread and show how far it got)."""
     found: list[str] = []
     seen: set[str] = set()
-    lines = content.decode("utf-8", errors="replace").splitlines()
+    lines = content.decode("utf-8", errors="replace").removeprefix("\ufeff").splitlines()
     for number, raw_line in enumerate(lines):
         if progress is not None and number % 5000 == 0:
             progress(number, len(lines))
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
+        line = _COMMENT.sub("", raw_line).strip()
+        if not line or line.startswith("!") or _COSMETIC.search(line):
             continue
         tokens = line.split()
-        if len(tokens) < 2:
-            continue
+        first_domain = 0
+        last_domain = len(tokens)
         try:
             ip = ipaddress.ip_address(tokens[0])
         except ValueError:
-            continue
-        if str(ip) not in {"0.0.0.0", "127.0.0.1"} and (
-            ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local
-        ):
-            continue
-        for token in tokens[1:]:
-            domain = normalize_domain(token)
+            if tokens[0].startswith("@@"):
+                continue
+            last_domain = 1
+        else:
+            if str(ip) not in {"0.0.0.0", "127.0.0.1"} and (
+                ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local
+            ):
+                continue
+            first_domain = 1
+        for token in tokens[first_domain:last_domain]:
+            if token.startswith("@@") or _is_badfilter(token):
+                continue
+            rule = token.lower().strip()
+            if rule.startswith("||"):
+                rule = rule[2:]
+            elif rule.startswith("|"):
+                rule = rule[1:]
+            rule = rule.split("$", 1)[0].split("^", 1)[0]
+            domain = normalize_domain(rule)
             if domain and domain not in seen and domain not in _HOSTS_SYSTEM_NAMES:
                 seen.add(domain)
                 found.append(domain)

@@ -6,12 +6,16 @@ package schoolfilter
 
 import (
 	"bytes"
+	"context"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/miekg/dns"
 )
 
 const testToken = "test-sync-token-0123456789"
@@ -134,6 +138,40 @@ func TestBlockPageStaysPublic(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "test reason") {
 			t.Errorf("block page %s: status %d, want 200 with the reason", path, rec.Code)
+		}
+	}
+}
+
+type testDNSResponseWriter struct {
+	msg *dns.Msg
+}
+
+func (w *testDNSResponseWriter) LocalAddr() net.Addr            { return &net.UDPAddr{} }
+func (w *testDNSResponseWriter) RemoteAddr() net.Addr           { return &net.UDPAddr{} }
+func (w *testDNSResponseWriter) WriteMsg(msg *dns.Msg) error    { w.msg = msg; return nil }
+func (w *testDNSResponseWriter) Write(data []byte) (int, error) { return len(data), nil }
+func (w *testDNSResponseWriter) Close() error                   { return nil }
+func (w *testDNSResponseWriter) TsigStatus() error              { return nil }
+func (w *testDNSResponseWriter) TsigTimersOnly(bool)            {}
+func (w *testDNSResponseWriter) Hijack()                        {}
+
+func TestBlockedHTTPSAndSVCBQueriesReturnEmptyAnswers(t *testing.T) {
+	s := &SchoolFilter{
+		blocklist: &Blocklist{entries: map[string]Entry{}, allow: map[string]Entry{}},
+	}
+	if err := s.blocklist.Add(Entry{Domain: "blocked.example", IncludeSubdomains: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, qtype := range []uint16{dns.TypeHTTPS, dns.TypeSVCB} {
+		request := new(dns.Msg)
+		request.SetQuestion("blocked.example.", qtype)
+		writer := &testDNSResponseWriter{}
+		code, err := s.ServeDNS(context.Background(), writer, request)
+		if err != nil || code != dns.RcodeSuccess {
+			t.Fatalf("ServeDNS(%d) = (%d, %v), want success", qtype, code, err)
+		}
+		if writer.msg == nil || writer.msg.Rcode != dns.RcodeSuccess || len(writer.msg.Answer) != 0 {
+			t.Errorf("ServeDNS(%d) reply = %#v, want an empty NOERROR answer", qtype, writer.msg)
 		}
 	}
 }

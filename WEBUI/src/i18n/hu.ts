@@ -624,7 +624,7 @@ const hu: Dictionary = {
   'dns.block_page_language_hint': 'Ezen a nyelven nyílik meg a letiltott oldalak helyén megjelenő oldal; a látogatók ott átválthatják.',
   'dns.block_page_language_admins': 'Rendszergazda módosíthatja (a látogatók az oldalon átválthatják).',
   'dns.entries': '{count} blokklista-bejegyzés',
-  'dns.hosts_import': 'Hosts import',
+  'dns.hosts_import': 'Hosts/domainlista import',
   'dns.manual_block': '+ Kézi blokkolás',
   'dns.reason': 'Indok',
   'dns.added_by': 'Hozzáadta',
@@ -638,12 +638,13 @@ const hu: Dictionary = {
   'dns.confidence_label': 'AI bizonyosság (opcionális, 0–1)',
   'dns.add': 'Hozzáadás',
   'dns.import_title': 'Hosts blokklista importálása',
-  'dns.hosts_file': 'Hosts fájl',
+  'dns.hosts_file': 'Hosts fájl vagy domainlista',
   'dns.import_step': '{step}/4. lépés: {what}',
   'dns.import_phase.uploading': 'a fájl feltöltése',
   'dns.import_phase.checking': 'a domainek ellenőrzése',
   'dns.import_phase.saving': 'mentés',
   'dns.import_phase.syncing': 'a lista elküldése a DNS-szervernek',
+  'dns.import_count': '{current} / {total} feldolgozva',
   'dns.import_summary':
     '{new} új domain; {existing} már a blokklistán van, {skipped} kimarad (engedélylistán van, vagy nyilvános végződés).',
   'dns.import_kind.new': 'Új ({count})',
@@ -669,6 +670,8 @@ const hu: Dictionary = {
   'dns.allow_reason_placeholder': 'pl. az iskola saját honlapja',
   'dns.builtin': 'beépített',
   'dns.public_suffixes': '{count} nyilvános végződés – soha nem tiltható',
+  'dns.builtin_blocklist':
+    '{count} DNS-over-HTTPS és iCloud Private Relay szerver – aldomainokkal együtt mindig tiltva (megkerülnék a szűrést), hacsak nincsenek az engedélylistán:',
   // ------------------------------------------------------------ monitoring (classroom)
   'classroom.subtitle': 'A terem gépeinek képernyői. Csak amíg ez az oldal nyitva van, akkor küldik őket, és sehol nem tárolódnak.',
   'classroom.room_option': '{name} ({online}/{total} elérhető)',

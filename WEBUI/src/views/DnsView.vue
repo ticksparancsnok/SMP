@@ -22,7 +22,7 @@ import LangSwitch from '../components/LangSwitch.vue'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
 import { t, tOr, type Params } from '../i18n'
-import { usePage, usePageSize } from '../paging'
+import { DNS_PAGE_SIZES, usePage, usePageSize } from '../paging'
 import { can } from '../session'
 
 const tab = ref<'blocklist' | 'allowlist'>('blocklist')
@@ -39,7 +39,7 @@ const savedAnyway = (e: unknown) => e instanceof ApiError && e.code === 'dns.syn
 const entries = shallowRef<DnsEntry[]>([])
 const total = ref(0)
 const offset = ref(0)
-const limit = usePageSize('dns.blocklist')
+const limit = usePageSize('dns.blocklist', DNS_PAGE_SIZES)
 const searchQuery = ref('')
 let loadSeq = 0
 
@@ -149,7 +149,7 @@ const previewKind = ref<PreviewKind>('new')
 const previewRows = ref<string[]>([])
 const previewTotal = ref(0)
 const previewOffset = ref(0)
-const previewLimit = usePageSize('dns.import_preview')
+const previewLimit = usePageSize('dns.import_preview', DNS_PAGE_SIZES)
 let poller: number | undefined
 
 const PHASES = ['uploading', 'checking', 'saving', 'syncing'] as const
@@ -159,7 +159,10 @@ const importStep = computed(() => {
   const phase = uploading.value !== null ? 'uploading' : job && PHASES.find((p) => p === job.state)
   if (!phase) return null
   const fraction = phase === 'uploading' ? uploading.value : phase === 'syncing' ? null : (job?.progress ?? 0)
-  return { step: PHASES.indexOf(phase) + 1, phase, fraction }
+  const count = ['checking', 'saving'].includes(phase) && job
+    ? { current: job.progress_current, total: job.progress_total }
+    : null
+  return { step: PHASES.indexOf(phase) + 1, phase, fraction, count }
 })
 
 function stopPolling() {
@@ -446,9 +449,16 @@ onMounted(() => {
           <tr v-if="!entries.length">
             <td colspan="5" class="empty">{{ searchQuery ? t('common.no_matches') : t('dns.empty') }}</td>
           </tr>
+          <tr v-if="status?.builtin_blocklist?.length && !searchQuery">
+            <td colspan="5" class="muted small">
+              <span class="badge info">{{ t('dns.builtin') }}</span>
+              {{ t('dns.builtin_blocklist', { count: status.builtin_blocklist.length }) }}
+              <span class="mono">{{ status.builtin_blocklist.join(', ') }}</span>
+            </td>
+          </tr>
         </tbody>
       </table>
-      <Pager v-model:offset="offset" v-model:limit="limit" :total="total" />
+      <Pager v-model:offset="offset" v-model:limit="limit" :total="total" :page-sizes="DNS_PAGE_SIZES" />
     </div>
 
   </template>
@@ -560,6 +570,7 @@ onMounted(() => {
         <label>
           {{ t('dns.import_step', { step: importStep.step, what: t(`dns.import_phase.${importStep.phase}`) }) }}
           <template v-if="importStep.fraction !== null"> · {{ Math.round(importStep.fraction * 100) }}%</template>
+          <template v-if="importStep.count"> · {{ t('dns.import_count', importStep.count) }}</template>
         </label>
         <progress class="import-progress" max="1" :value="importStep.fraction ?? undefined"></progress>
         <p v-if="importStep.phase === 'saving' || importStep.phase === 'syncing'" class="muted small">
@@ -588,7 +599,13 @@ onMounted(() => {
         <div v-if="previewRows.length" class="chips">
           <span v-for="domain in previewRows" :key="domain" class="badge mono">{{ domain }}</span>
         </div>
-        <Pager v-if="previewTotal > previewLimit" v-model:offset="previewOffset" v-model:limit="previewLimit" :total="previewTotal" />
+        <Pager
+          v-if="previewTotal > DNS_PAGE_SIZES[0]"
+          v-model:offset="previewOffset"
+          v-model:limit="previewLimit"
+          :total="previewTotal"
+          :page-sizes="DNS_PAGE_SIZES"
+        />
       </template>
 
       <template v-if="importJob?.state === 'done'">

@@ -633,7 +633,7 @@ const en = {
   'dns.block_page_language_hint': 'The language a blocked site’s page opens in; visitors can still switch it there.',
   'dns.block_page_language_admins': 'Administrators can change it (visitors can switch it on the page).',
   'dns.entries': (p) => plural(n(p, 'count'), 'blocklist entry', 'blocklist entries'),
-  'dns.hosts_import': 'Hosts import',
+  'dns.hosts_import': 'Hosts/domain list import',
   'dns.manual_block': '+ Block manually',
   'dns.reason': 'Reason',
   'dns.added_by': 'Added by',
@@ -647,12 +647,13 @@ const en = {
   'dns.confidence_label': 'AI confidence (optional, 0–1)',
   'dns.add': 'Add',
   'dns.import_title': 'Import a hosts blocklist',
-  'dns.hosts_file': 'Hosts file',
+  'dns.hosts_file': 'Hosts file or domain list',
   'dns.import_step': 'Step {step} of 4: {what}',
   'dns.import_phase.uploading': 'uploading the file',
   'dns.import_phase.checking': 'checking the domains',
   'dns.import_phase.saving': 'saving them',
   'dns.import_phase.syncing': 'sending the list to the DNS server',
+  'dns.import_count': '{current} / {total} processed',
   'dns.import_summary': (p) =>
     `${plural(n(p, 'new'), 'new domain', 'new domains')}; ${n(p, 'existing')} already on the blocklist, ` +
     `${n(p, 'skipped')} skipped (allowlisted or a public suffix).`,
@@ -679,6 +680,8 @@ const en = {
   'dns.allow_reason_placeholder': 'e.g. the school’s own website',
   'dns.builtin': 'built in',
   'dns.public_suffixes': '{count} public suffixes – can never be blocked',
+  'dns.builtin_blocklist':
+    '{count} DNS-over-HTTPS and iCloud Private Relay servers – always blocked with their subdomains (they would bypass the filter), unless the allowlist has them:',
   // ------------------------------------------------------------ monitoring (classroom)
   'classroom.subtitle': "The screens of a room's computers. They are sent only while this page is open, and never stored.",
   'classroom.room_option': '{name} ({online}/{total} online)',

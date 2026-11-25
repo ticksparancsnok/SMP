@@ -8,9 +8,21 @@ import (
 	"bufio"
 	"io"
 	"net"
+	"regexp"
 	"strings"
 )
 
+// A '#' starts a comment only at the start of a line or after whitespace:
+// "0.0.0.0 ads.example # tracker" is a comment, "example.com##.banner" is not.
+var importComment = regexp.MustCompile(`(^|\s)#.*$`)
+
+// Browser ad-blocker rules that hide parts of a page (element hiding, scriptlets:
+// "example.com##.banner", "example.com#@#.ad", "#?#", "#$#", "#%#", ...). They name
+// the site the rule works on, not a site to block, so the whole line is skipped.
+// TODO(evaluate): such per-site rules could become something other than a DNS block.
+var cosmeticRule = regexp.MustCompile(`#@?[$?%]{0,2}#`)
+
+// ParseHosts reads hosts files, plain domain lists and Adblock-style "||domain^" lists.
 func ParseHosts(reader io.Reader) ([]string, error) {
 	domains := make([]string, 0)
 	seen := make(map[string]struct{})
@@ -18,30 +30,33 @@ func ParseHosts(reader io.Reader) ([]string, error) {
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "\uFEFF"))
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
 			continue
 		}
-		if comment := strings.IndexByte(line, '#'); comment >= 0 {
-			line = strings.TrimSpace(line[:comment])
-		}
-		if line == "" {
+		line = strings.TrimSpace(importComment.ReplaceAllString(line, ""))
+		if line == "" || cosmeticRule.MatchString(line) {
 			continue
 		}
 
 		tokens := strings.Fields(line)
-		if len(tokens) < 2 {
-			continue
+		firstDomain := 0
+		lastDomain := len(tokens)
+		if ip := net.ParseIP(strings.TrimSpace(tokens[0])); ip != nil {
+			if shouldSkipHostsAddress(strings.ToLower(ip.String())) {
+				continue
+			}
+			firstDomain = 1
+		} else {
+			lastDomain = 1
+			if strings.HasPrefix(tokens[0], "@@") {
+				continue
+			}
 		}
-		ip := net.ParseIP(strings.TrimSpace(tokens[0]))
-		if ip == nil {
-			continue
-		}
-		ipText := strings.ToLower(ip.String())
-		if shouldSkipHostsAddress(ipText) {
-			continue
-		}
-		for _, token := range tokens[1:] {
+		for _, token := range tokens[firstDomain:lastDomain] {
+			if isBadfilter(token) {
+				continue
+			}
 			domain, ok := normalizeImportedDomain(token)
 			if !ok {
 				continue
@@ -57,6 +72,21 @@ func ParseHosts(reader io.Reader) ([]string, error) {
 		return nil, err
 	}
 	return domains, nil
+}
+
+// isBadfilter: "||example.com^$badfilter" withdraws the list's own rule for
+// example.com; it never means "block".
+func isBadfilter(rule string) bool {
+	_, modifiers, found := strings.Cut(rule, "$")
+	if !found {
+		return false
+	}
+	for _, modifier := range strings.Split(modifiers, ",") {
+		if strings.TrimSpace(strings.ToLower(modifier)) == "badfilter" {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldSkipHostsAddress(address string) bool {
@@ -83,6 +113,15 @@ func shouldSkipHostsAddress(address string) bool {
 
 func normalizeImportedDomain(domain string) (string, bool) {
 	domain = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(domain, ".")))
+	domain = strings.TrimPrefix(domain, "||")
+	domain = strings.TrimPrefix(domain, "|")
+	if modifier := strings.IndexByte(domain, '$'); modifier >= 0 {
+		domain = domain[:modifier]
+	}
+	if ruleEnd := strings.IndexByte(domain, '^'); ruleEnd >= 0 {
+		domain = domain[:ruleEnd]
+	}
+	domain = strings.TrimSuffix(domain, ".")
 	if domain == "" {
 		return "", false
 	}
@@ -90,7 +129,7 @@ func normalizeImportedDomain(domain string) (string, bool) {
 	case "localhost", "localhost.localdomain", "broadcasthost":
 		return "", false
 	}
-	if strings.ContainsAny(domain, " /\\") {
+	if strings.ContainsAny(domain, " /\\#") {
 		return "", false
 	}
 	return domain, true

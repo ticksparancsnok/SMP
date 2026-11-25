@@ -31,6 +31,8 @@ from smp.core.models import ModuleSetting
 from smp.core.uploads import read_limited
 from smp.modules.dns import imports
 from smp.modules.dns.domains import (
+    BUILTIN_BLOCKLIST,
+    BuiltinBlock,
     blocked_by,
     by_domain,
     is_public_suffix,
@@ -108,6 +110,8 @@ class ImportJobOut(BaseModel):
     id: str
     state: Literal["checking", "ready", "saving", "syncing", "done", "failed"]
     progress: float  # of the current state, 0..1
+    progress_current: int
+    progress_total: int
     file_bytes: int
     new: int  # domains the import adds
     existing: int  # already on the blocklist
@@ -120,6 +124,9 @@ class ImportJobOut(BaseModel):
 class SyncStatusOut(BaseModel):
     entries: int
     allowlist_entries: int = 0
+    # The built-in part of the blocklist (domains.BUILTIN_BLOCKLIST, with subdomains):
+    # DNS-over-HTTPS servers and iCloud Private Relay, blocked unless allowlisted.
+    builtin_blocklist: list[str] = []
     sinkhole_url: str
     sync_configured: bool
     # The block page's default language (DNS settings; admins change it on the Site
@@ -347,6 +354,7 @@ def _jobs(request: Request) -> imports.ImportJobs:
 def _job_out(job: imports.ImportJob) -> ImportJobOut:
     return ImportJobOut(
         id=job.id, state=job.state, progress=round(job.progress, 3), file_bytes=job.file_bytes,
+        progress_current=job.progress_current, progress_total=job.progress_total,
         new=len(job.new) if job.added is None else job.added, existing=len(job.existing), skipped=len(job.skipped),
         added=job.added, sync_ok=job.sync_ok, error=ImportErrorOut(**job.error) if job.error else None,
     )
@@ -361,8 +369,8 @@ def _own_job(request: Request, ctx: Ctx, job_id: str) -> imports.ImportJob:
 
 @router.post("/blocklist/imports", response_model=ImportJobOut, status_code=202)
 async def start_import(request: Request, ctx: Ctx = Depends(require(WRITE))):
-    """Upload a hosts file (raw body). Checking runs in the background; poll the job.
-    One import per person: this replaces their unconfirmed one (see imports.py)."""
+    """Upload a hosts, domain-only or Adblock list (raw body). Checking runs in the
+    background; poll the job. One import per person (see imports.py)."""
     content = await read_limited(request, imports.MAX_IMPORT_BYTES)
     job = imports.ImportJob(org_id=ctx.org_id, owner_id=ctx.principal.id, owner_name=ctx.principal.name,
                             file_bytes=len(content))
@@ -488,6 +496,7 @@ async def check_domain(domain: str, ctx: Ctx = Depends(require(READ))) -> dict:
         "domain": d,
         "blocked": entry is not None,
         "blocked_by": entry.domain if entry else None,
+        "builtin": isinstance(entry, BuiltinBlock),
         "allowed_by": "public_suffix" if is_public_suffix(d) else (covering.domain if covering else None),
     }
 
@@ -513,6 +522,7 @@ async def sync_status(ctx: Ctx = Depends(require(READ))):
     return SyncStatusOut(
         entries=count or 0,
         allowlist_entries=allowed or 0,
+        builtin_blocklist=list(BUILTIN_BLOCKLIST),
         sinkhole_url=settings.dns_sinkhole_url,
         sync_configured=sync_configured,
         block_page_language=(await _dns_settings(ctx.db, ctx.org_id)).block_page_language,
