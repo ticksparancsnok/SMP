@@ -3,7 +3,8 @@
 .env.*
 *.env
 !.env.example
-.claude/settings.local.json
+.claude
+CLAUDE.md
 
 # ---- editors / OS
 .vscode/
@@ -51,3 +52,6 @@ npm-debug.log*
 # an agent's state file holds that PC's private key (e.g. `smp-agent --state ./agent.json`)
 agent.json
 agent.json.tmp
+
+# ---- misc
+/docs/plans/
