@@ -85,12 +85,21 @@ func TestParseCommonBlocklistFormats(t *testing.T) {
 ! domain-list comment
 ||adblock.example^$third-party
 @@||allowed.example^
+||withdrawn.example^$badfilter
+google.com##.ad-banner
+youtube.com###masthead-ad
+reddit.com,example.org#@#.promoted
+example.net#?#div:has(> .ad)
+example.info#$#body { overflow: auto !important; }
+example.biz#%#//scriptlet('abort-on-property-read', 'ads')
+0.0.0.0 commented.example ## a trailing comment
+glued.example#not-a-comment
 `
 	domains, err := ParseHosts(strings.NewReader(content))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"plain.example", "hosts.example", "adblock.example"}
+	want := []string{"plain.example", "hosts.example", "adblock.example", "commented.example"}
 	if !reflect.DeepEqual(domains, want) {
 		t.Fatalf("ParseHosts() = %#v, want %#v", domains, want)
 	}

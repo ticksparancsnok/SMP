@@ -670,6 +670,8 @@ const hu: Dictionary = {
   'dns.allow_reason_placeholder': 'pl. az iskola saját honlapja',
   'dns.builtin': 'beépített',
   'dns.public_suffixes': '{count} nyilvános végződés – soha nem tiltható',
+  'dns.builtin_blocklist':
+    '{count} DNS-over-HTTPS és iCloud Private Relay szerver – aldomainokkal együtt mindig tiltva (megkerülnék a szűrést), hacsak nincsenek az engedélylistán:',
   // ------------------------------------------------------------ monitoring (classroom)
   'classroom.subtitle': 'A terem gépeinek képernyői. Csak amíg ez az oldal nyitva van, akkor küldik őket, és sehol nem tárolódnak.',
   'classroom.room_option': '{name} ({online}/{total} elérhető)',

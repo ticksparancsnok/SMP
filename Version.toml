@@ -24,19 +24,19 @@
 
 [server] # marks the version of the server core (files located under /server)
 name = "smp-server-core"
-version = "1.0.4 A"
+version = "1.0.4 B"
 
 [WEBUI] # marks the version of the WEB UI (files located under /WEBUI)
 name = "smp-server-WEBUI"
-version = "1.0.4 A"
+version = "1.0.4 B"
 
 [agent] # marks the version of the monitoring agent (files located under /agent)
 name = "smp-monitoring-agent"
-version = "1.0.4 A"
+version = "1.0.4 B"
 
 [Site-blocker] # marks the version of the DNS webblocker (files located under /Site-blocker)
 name = "smp-website-blocker"
-version = "1.0.0 A"
+version = "1.0.4 B"
 
 [release] # Marks the latest stable release (to:do under github releases)
 name = "smp-latest-stable-release"

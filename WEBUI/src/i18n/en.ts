@@ -680,6 +680,8 @@ const en = {
   'dns.allow_reason_placeholder': 'e.g. the school’s own website',
   'dns.builtin': 'built in',
   'dns.public_suffixes': '{count} public suffixes – can never be blocked',
+  'dns.builtin_blocklist':
+    '{count} DNS-over-HTTPS and iCloud Private Relay servers – always blocked with their subdomains (they would bypass the filter), unless the allowlist has them:',
   // ------------------------------------------------------------ monitoring (classroom)
   'classroom.subtitle': "The screens of a room's computers. They are sent only while this page is open, and never stored.",
   'classroom.room_option': '{name} ({online}/{total} online)',

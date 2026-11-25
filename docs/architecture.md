@@ -102,10 +102,16 @@ and hosts imports always identify the user on the server. `addedBy` is never
 accepted from a client payload.
 
 Decision order for a query (`smp/modules/dns/domains.py`, and `Match` in the Go
-plugin): **allowlist → blocklist → allow everything else**. Public suffixes (com,
+plugin): **allowlist → built-in blocklist → blocklist → allow everything else**. Public suffixes (com,
 hu, co.uk, …, from the Public Suffix List bundled with `tldextract`, used offline)
 are a built-in part of the allowlist: they can't be put on either list, because one
-such entry would block or unblock a whole top-level domain. Domain names are
+such entry would block or unblock a whole top-level domain. The built-in part of the
+blocklist (`BUILTIN_BLOCKLIST` in `domains.py`; the sinkhole has the same list, and a
+test keeps them equal) holds public DNS-over-HTTPS servers and iCloud Private Relay,
+which would let a device resolve names around SMP; an allowlist entry overrides it.
+Imports read hosts files, plain domain lists and Adblock-style `||domain^` lists;
+allow rules (`@@`), withdrawn rules (`$badfilter`) and element-hiding rules
+(`example.com##…`, which name the site the rule works on, not one to block) are skipped. Domain names are
 validated strictly (labels, length, no wildcards or single labels; IDN as punycode).
 Total allowlist control (block everything else) is marked `TODO(evaluate)`.
 

@@ -449,6 +449,13 @@ onMounted(() => {
           <tr v-if="!entries.length">
             <td colspan="5" class="empty">{{ searchQuery ? t('common.no_matches') : t('dns.empty') }}</td>
           </tr>
+          <tr v-if="status?.builtin_blocklist?.length && !searchQuery">
+            <td colspan="5" class="muted small">
+              <span class="badge info">{{ t('dns.builtin') }}</span>
+              {{ t('dns.builtin_blocklist', { count: status.builtin_blocklist.length }) }}
+              <span class="mono">{{ status.builtin_blocklist.join(', ') }}</span>
+            </td>
+          </tr>
         </tbody>
       </table>
       <Pager v-model:offset="offset" v-model:limit="limit" :total="total" :page-sizes="DNS_PAGE_SIZES" />

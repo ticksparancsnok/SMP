@@ -198,7 +198,9 @@ curl -H 'Host: example-blocked.com' 'http://127.0.0.1:8080/?lang=en'
 ### Importing a blocklist
 
 The import API accepts `hosts` files, newline-separated domains, and common Adblock
-`||domain^` rules. Allow rules are ignored. It only accepts calls with the
+`||domain^` rules. Allow rules (`@@`), withdrawn rules (`$badfilter`) and browser
+element-hiding rules (`example.com##.banner`, `#@#`, `#?#`, `#$#`, …) are ignored; a `#`
+starts a comment only at the start of a line or after whitespace. It only accepts calls with the
 `DNS_SYNC_TOKEN` Bearer token, and the uploading user's name must be sent in the
 `X-Username` HTTP header. (The SMP web UI does not call this endpoint: the Python
 API imports the file and then synchronizes.)

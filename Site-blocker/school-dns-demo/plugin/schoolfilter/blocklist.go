@@ -49,6 +49,10 @@ type Blocklist struct {
 	language string // the block page's default language
 }
 
+// Public DNS-over-HTTPS servers and iCloud Private Relay: blocked by default, because
+// a device using them resolves names without this server. SMP's control plane has the
+// same list (BUILTIN_BLOCKLIST in server/smp/modules/dns/domains.py; a server test keeps
+// them equal) and shows it on the Site blocker page.
 var defaultPrivateDNSDomains = func() map[string]Entry {
 	domains := []string{
 		"cloudflare-dns.com",

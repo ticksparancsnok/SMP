@@ -147,8 +147,19 @@ def test_dns_import_parser_supports_domain_and_adblock_lists():
 ||adblock.example^$third-party
 @@||allowed.example^
 0.0.0.0 hosts.example
+||withdrawn.example^$badfilter
+google.com##.ad-banner
+youtube.com###masthead-ad
+reddit.com,example.org#@#.promoted
+example.net#?#div:has(> .ad)
+example.info#$#body { overflow: auto !important; }
+example.biz#%#//scriptlet('abort-on-property-read', 'ads')
+0.0.0.0 commented.example ## a trailing comment
+glued.example#not-a-comment
 """
-    assert parse_hosts(content) == ["plain.example", "adblock.example", "hosts.example"]
+    # Element-hiding rules name the site they work on, not a site to block: EasyList
+    # used to block google.com, youtube.com, reddit.com, ... this way.
+    assert parse_hosts(content) == ["plain.example", "adblock.example", "hosts.example", "commented.example"]
 
 
 def test_dns_decision_order():
@@ -166,3 +177,32 @@ def test_dns_decision_order():
     assert blocked_by("sub.exact.test", allow, block) is None  # not include_subdomains
     assert blocked_by("bbc.co.uk", allow, block) is None  # public-suffix entries never apply
     assert blocked_by("other.org", allow, block) is None  # 3. everything else is allowed
+
+
+def test_dns_builtin_blocklist():
+    from types import SimpleNamespace as E
+
+    from smp.modules.dns.domains import BuiltinBlock, blocked_by, by_domain
+
+    assert isinstance(blocked_by("dns.google", {}, {}), BuiltinBlock)
+    assert blocked_by("chrome.cloudflare-dns.com", {}, {}).domain == "cloudflare-dns.com"  # with subdomains
+    assert blocked_by("google.com", {}, {}) is None
+    allow = by_domain([E(domain="mask.icloud.com", include_subdomains=True)])
+    assert blocked_by("mask.icloud.com", allow, {}) is None  # an allowlist entry overrides it
+
+
+def test_dns_builtin_blocklist_matches_the_sinkhole():
+    """The Go sinkhole blocks the same domains before its first sync (and keeps doing so
+    by itself); both lists must stay equal."""
+    import re
+    from pathlib import Path
+
+    from smp.modules.dns.domains import BUILTIN_BLOCKLIST
+
+    go = Path(__file__).resolve().parents[2] / "Site-blocker/school-dns-demo/plugin/schoolfilter/blocklist.go"
+    if not go.exists():
+        pytest.skip("no Site-blocker checkout next to the server")
+    block = re.search(r"defaultPrivateDNSDomains = func\(\) map\[string\]Entry \{\s*domains := \[\]string\{(.*?)\}",
+                      go.read_text(), re.S)
+    assert block, "defaultPrivateDNSDomains not found in blocklist.go"
+    assert sorted(re.findall(r'"([^"]+)"', block.group(1))) == sorted(BUILTIN_BLOCKLIST)

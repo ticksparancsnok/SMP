@@ -8406,6 +8406,14 @@
       "title": "Allowlist Entries",
       "default": 0
      },
+     "builtin_blocklist": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Builtin Blocklist",
+      "default": []
+     },
      "sinkhole_url": {
       "type": "string",
       "title": "Sinkhole Url"

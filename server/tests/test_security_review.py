@@ -141,7 +141,8 @@ async def test_allowlist_is_checked_before_blocklist(app, admin, monkeypatch):
         # an allowlist entry added later overrides an existing block (shown as inactive)
         await t.post("/api/v1/dns/allowlist", json={"domain": "edu.news.example"})
         check = (await t.get("/api/v1/dns/check", params={"domain": "edu.news.example"})).json()
-        assert check == {"domain": "edu.news.example", "blocked": False, "blocked_by": None, "allowed_by": "edu.news.example"}
+        assert check == {"domain": "edu.news.example", "blocked": False, "blocked_by": None, "builtin": False,
+                         "allowed_by": "edu.news.example"}
         assert (await t.get("/api/v1/dns/check", params={"domain": "www.news.example"})).json()["blocked_by"] == "news.example"
         await t.post("/api/v1/dns/allowlist", json={"domain": "news.example"})
         (entry,) = (await t.get("/api/v1/dns/blocklist")).json()["items"]

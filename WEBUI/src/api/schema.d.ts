@@ -2792,6 +2792,11 @@ export interface components {
              * @default 0
              */
             allowlist_entries: number;
+            /**
+             * Builtin Blocklist
+             * @default []
+             */
+            builtin_blocklist: string[];
             /** Sinkhole Url */
             sinkhole_url: string;
             /** Sync Configured */
