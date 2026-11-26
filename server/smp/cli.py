@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
+# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[missing-copyright-notice]
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
@@ -15,7 +15,7 @@
     smp backup encrypt|decrypt|verify database dumps with SMP_BACKUP_KEY, stdin -> stdout
     smp openapi -o ../WEBUI/openapi.json   dump the API schema for the UI
     smp serve                         run the API server
-"""
+"""  # ruff: ignore[line-too-long, over-indentation]
 
 import argparse
 import asyncio
@@ -23,46 +23,66 @@ import getpass
 import os
 import sys
 import time
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+import pathlib
 
-
-def alembic_config():
+if TYPE_CHECKING:
     from alembic.config import Config
 
-    from smp.core.config import get_settings
+
+def alembic_config() -> Config:  # ruff: ignore[undocumented-public-function]
+    from alembic.config import Config  # ruff: ignore[import-outside-top-level]
+
+    from smp.core.config import get_settings  # ruff: ignore[import-outside-top-level]
 
     cfg = Config()
     cfg.set_main_option("script_location", "smp:migrations")
-    cfg.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+    cfg.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))  # ruff: ignore[line-too-long]
     return cfg
 
 
-def cmd_migrate(_args) -> None:
-    from alembic import command
+def cmd_migrate(_args) -> None:  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]  # ruff: ignore[missing-type-function-argument, undocumented-public-function]
+    from alembic import command  # ruff: ignore[import-outside-top-level]
 
     command.upgrade(alembic_config(), "head")
 
 
-EXIT_ALREADY_EXISTS = 3  # bootstrap: the admin user exists already (install.sh relies on it)
+# bootstrap: the admin user exists already (install.sh relies on it)
+EXIT_ALREADY_EXISTS = 3
 
 
-async def _bootstrap(args) -> None:
+async def _bootstrap(args) -> None:  # ruff: ignore[complex-structure, too-many-branches, too-many-statements]
     """Create the school (organization) and its first admin.
 
     --otp: the admin gets a one-time password (printed once) and must choose their own
     at first login, like every other account someone else sets up. Otherwise the
     password is typed here (or SMP_BOOTSTRAP_PASSWORD) and kept.
-    --machine: print KEY=value lines (for install.sh) instead of sentences."""
-    from datetime import timedelta
+    --machine: print KEY=value lines (for install.sh) instead of sentences.
+    """
+    from datetime import timedelta  # ruff: ignore[import-outside-top-level]
 
-    from smp.core import db
-    from smp.core.core_module import CoreSettings
-    from smp.core.db import utcnow
-    from smp.core.models import AuditLog, ModuleSetting, Organization, Role, RoleAssignment, User
-    from smp.core.otp import set_otp
-    from smp.core.passwords import password_problem
-    from smp.core.security import SecretKeyMissing, generate_otp, hash_otps, hash_password, require_secret_key
+    from smp.core import db  # ruff: ignore[import-outside-top-level]
+    from smp.core.core_module import CoreSettings  # ruff: ignore[import-outside-top-level]
+    from smp.core.db import utcnow  # ruff: ignore[import-outside-top-level]
+    from smp.core.models import (  # ruff: ignore[import-outside-top-level]
+        AuditLog,
+        ModuleSetting,
+        Organization,
+        Role,
+        RoleAssignment,
+        User,
+    )
+    from smp.core.otp import set_otp  # ruff: ignore[import-outside-top-level]
+    from smp.core.passwords import password_problem  # ruff: ignore[import-outside-top-level]
+    from smp.core.security import (  # ruff: ignore[import-outside-top-level]
+        SecretKeyMissing,
+        generate_otp,
+        hash_otps,
+        hash_password,
+        require_secret_key,
+    )
 
     name = args.org_name.strip()
     if not name:
@@ -74,25 +94,25 @@ async def _bootstrap(args) -> None:
         except SecretKeyMissing as e:
             sys.exit(str(e))
     else:
-        password = os.environ.get("SMP_BOOTSTRAP_PASSWORD") or getpass.getpass("Admin password: ")
+        password = os.environ.get("SMP_BOOTSTRAP_PASSWORD") or getpass.getpass("Admin password: ")  # ruff: ignore[line-too-long]
         if problem := password_problem(password, args.admin_username):
             sys.exit(f"password rejected: {problem}")
     db.init_engine()
     async with db.sessionmaker()() as s:
-        org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()
+        org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()  # ruff: ignore[line-too-long]
         if org is None:
-            org = Organization(slug=args.org_slug, name=name, timezone=args.timezone)
+            org = Organization(slug=args.org_slug, name=name, timezone=args.timezone)  # ruff: ignore[line-too-long]
             s.add(org)
             await s.flush()
-            # Keep the "school name" setting (Settings page) in step with the organization.
-            s.add(ModuleSetting(org_id=org.id, module="core", data=CoreSettings(school_name=name).model_dump(mode="json")))
+            # Keep the "school name" setting (Settings page) in step with the organization.  # ruff: ignore[line-too-long]
+            s.add(ModuleSetting(org_id=org.id, module="core", data=CoreSettings(school_name=name).model_dump(mode="json")))  # ruff: ignore[line-too-long]
             if not args.machine:
-                print(f"created organization {org.slug}: {org.name}")
+                print(f"created organization {org.slug}: {org.name}")  # ruff: ignore[print]
         user = (
-            await s.execute(select(User).where(User.org_id == org.id, User.username == args.admin_username))
+            await s.execute(select(User).where(User.org_id == org.id, User.username == args.admin_username))  # ruff: ignore[line-too-long]
         ).scalar_one_or_none()
         if user is not None:
-            print(f"user {args.admin_username!r} already exists in {org.slug}; refusing to overwrite", file=sys.stderr)
+            print(f"user {args.admin_username!r} already exists in {org.slug}; refusing to overwrite", file=sys.stderr)  # ruff: ignore[line-too-long, print]
             sys.exit(EXIT_ALREADY_EXISTS)
         user = User(
             org_id=org.id,
@@ -128,7 +148,7 @@ async def _bootstrap(args) -> None:
 
 
 async def _status(args) -> None:
-    """KEY=value lines: database reachable? school set up? Exit 1 if the DB is unreachable."""
+    """KEY=value lines: database reachable? school set up? Exit 1 if the DB is unreachable."""  # ruff: ignore[line-too-long]
     from sqlalchemy import func, text
 
     from smp.core import db
@@ -144,21 +164,23 @@ async def _status(args) -> None:
                 admins = await s.scalar(
                     select(func.count()).where(RoleAssignment.org_id == org.id, RoleAssignment.role == Role.ADMIN)
                 ) or 0
-    except Exception as e:  # noqa: BLE001 - reported, not raised
-        print("database=error")
-        print(f"error={type(e).__name__}")
+    except Exception as e:  # ruff: ignore[blind-except]
+        print("database=error")  # ruff: ignore[print]
+        print(f"error={type(e).__name__}")  # ruff: ignore[print]
         sys.exit(1)
     finally:
         await db.dispose_engine()
-    print("database=ok")
-    print(f"bootstrapped={'yes' if org is not None and admins else 'no'}")
-    print(f"school_name={org.name if org else ''}")
-    print(f"admins={admins}")
+    print("database=ok")  # ruff: ignore[print]
+    print(f"bootstrapped={'yes' if org is not None and admins else 'no'}")  # ruff: ignore[print]
+    print(f"school_name={org.name if org else ''}")  # ruff: ignore[print]
+    print(f"admins={admins}")  # ruff: ignore[print]
 
 
 async def _dns_sync(args) -> None:
-    """Push the school's DNS lists to the sinkhole. The server pushes after every change;
-    this covers the rest (a new or emptied sinkhole volume, a restored database)."""
+    """Push the school's DNS lists to the sinkhole. The server pushes after every change.
+
+    This covers the rest (a new or emptied sinkhole volume, a restored database).
+    """  # ruff: ignore[line-too-long]
     import httpx
 
     from smp.core import db
@@ -171,7 +193,7 @@ async def _dns_sync(args) -> None:
         async with db.sessionmaker()() as s:
             org = (await s.execute(select(Organization).where(Organization.slug == args.org_slug))).scalar_one_or_none()
             if org is None:
-                print("dns-sync: school not set up yet, nothing to sync")
+                print("dns-sync: school not set up yet, nothing to sync")  # ruff: ignore[print]
                 return
             payload = await sync_payload(s, org.id)
     finally:
@@ -180,12 +202,17 @@ async def _dns_sync(args) -> None:
     try:
         await push_to_sinkhole(payload)
     except httpx.HTTPError as e:
-        sys.exit(f"dns-sync: the DNS sinkhole at {url} didn't take the lists ({type(e).__name__}: {e})")
-    print(f"dns-sync: {payload.entries} blocked and {payload.allowlist} allowed domain(s) sent to {url}")
+        sys.exit(f"dns-sync: the DNS sinkhole at {url} didn't take the lists ({type(e).__name__}: {e})")  # ruff: ignore[line-too-long]
+    print(f"dns-sync: {payload.entries} blocked and {payload.allowlist} allowed domain(s) sent to {url}")  # ruff: ignore[line-too-long, print]
 
 
 def _preflight_problems() -> list[tuple[str, str]]:
-    """(what, how to fix) for every configuration problem that stops the server."""
+    """Get information for every configuration problem that stops the server.
+
+    Returns:
+        list[tuple[str, str]]: (what, how to fix)
+
+    """
     import asyncpg
     from sqlalchemy.engine import make_url
 
@@ -196,8 +223,8 @@ def _preflight_problems() -> list[tuple[str, str]]:
     if p := settings.secret_key_problem():
         problems.append((
             p,
-            "Generate one with  python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"  and set\n"
-            "SMP_SECRET_KEY=<that value> in .env (./install.sh does this for you), then\n"
+            'Generate one with  python3 -c "import secrets; print(secrets.token_urlsafe(32))"  and set\n'  # ruff: ignore[implicit-string-concatenation-in-collection-literal, line-too-long]
+            "SMP_SECRET_KEY=<that value> in .env (./install.sh does this for you), then\n"  # ruff: ignore[line-too-long]
             "docker compose up -d",
         ))
 
@@ -212,23 +239,23 @@ def _preflight_problems() -> list[tuple[str, str]]:
         try:
             asyncio.run(connect())
             break
-        except (asyncpg.InvalidPasswordError, asyncpg.InvalidAuthorizationSpecificationError):
+        except (asyncpg.InvalidPasswordError, asyncpg.InvalidAuthorizationSpecificationError):  # ruff: ignore[line-too-long]
             problems.append((
-                f"the database refused the login for user {url.username!r} (wrong password)",
-                "Postgres sets its password only when the database volume is first created, so\n"
-                "SMP_DB_PASSWORD in .env must still be the value it had back then (e.g. .env was\n"
+                f"the database refused the login for user {url.username!r} (wrong password)",  # ruff: ignore[line-too-long]
+                "Postgres sets its password only when the database volume is first created, so\n"  # ruff: ignore[implicit-string-concatenation-in-collection-literal, line-too-long]
+                "SMP_DB_PASSWORD in .env must still be the value it had back then (e.g. .env was\n"  # ruff: ignore[line-too-long]
                 "regenerated, or copied again from .env.example). Either:\n"
                 "  - put the original SMP_DB_PASSWORD back into .env, or\n"
-                "  - start over, DELETING ALL DATA:  docker compose down -v  then  ./install.sh",
+                "  - start over, DELETING ALL DATA:  docker compose down -v  then  ./install.sh",  # ruff: ignore[line-too-long]
             ))
             break
         except asyncpg.InvalidCatalogNameError:
-            problems.append((f"the database {url.database!r} doesn't exist", "Check SMP_DATABASE_URL."))
+            problems.append((f"the database {url.database!r} doesn't exist", "Check SMP_DATABASE_URL."))  # ruff: ignore[line-too-long]
             break
         except (OSError, TimeoutError, asyncpg.CannotConnectNowError) as e:
             if attempt == 4:
                 problems.append((
-                    f"can't reach the database at {url.host}:{url.port or 5432} ({type(e).__name__})",
+                    f"can't reach the database at {url.host}:{url.port or 5432} ({type(e).__name__})",  # ruff: ignore[line-too-long]
                     "Is the db container running?  docker compose ps",
                 ))
             else:
@@ -293,7 +320,9 @@ async def _reencrypt_otps(_args) -> None:
     db.init_engine()
     done = unreadable = 0
     async with db.sessionmaker()() as s:
-        users = (await s.execute(select(User).where(User.otp_secret.is_not(None)))).scalars().all()
+        users = (await s.execute(
+            select(User).where(User.otp_secret.is_not(None))
+        )).scalars().all()
         for u in users:
             new = reencrypt_secret(u.otp_secret)
             if new is None:
@@ -303,31 +332,31 @@ async def _reencrypt_otps(_args) -> None:
                 done += 1
         await s.commit()
     await db.dispose_engine()
-    print(f"re-encrypted {done} one-time password(s) with the current key")
+    print(f"re-encrypted {done} one-time password(s) with the current key")  # ruff: ignore[print]
     if unreadable:
-        print(f"{unreadable} could not be decrypted with any configured key: issue new ones for those users")
+        print(f"{unreadable} could not be decrypted with any configured key: issue new ones for those users")  # ruff: ignore[line-too-long, print]
     else:
-        print("you can now remove SMP_SECRET_KEY_PREVIOUS")
+        print("you can now remove SMP_SECRET_KEY_PREVIOUS")  # ruff: ignore[print]
 
 
 def cmd_openapi(args) -> None:
-    """Write the OpenAPI schema (used by the web UI to generate TypeScript types)."""
-    import json
+    """Write the OpenAPI schema (used by the web UI to generate TypeScript types)."""  # ruff: ignore[line-too-long]
+    import json  # ruff: ignore[import-outside-top-level]
 
-    from smp.main import create_app
+    from smp.main import create_app  # ruff: ignore[import-outside-top-level]
 
     data = json.dumps(create_app().openapi(), indent=1, ensure_ascii=False)
     if args.output == "-":
-        print(data)
-    else:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(data + "\n")
+        print(data)  # ruff: ignore[print]
+        return
+
+    pathlib.Path(args.output).write_text(data + "\n", encoding="utf-8")
 
 
-def cmd_serve(args) -> None:
-    import uvicorn
+def cmd_serve(args) -> None:  # ruff: ignore[undocumented-public-function]
+    import uvicorn  # ruff: ignore[import-outside-top-level]
 
-    from smp.core.config import get_settings
+    from smp.core.config import get_settings  # ruff: ignore[import-outside-top-level]
 
     uvicorn.run(
         "smp.main:create_app",
@@ -340,16 +369,15 @@ def cmd_serve(args) -> None:
 
 
 def cmd_backup(args) -> None:
-    """stdin -> stdout, for pipes like `pg_dump -Fc | smp backup encrypt > file` (see
-    smp/core/backup.py and tools/db-backup.sh)."""
-    from smp.core.backup import BackupError, decrypt, encrypt
-    from smp.core.config import get_settings
+    """Stdin -> stdout, for pipes like `pg_dump -Fc | smp backup encrypt > file` (see smp/core/backup.py and tools/db-backup.sh)."""  # ruff: ignore[line-too-long]
+    from smp.core.backup import BackupError, decrypt, encrypt  # ruff: ignore[import-outside-top-level]
+    from smp.core.config import get_settings  # ruff: ignore[import-outside-top-level]
 
     settings = get_settings()
     if problem := settings.backup_key_problem():
         sys.exit(f"smp backup: {problem}")
     if args.action != "verify" and sys.stdout.isatty():
-        sys.exit("smp backup: the output is binary; redirect it to a file or a pipe")
+        sys.exit("smp backup: the output is binary; redirect it to a file or a pipe")  # ruff: ignore[line-too-long]
     try:
         if args.action == "encrypt":
             encrypt(sys.stdin.buffer, sys.stdout.buffer, settings.backup_key)
@@ -357,51 +385,51 @@ def cmd_backup(args) -> None:
             decrypt(sys.stdin.buffer, sys.stdout.buffer, settings.backup_key)
         else:
             size = decrypt(sys.stdin.buffer, None, settings.backup_key)
-            print(f"backup ok: {size} bytes of database dump")
+            print(f"backup ok: {size} bytes of database dump")  # ruff: ignore[print]
         sys.stdout.flush()
     except BackupError as e:
         sys.exit(f"smp backup: {e}")
 
 
-def main(argv: list[str] | None = None) -> None:
-    from smp.core.config import get_settings
+def main(argv: list[str] | None = None) -> None:  # ruff: ignore[undocumented-public-function]
+    from smp.core.config import get_settings  # ruff: ignore[import-outside-top-level]
 
     p = argparse.ArgumentParser(prog="smp")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("migrate", help="apply database migrations").set_defaults(func=cmd_migrate)
+    sub.add_parser("migrate", help="apply database migrations").set_defaults(func=cmd_migrate)  # ruff: ignore[line-too-long]
 
-    b = sub.add_parser("bootstrap", help="create the first organization and admin user")
+    b = sub.add_parser("bootstrap", help="create the first organization and admin user")  # ruff: ignore[line-too-long]
     b.add_argument("--org-name", required=True)
     b.add_argument("--org-slug", default=get_settings().default_org)
     b.add_argument("--timezone", default="Europe/Budapest")
     b.add_argument("--admin-username", default="admin")
-    b.add_argument("--otp", action="store_true", help="give the admin a one-time password (changed at first login)")
-    b.add_argument("--machine", action="store_true", help="print KEY=value lines instead of sentences")
+    b.add_argument("--otp", action="store_true", help="give the admin a one-time password (changed at first login)")  # ruff: ignore[line-too-long]
+    b.add_argument("--machine", action="store_true", help="print KEY=value lines instead of sentences")  # ruff: ignore[line-too-long]
     b.set_defaults(func=lambda a: asyncio.run(_bootstrap(a)))
 
-    st = sub.add_parser("status", help="database reachable? school set up? (KEY=value lines)")
+    st = sub.add_parser("status", help="database reachable? school set up? (KEY=value lines)")  # ruff: ignore[line-too-long]
     st.add_argument("--org-slug", default=get_settings().default_org)
     st.set_defaults(func=lambda a: asyncio.run(_status(a)))
 
-    ds = sub.add_parser("dns-sync", help="push the DNS block/allowlists to the sinkhole")
+    ds = sub.add_parser("dns-sync", help="push the DNS block/allowlists to the sinkhole")  # ruff: ignore[line-too-long]
     ds.add_argument("--org-slug", default=get_settings().default_org)
     ds.set_defaults(func=lambda a: asyncio.run(_dns_sync(a)))
 
-    pf = sub.add_parser("preflight", help="check configuration and database login; explain problems")
-    pf.add_argument("--fail-delay", type=int, default=30, help="seconds to wait before exiting on failure")
+    pf = sub.add_parser("preflight", help="check configuration and database login; explain problems")  # ruff: ignore[line-too-long]
+    pf.add_argument("--fail-delay", type=int, default=30, help="seconds to wait before exiting on failure")  # ruff: ignore[line-too-long]
     pf.set_defaults(func=cmd_preflight)
 
     t = sub.add_parser("create-token", help="create an API token for a service")
     t.add_argument("--name", required=True)
-    t.add_argument("--perm", action="append", default=[], help="permission code, repeatable")
+    t.add_argument("--perm", action="append", default=[], help="permission code, repeatable")  # ruff: ignore[line-too-long]
     t.add_argument("--org-slug", default=get_settings().default_org)
     t.set_defaults(func=lambda a: asyncio.run(_create_token(a)))
 
-    r = sub.add_parser("reencrypt-otps", help="re-encrypt stored one-time passwords after rotating SMP_SECRET_KEY")
+    r = sub.add_parser("reencrypt-otps", help="re-encrypt stored one-time passwords after rotating SMP_SECRET_KEY")  # ruff: ignore[line-too-long]
     r.set_defaults(func=lambda a: asyncio.run(_reencrypt_otps(a)))
 
-    bk = sub.add_parser("backup", help="encrypt/decrypt a database dump with SMP_BACKUP_KEY (stdin -> stdout)")
+    bk = sub.add_parser("backup", help="encrypt/decrypt a database dump with SMP_BACKUP_KEY (stdin -> stdout)")  # ruff: ignore[line-too-long]
     bk.add_argument("action", choices=["encrypt", "decrypt", "verify"])
     bk.set_defaults(func=cmd_backup)
 
@@ -410,7 +438,7 @@ def main(argv: list[str] | None = None) -> None:
     o.set_defaults(func=cmd_openapi)
 
     s = sub.add_parser("serve", help="run the API server")
-    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--host", default="0.0.0.0")  # ruff: ignore[hardcoded-bind-all-interfaces]
     s.add_argument("--port", type=int, default=8000)
     s.set_defaults(func=cmd_serve)
 

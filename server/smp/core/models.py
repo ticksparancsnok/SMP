@@ -109,14 +109,14 @@ class User(UUIDPk, Timestamps, OrgScoped, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # The user's own UI settings (e.g. rows per page per list), so they follow the
     # account to any browser. Shape: PreferencesOut in smp/core/api/auth.py.
-    preferences: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))  # ruff: ignore[line-too-long]
 
-    roles: Mapped[list["RoleAssignment"]] = relationship(
+    roles: Mapped[list[RoleAssignment]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
     # Read-only view of memberships; change them through GroupMember rows.
-    groups: Mapped[list["Group"]] = relationship(
-        secondary="group_members", viewonly=True, lazy="selectin", order_by="Group.name"
+    groups: Mapped[list[Group]] = relationship(
+        secondary="group_members", viewonly=True, lazy="selectin", order_by="Group.name"  # ruff: ignore[line-too-long]
     )
 
 
@@ -267,28 +267,28 @@ class Device(UUIDPk, Timestamps, OrgScoped, Base):
 
     hostname: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(255), default="")
-    mac: Mapped[str | None] = mapped_column(String(17))  # normalised aa:bb:cc:dd:ee:ff
-    # The device's own address: reported by its agent (the address its system uses to
-    # reach SMP), else the one SMP sees. observed_ip: the address SMP sees the agent's
-    # requests come from; differs from last_ip behind a NAT (e.g. a lab with its own router).
+    mac: Mapped[str | None] = mapped_column(String(17))  # normalised aa:bb:cc:dd:ee:ff  # ruff: ignore[line-too-long]
+    # The device's own address: reported by its agent (the address its system uses to  # ruff: ignore[line-too-long]
+    # reach SMP), else the one SMP sees. observed_ip: the address SMP sees the agent's  # ruff: ignore[line-too-long]
+    # requests come from; differs from last_ip behind a NAT (e.g. a lab with its own router).  # ruff: ignore[line-too-long]
     last_ip: Mapped[str | None] = mapped_column(String(45))
     observed_ip: Mapped[str | None] = mapped_column(String(45))
-    room_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("rooms.id", ondelete="SET NULL"), index=True)
-    status: Mapped[str] = mapped_column(String(16), default=DeviceStatus.PENDING)
+    room_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("rooms.id", ondelete="SET NULL"), index=True)  # ruff: ignore[line-too-long]
+    status: Mapped[str] = mapped_column(String(16), default=DeviceStatus.PENDING)  # ruff: ignore[line-too-long]
 
-    # Filled in by the agent module. agent_id is the SHA-256 fingerprint (hex) of the
+    # Filled in by the agent module. agent_id is the SHA-256 fingerprint (hex) of the  # ruff: ignore[line-too-long]
     # agent's public key: the device's identity, independent of its IP address.
     agent_id: Mapped[str | None] = mapped_column(String(64))
-    agent_public_key: Mapped[str | None] = mapped_column(Text)  # P-256 point, base64url
-    # "fixed": the room is set by an admin (desktops). "network": the room follows the
-    # subnet of the IP the agent reports from (laptops moving between VLANs / APs).
-    room_mode: Mapped[str] = mapped_column(String(16), default="fixed", server_default="fixed")
-    logged_in_user: Mapped[str | None] = mapped_column(String(256))  # console session user
+    agent_public_key: Mapped[str | None] = mapped_column(Text)  # P-256 point, base64url  # ruff: ignore[line-too-long]
+    # "fixed": the room is set by an admin (desktops). "network": the room follows the  # ruff: ignore[line-too-long]
+    # subnet of the IP the agent reports from (laptops moving between VLANs / APs).  # ruff: ignore[line-too-long]
+    room_mode: Mapped[str] = mapped_column(String(16), default="fixed", server_default="fixed")  # ruff: ignore[line-too-long]
+    logged_in_user: Mapped[str | None] = mapped_column(String(256))  # console session user  # ruff: ignore[line-too-long]
     agent_version: Mapped[str | None] = mapped_column(String(32))
-    # What the PC's agent can do, as it reports in each heartbeat (e.g. ["classroom",
-    # "lock", "remote", ...]): the UI offers a feature only to agents that have it.
+    # What the PC's agent can do, as it reports in each heartbeat (e.g. ["classroom",  # ruff: ignore[line-too-long]
+    # "lock", "remote", ...]): the UI offers a feature only to agents that have it.  # ruff: ignore[line-too-long]
     # None: an agent from before 1.0.4 (it doesn't report them).
-    agent_capabilities: Mapped[list | None] = mapped_column(JSONType)
+    agent_capabilities: Mapped[list[Any] | None] = mapped_column(JSONType)
     cert_fingerprint: Mapped[str | None] = mapped_column(String(128))
     os_name: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))

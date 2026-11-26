@@ -245,7 +245,8 @@ async def test_assignment_changes_wake_waiting_agents(app, admin, software_dir, 
     started = time.monotonic()
     assert (await assign(admin, package)).status_code == 201
     r = await waiting
-    assert time.monotonic() - started < 3 and r.json()["config"]["software"]["packages"][0]["id"] == package["id"]
+    assert time.monotonic() - started < 3
+    assert r.json()["config"]["software"]["packages"][0]["id"] == package["id"]
 
 
 # --------------------------------------------------------------------------- downloads
