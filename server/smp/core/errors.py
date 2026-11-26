@@ -15,6 +15,8 @@ Codes are part of the API: add new ones freely, but don't rename existing ones
 without updating WEBUI/src/i18n.
 """  # ruff: ignore[line-too-long]
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 

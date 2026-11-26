@@ -35,6 +35,8 @@ the client IP must be the real one (uvicorn --forwarded-allow-ips), otherwise
 everybody shares the proxy's IP.
 """
 
+from __future__ import annotations
+
 import time
 from collections import deque
 from typing import TYPE_CHECKING

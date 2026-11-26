@@ -3,9 +3,10 @@
 # Attribution required in modified versions: see NOTICE
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,14 +28,12 @@ from smp.core.security import SecretKeyMissing
 from smp.core.throttle import LoginThrottle, seed_throttle_from_audit
 from smp.modules import build_registry
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
 
-    from smp.core.module import ModuleRegistry
-
-    class Healthz(TypedDict):  # ruff: ignore[undocumented-public-class]
-        status: Literal["ok"]
-        version: str
+# Needed at runtime, not only by type checkers: FastAPI reads the /healthz return type,
+# and the lifespan's annotation is evaluated when create_app() defines it.
+class Healthz(TypedDict):  # ruff: ignore[undocumented-public-class]
+    status: Literal["ok"]
+    version: str
 
 logger = logging.getLogger("smp")
 

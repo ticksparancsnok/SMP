@@ -17,16 +17,18 @@
     smp serve                         run the API server
 """  # ruff: ignore[line-too-long, over-indentation]
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import getpass
 import os
+import pathlib
 import sys
 import time
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-import pathlib
 
 if TYPE_CHECKING:
     from alembic.config import Config

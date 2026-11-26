@@ -4,9 +4,6 @@
 
 """SMP control plane."""
 
-# From Version.toml
-from smp.version import SERVER_VERSION
-
-__version__ = SERVER_VERSION
+from smp.version import SERVER_VERSION as __version__  # from Version.toml, [server]
 
 __all__ = ["__version__"]
