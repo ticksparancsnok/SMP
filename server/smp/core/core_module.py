@@ -4,6 +4,8 @@
 
 """The core registers itself as a module so its permissions, routes and events go through exactly the same machinery as everyone else's."""  # ruff: ignore[line-too-long]
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter

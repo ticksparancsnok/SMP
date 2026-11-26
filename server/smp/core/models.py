@@ -111,11 +111,11 @@ class User(UUIDPk, Timestamps, OrgScoped, Base):
     # account to any browser. Shape: PreferencesOut in smp/core/api/auth.py.
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))  # ruff: ignore[line-too-long]
 
-    roles: Mapped[list[RoleAssignment]] = relationship(
+    roles: Mapped[list["RoleAssignment"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
     # Read-only view of memberships; change them through GroupMember rows.
-    groups: Mapped[list[Group]] = relationship(
+    groups: Mapped[list["Group"]] = relationship(
         secondary="group_members", viewonly=True, lazy="selectin", order_by="Group.name"  # ruff: ignore[line-too-long]
     )
 

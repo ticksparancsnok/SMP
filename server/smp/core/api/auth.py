@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import time
+import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -18,6 +19,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession  # FastAPI resolves endpoint parameter types at runtime
 
 from smp.core.config import get_settings
 from smp.core.context import (
@@ -47,10 +49,6 @@ from smp.core.security import (
 )
 
 if TYPE_CHECKING:
-    import uuid
-
-    from sqlalchemy.ext.asyncio import AsyncSession
-
     from smp.core.throttle import LoginThrottle
 
 
