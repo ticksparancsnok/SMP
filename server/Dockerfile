@@ -6,7 +6,7 @@
 
 # ---- versions: each build stage gets only its own section of Version.toml, so a stage is
 # rebuilt when its own version changes, not on every release (the agent takes minutes)
-FROM python:3.13-slim AS versions
+FROM python:3.15-slim AS versions
 COPY Version.toml tools/version.sh /v/
 RUN for s in WEBUI agent; do \
         v=$(sh /v/version.sh "$s" /v/Version.toml) || exit 1; \
@@ -53,7 +53,7 @@ RUN touch smp-agent/src/main.rs \
  && sh /version.sh agent /Version.toml > /out/smp-agent.version
 
 # ---- server
-FROM python:3.13-slim
+FROM python:3.15-slim
 # PIP_RETRIES / PIP_DEFAULT_TIMEOUT: a slow or briefly unreachable PyPI (school networks)
 # doesn't fail the build at once; pip also downloads setuptools for every build here.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \

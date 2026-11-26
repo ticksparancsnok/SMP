@@ -6,9 +6,18 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, EmailStr, Field, model_validator
 from sqlalchemy import ColumnElement, delete, false, func, or_, select
 
@@ -46,7 +55,6 @@ from smp.core.xlsx_users import (
     read_users,
     write_users,
 )
-from typing import Annotated
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -60,7 +68,7 @@ class RoleIn(BaseModel):
     building_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
-    def _one_scope(self) -> "RoleIn":
+    def _one_scope(self) -> RoleIn:
         if self.room_id is not None and self.building_id is not None:
             raise ValueError("room_id and building_id are mutually exclusive")
         return self

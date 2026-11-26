@@ -55,7 +55,7 @@ class GroupOut(ORMModel):
     external_id: str | None
     building_ids: list[uuid.UUID] = []  # empty = school-wide
     member_count: int = 0
-    teachers: list["MemberOut"] = []  # class teachers (may reset their students' passwords)
+    teachers: list[MemberOut] = []  # class teachers (may reset their students' passwords)
 
 
 class MemberOut(ORMModel):

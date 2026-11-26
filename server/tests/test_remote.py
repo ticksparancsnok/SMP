@@ -33,7 +33,7 @@ class WsClient:
         self.app, self.to_app, self.from_app = app, asyncio.Queue(), asyncio.Queue()
         self.closed: tuple[int, str] | None = None
 
-    async def connect(self) -> "WsClient":
+    async def connect(self) -> WsClient:
         self.task = asyncio.create_task(self.app(self.scope, self.to_app.get, self.from_app.put))
         await self.to_app.put({"type": "websocket.connect"})
         assert (await self.next())["type"] == "websocket.accept"

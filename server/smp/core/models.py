@@ -111,11 +111,11 @@ class User(UUIDPk, Timestamps, OrgScoped, Base):
     # account to any browser. Shape: PreferencesOut in smp/core/api/auth.py.
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, server_default=text("'{}'"))  # ruff: ignore[line-too-long]
 
-    roles: Mapped[list["RoleAssignment"]] = relationship(
+    roles: Mapped[list[RoleAssignment]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
     # Read-only view of memberships; change them through GroupMember rows.
-    groups: Mapped[list["Group"]] = relationship(
+    groups: Mapped[list[Group]] = relationship(
         secondary="group_members", viewonly=True, lazy="selectin", order_by="Group.name"  # ruff: ignore[line-too-long]
     )
 
@@ -131,12 +131,12 @@ class Group(UUIDPk, Timestamps, OrgScoped, Base):
     description: Mapped[str] = mapped_column(Text, default="")
     external_id: Mapped[str | None] = mapped_column(String(256))
 
-    teachers: Mapped[list["User"]] = relationship(
+    teachers: Mapped[list[User]] = relationship(
         secondary="group_teachers", viewonly=True, lazy="selectin", order_by="User.display_name"
     )
     # The buildings the group belongs to (several are fine); none = a school-wide group.
     # Read-only view: change them through GroupBuilding rows.
-    buildings: Mapped[list["Building"]] = relationship(
+    buildings: Mapped[list[Building]] = relationship(
         secondary="group_buildings", viewonly=True, lazy="selectin", order_by="Building.name"
     )
 

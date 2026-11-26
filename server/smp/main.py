@@ -35,6 +35,7 @@ class Healthz(TypedDict):  # ruff: ignore[undocumented-public-class]
     status: Literal["ok"]
     version: str
 
+
 logger = logging.getLogger("smp")
 
 

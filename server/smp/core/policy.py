@@ -247,7 +247,7 @@ def user_within(user_id: Any, buildings: set[uuid.UUID]) -> ColumnElement[bool]:
     return and_(has_any, not_(outside))
 
 
-def assignment_scope(principal: "Principal") -> ColumnElement[bool] | None:
+def assignment_scope(principal: Principal) -> ColumnElement[bool] | None:
     """Which policy assignments the principal may list: None = all (org-wide read);
     otherwise a condition on PolicyAssignment. The org's own assignments are visible to
     every reader; the others only when their target lies in the reader's rooms or
@@ -270,14 +270,14 @@ def assignment_scope(principal: "Principal") -> ColumnElement[bool] | None:
 # --------------------------------------------------------------------------- change helpers
 
 
-def emit_policy_changed(ctx: "Ctx", **payload: Any) -> None:
+def emit_policy_changed(ctx: Ctx, **payload: Any) -> None:
     """One subject for every change that can alter effective policies (assignments,
     schedules, a device moving rooms, room subnets, group membership, ...). DNS,
     agents etc. subscribe to it and refresh their cached view."""
     ctx.emit("core.policy.changed", {k: str(v) if v is not None else None for k, v in payload.items()})
 
 
-async def remove_assignments_for(ctx: "Ctx", target_type: TargetType, target_id: uuid.UUID) -> int:
+async def remove_assignments_for(ctx: Ctx, target_type: TargetType, target_id: uuid.UUID) -> int:
     """Delete assignments that target an entity being deleted. target_id has no FK
     (it points at different tables), so the database can't cascade this for us."""
     result = await ctx.db.execute(

@@ -3,7 +3,7 @@ name = "smp-server"
 dynamic = ["version"]  # from Version.toml in the repository root: see smp/version.py
 description = "SMP (School Management Portal) control plane: core + modules"
 license = "AGPL-3.0-or-later"  # see LICENSE and NOTICE in the repository root
-requires-python = ">=3.12"
+requires-python = ">=3.15"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -59,7 +59,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 130
-target-version = "py312"
+target-version = "py315"
 
 [tool.ruff.lint]
 select = ["F", "E9", "B", "I", "UP", "ASYNC"]

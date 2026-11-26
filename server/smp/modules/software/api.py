@@ -42,7 +42,15 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
-from pydantic import AfterValidator, BaseModel, Field, TypeAdapter, ValidationError, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
@@ -52,7 +60,13 @@ from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
 from smp.core.models import Building, Device, DeviceStatus, Room
 from smp.modules.agent.api import authenticate_agent
-from smp.modules.software import ASSIGN, PACKAGES_WRITE, READ, settings_for, storage
+from smp.modules.software import (
+    ASSIGN,
+    PACKAGES_WRITE,
+    READ,
+    settings_for,
+    storage,
+)
 from smp.modules.software.desired import (
     FAILED,
     IN_PROGRESS,
@@ -61,7 +75,12 @@ from smp.modules.software.desired import (
     desired_for_devices,
     effective_state,
 )
-from smp.modules.software.models import SoftwareAssignment, SoftwareDeviceState, SoftwarePackage, SoftwareUpload
+from smp.modules.software.models import (
+    SoftwareAssignment,
+    SoftwareDeviceState,
+    SoftwarePackage,
+    SoftwareUpload,
+)
 
 router = APIRouter()
 log = logging.getLogger(__name__)

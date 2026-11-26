@@ -1,6 +1,6 @@
 # SMP server (control plane)
 
-Python 3.12+, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres 15+.
+Python 3.15+, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres 15+.
 
 ## Development setup
 

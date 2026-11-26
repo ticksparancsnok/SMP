@@ -15,7 +15,7 @@
 # (DNS, firewall, proxy) the build fails halfway; upgrade.sh checks first, so it stops
 # before changing anything instead of failing and rolling back.
 
-SMP_CHECK_IMAGE=python:3.13-slim  # the server's base image: already here after a build
+SMP_CHECK_IMAGE=python:3.15-slim  # the server's base image: already here after a build
 
 smp_check_registries() {
     if ! docker image inspect "$SMP_CHECK_IMAGE" >/dev/null 2>&1 \
