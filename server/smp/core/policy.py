@@ -21,13 +21,14 @@ import ipaddress
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, and_, delete, exists, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
+from smp.core.context import Ctx, Principal
 from smp.core.db import utcnow
 from smp.core.models import (
     Device,
@@ -40,9 +41,6 @@ from smp.core.models import (
     Schedule,
     TargetType,
 )
-
-if TYPE_CHECKING:
-    from smp.core.context import Ctx, Principal
 
 SPECIFICITY = {
     TargetType.ORG: 0,

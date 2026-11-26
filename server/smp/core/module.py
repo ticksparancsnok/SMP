@@ -32,21 +32,18 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
+from fastapi import APIRouter
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from smp.core.context import Ctx
+from smp.core.events import EventBus
+from smp.core.identity import IdentityProvider
+from smp.core.models import Device
 from smp.core.roles import ADMIN, with_inherited
 from smp.version import SERVER_VERSION
-
-if TYPE_CHECKING:
-    from fastapi import APIRouter
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from smp.core.context import Ctx
-    from smp.core.events import EventBus
-    from smp.core.identity import IdentityProvider
-    from smp.core.models import Device
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
