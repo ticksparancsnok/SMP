@@ -6,7 +6,7 @@
 
     software_uploads        an installer file an admin uploaded (stored on disk by SHA-256)
     software_packages       what to install: a file + how to run, detect and remove it
-    software_assignments    package -> the whole school / a room / one computer, install or remove
+    software_assignments    package -> the whole school / a building / a room / one computer, install or remove
     software_device_states  what each computer last reported per package
 """
 
@@ -78,23 +78,35 @@ class SoftwarePackage(UUIDPk, Timestamps, OrgScoped, Base):
 
 class SoftwareAssignment(UUIDPk, Timestamps, OrgScoped, Base):
     """Package -> target. Per package and computer, the most specific target wins
-    (computer > room > school), so "install everywhere, except remove it on PC-07" works.
-    Exactly one of room_id / device_id is set, except for the whole school (neither)."""
+    (computer > room > building > school), so "install everywhere, except remove it on
+    PC-07" works. Exactly one of building_id / room_id / device_id is set, except for
+    the whole school (none)."""
 
     __tablename__ = "software_assignments"
     __table_args__ = (
         # One assignment per package and target (NULLs equal: one school-wide one).
-        UniqueConstraint("package_id", "room_id", "device_id", postgresql_nulls_not_distinct=True),
+        UniqueConstraint(
+            "package_id",
+            "building_id",
+            "room_id",
+            "device_id",
+            name="uq_software_assignments_target",  # the generated name would exceed 63 characters
+            postgresql_nulls_not_distinct=True,
+        ),
         CheckConstraint(
-            "(target_type = 'org' AND room_id IS NULL AND device_id IS NULL)"
-            " OR (target_type = 'room' AND room_id IS NOT NULL AND device_id IS NULL)"
-            " OR (target_type = 'device' AND device_id IS NOT NULL AND room_id IS NULL)",
+            "(target_type = 'org' AND building_id IS NULL AND room_id IS NULL AND device_id IS NULL)"
+            " OR (target_type = 'building' AND building_id IS NOT NULL AND room_id IS NULL AND device_id IS NULL)"
+            " OR (target_type = 'room' AND room_id IS NOT NULL AND building_id IS NULL AND device_id IS NULL)"
+            " OR (target_type = 'device' AND device_id IS NOT NULL AND building_id IS NULL AND room_id IS NULL)",
             name="target",
         ),
     )
 
     package_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("software_packages.id", ondelete="CASCADE"), index=True)
-    target_type: Mapped[str] = mapped_column(String(8))  # org | room | device
+    target_type: Mapped[str] = mapped_column(String(8))  # org | building | room | device
+    building_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("buildings.id", ondelete="CASCADE"), index=True
+    )
     room_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("rooms.id", ondelete="CASCADE"), index=True)
     device_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("devices.id", ondelete="CASCADE"), index=True)
     action: Mapped[str] = mapped_column(String(8))  # install | remove

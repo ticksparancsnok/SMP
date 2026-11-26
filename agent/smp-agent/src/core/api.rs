@@ -95,6 +95,11 @@ struct JoinIn<'a> {
     agent_version: &'a str,
     /// This computer's own IP (see HeartbeatIn::address).
     address: Option<String>,
+    /// The building the installer named (State::building): a hint for SMP, so that
+    /// building's manager sees the request. Left out when not set (older servers
+    /// ignore the field anyway).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    building: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,6 +149,9 @@ pub struct Client {
     clock_offset: AtomicI64,
     /// Counts requests made with `unique` (see there).
     request_counter: AtomicU64,
+    /// Sent with every join request (State::building); set once the state is loaded,
+    /// or when the installer answers the question after the first request.
+    building: RwLock<Option<String>>,
 }
 
 impl Client {
@@ -156,7 +164,12 @@ impl Client {
             verifier,
             clock_offset: AtomicI64::new(0),
             request_counter: AtomicU64::new(0),
+            building: RwLock::new(None),
         }
+    }
+
+    pub fn set_building(&self, building: Option<String>) {
+        *self.building.write().unwrap() = building;
     }
 
     /// Forget pooled connections (call after the network address changed). Requests
@@ -187,6 +200,7 @@ impl Client {
             os_version: &info.os_version,
             agent_version: AGENT_VERSION,
             address: PresenceProbe::new(&self.server).local_address().map(|a| a.to_string()),
+            building: self.building.read().unwrap().clone(),
         };
         self.post("/api/v1/agent/join", &body, Duration::from_secs(30))
     }
@@ -500,6 +514,35 @@ mod tests {
         let c = Client::new("https://smp.example", Identity::generate(), None);
         assert_eq!(c.unique("/api/x"), "/api/x?n=0");
         assert_eq!(c.unique("/api/x?session=ab"), "/api/x?session=ab&n=1");
+    }
+
+    #[test]
+    fn join_body_carries_the_building_only_when_set() {
+        let mut body = JoinIn {
+            public_key: "key".into(),
+            hostname: "pc-1",
+            mac: None,
+            os_name: "Windows",
+            os_version: "11",
+            agent_version: "1.0.0",
+            address: None,
+            building: None,
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json.get("building").is_none(), "no building: the field is omitted");
+        assert_eq!(json["hostname"], "pc-1");
+
+        body.building = Some("Main building".into());
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["building"], "Main building");
+    }
+
+    #[test]
+    fn the_client_sends_the_building_it_was_given() {
+        let c = Client::new("https://smp.example", Identity::generate(), None);
+        assert_eq!(*c.building.read().unwrap(), None);
+        c.set_building(Some("B".into()));
+        assert_eq!(c.building.read().unwrap().as_deref(), Some("B"));
     }
 
     #[test]

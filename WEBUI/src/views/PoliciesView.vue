@@ -7,14 +7,14 @@
 import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { api, errorText } from '../api/client'
-import type { Assignment, Device, Group, Page, Policy, Room, Schedule, TargetType, User } from '../api/types'
+import type { Assignment, Building, Device, Group, Page, Policy, Room, Schedule, TargetType, User } from '../api/types'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
 import RemotePicker from '../components/RemotePicker.vue'
 import { DAY_INDEXES, dayLabel, describeWindows, fmtDate, fromLocalInput, moduleTitle, TARGET_TYPES, targetTypeLabel } from '../format'
 import { t } from '../i18n'
 import { usePage } from '../paging'
-import { can, canAnywhere, session } from '../session'
+import { can, canAnywhere, canInBuilding, session } from '../session'
 
 const route = useRoute()
 const tab = computed(() => (route.query.tab as string) || 'assignments')
@@ -28,10 +28,21 @@ const assignments = shallowRef<Assignment[]>([])
 // it first opens. Devices and users are searched on the server there (RemotePicker).
 const rooms = shallowRef<Room[]>([])
 const groups = shallowRef<Group[]>([])
+const buildings = shallowRef<Building[]>([])
 let targetsLoaded = false
 const error = ref('')
 
-const canWrite = computed(() => can('core.policies.write'))
+// A manager writes the policies and schedules of their buildings (the permission exists
+// per building); school-wide ones (no building) need the school-wide permission.
+const canWrite = computed(() => canAnywhere('core.policies.write'))
+const orgWide = computed(() => can('core.policies.write'))
+const canEditOwner = (buildingId: string | null | undefined) =>
+  buildingId ? canInBuilding('core.policies.write', buildingId) : orgWide.value
+const buildingName = (id: string | null | undefined) => (id ? (buildings.value.find((b) => b.id === id)?.name ?? '?') : t('policies.school_wide'))
+/** Owners to offer: all buildings for school-wide writers (plus "school-wide"), else the manager's own. */
+const ownerBuildings = computed(() =>
+  buildings.value.filter((b) => orgWide.value || canInBuilding('core.policies.write', b.id)),
+)
 const canAssign = computed(() => canAnywhere('core.policies.assign'))
 // Policy kinds = modules that declare a policy schema (dns, software, classroom, ...).
 const kinds = computed(() => session.modules.filter((m) => m.policy_schema))
@@ -109,7 +120,11 @@ async function loadAssignments() {
 }
 watch(tab, (v) => v === 'assignments' && !assignmentsLoaded && loadAssignments())
 
-onMounted(load)
+onMounted(() => {
+  load()
+  // Names of the owner buildings (small list, scoped by the server).
+  api.get<Building[]>('/buildings').then((b) => (buildings.value = b)).catch(() => {})
+})
 
 /** Target names come with the assignments (server-side, limited to what we may read). */
 function targetName(a: Assignment): string {
@@ -138,8 +153,11 @@ async function del(path: string, what: string) {
 
 // ---------------------------------------------------------------- policy dialog
 const policyDlg = ref<{ policy: Policy | null } | null>(null)
-const pForm = reactive({ kind: '', name: '', description: '', data: '{}' })
+const pForm = reactive({ kind: '', name: '', description: '', data: '{}', building_id: '' })
 const pError = ref('')
+
+/** A new policy or schedule: school-wide for school-wide writers, else the manager's only building. */
+const defaultOwner = () => (!orgWide.value && ownerBuildings.value.length === 1 ? ownerBuildings.value[0]!.id : '')
 
 function openPolicy(p: Policy | null) {
   Object.assign(pForm, {
@@ -147,6 +165,7 @@ function openPolicy(p: Policy | null) {
     name: p?.name ?? '',
     description: p?.description ?? '',
     data: JSON.stringify(p?.data ?? {}, null, 2),
+    building_id: p ? (p.building_id ?? '') : defaultOwner(),
   })
   pError.value = ''
   policyDlg.value = { policy: p }
@@ -162,8 +181,9 @@ async function savePolicy() {
   }
   try {
     const p = policyDlg.value!.policy
-    if (p) await api.patch(`/policies/${p.id}`, { name: pForm.name, description: pForm.description, data })
-    else await api.post('/policies', { kind: pForm.kind, name: pForm.name, description: pForm.description, data })
+    const building_id = pForm.building_id || null // null = school-wide
+    if (p) await api.patch(`/policies/${p.id}`, { name: pForm.name, description: pForm.description, data, building_id })
+    else await api.post('/policies', { kind: pForm.kind, name: pForm.name, description: pForm.description, data, building_id })
     policyDlg.value = null
     load()
   } catch (e) {
@@ -178,13 +198,14 @@ interface WindowForm {
   end: string
 }
 const scheduleDlg = ref<{ schedule: Schedule | null } | null>(null)
-const sForm = reactive({ name: '', timezone: 'Europe/Budapest', windows: [] as WindowForm[] })
+const sForm = reactive({ name: '', timezone: 'Europe/Budapest', windows: [] as WindowForm[], building_id: '' })
 const sError = ref('')
 
 function openSchedule(s: Schedule | null) {
   Object.assign(sForm, {
     name: s?.name ?? '',
     timezone: s?.timezone ?? 'Europe/Budapest',
+    building_id: s ? (s.building_id ?? '') : defaultOwner(),
     windows: (s?.windows as WindowForm[] | undefined)?.map((w) => ({ ...w, days: [...w.days] })) ?? [
       { days: [0, 1, 2, 3, 4], start: '08:00', end: '08:45' },
     ],
@@ -200,8 +221,9 @@ function toggleDay(w: WindowForm, d: number) {
 async function saveSchedule() {
   try {
     const s = scheduleDlg.value!.schedule
-    if (s) await api.put(`/schedules/${s.id}`, sForm)
-    else await api.post('/schedules', sForm)
+    const body = { ...sForm, building_id: sForm.building_id || null } // null = school-wide
+    if (s) await api.put(`/schedules/${s.id}`, body)
+    else await api.post('/schedules', body)
     scheduleDlg.value = null
     load()
   } catch (e) {
@@ -227,6 +249,8 @@ const aError = ref('')
 // RemotePicker searches them on the server (also limited to what we may read there).
 const targetOptions = computed<{ id: string; name: string }[]>(() => {
   switch (aForm.target_type) {
+    case 'building':
+      return buildings.value.map((b) => ({ id: b.id, name: b.name }))
     case 'room':
       return rooms.value.map((r) => ({ id: r.id, name: r.name }))
     case 'group':
@@ -234,6 +258,10 @@ const targetOptions = computed<{ id: string; name: string }[]>(() => {
   }
   return []
 })
+// "Whole school" is for school-wide assigners; "building" needs at least one visible building.
+const targetTypes = computed(() =>
+  TARGET_TYPES.filter((tt) => (tt !== 'org' || can('core.policies.assign')) && (tt !== 'building' || buildings.value.length)),
+)
 const searchDevices = (q: string, limit: number) => api.get<Page<Device>>('/devices', { q, limit })
 const deviceLabel = (d: Device) => (d.display_name ? `${d.hostname} – ${d.display_name}` : d.hostname)
 const searchUsers = (q: string, limit: number) => api.get<Page<User>>('/users', { q, limit })
@@ -243,9 +271,10 @@ async function loadTargets() {
   if (targetsLoaded) return
   // Each is optional depending on permissions.
   const opt = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback)
-  ;[rooms.value, groups.value] = await Promise.all([
+  ;[rooms.value, groups.value, buildings.value] = await Promise.all([
     opt(api.get<Room[]>('/rooms'), []),
-    can('core.groups.read') ? opt(api.get<Group[]>('/groups'), []) : [],
+    canAnywhere('core.groups.read') ? opt(api.get<Group[]>('/groups'), []) : [],
+    opt(api.get<Building[]>('/buildings'), []),
   ])
   targetsLoaded = true
 }
@@ -386,6 +415,7 @@ async function saveAssign() {
             <th>{{ t('common.name') }}</th>
             <th>{{ t('common.type') }}</th>
             <th>{{ t('common.description') }}</th>
+            <th>{{ t('policies.owner') }}</th>
             <th>{{ t('policies.modified') }}</th>
             <th></th>
           </tr>
@@ -395,16 +425,17 @@ async function saveAssign() {
             <td><strong>{{ p.name }}</strong></td>
             <td><span class="badge">{{ p.kind }}</span></td>
             <td class="muted">{{ p.description }}</td>
+            <td class="small">{{ buildingName(p.building_id) }}</td>
             <td class="muted">{{ fmtDate(p.updated_at) }}</td>
             <td>
-              <div v-if="canWrite" class="actions">
+              <div v-if="canEditOwner(p.building_id)" class="actions">
                 <button class="ghost small" @click="openPolicy(p)">{{ t('common.edit') }}</button>
                 <button class="danger small" @click="del(`/policies/${p.id}`, p.name)">{{ t('common.delete') }}</button>
               </div>
             </td>
           </tr>
           <tr v-if="!policyPage.rows.length">
-            <td colspan="5" class="empty">{{ t('policies.no_policies') }}</td>
+            <td colspan="6" class="empty">{{ t('policies.no_policies') }}</td>
           </tr>
         </tbody>
       </table>
@@ -426,6 +457,7 @@ async function saveAssign() {
             <th>{{ t('common.name') }}</th>
             <th>{{ t('policies.windows') }}</th>
             <th>{{ t('policies.timezone') }}</th>
+            <th>{{ t('policies.owner') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -434,15 +466,16 @@ async function saveAssign() {
             <td><strong>{{ s.name }}</strong></td>
             <td class="small">{{ describeWindows(s.windows) }}</td>
             <td class="muted">{{ s.timezone }}</td>
+            <td class="small">{{ buildingName(s.building_id) }}</td>
             <td>
-              <div v-if="canWrite" class="actions">
+              <div v-if="canEditOwner(s.building_id)" class="actions">
                 <button class="ghost small" @click="openSchedule(s)">{{ t('common.edit') }}</button>
                 <button class="danger small" @click="del(`/schedules/${s.id}`, s.name)">{{ t('common.delete') }}</button>
               </div>
             </td>
           </tr>
           <tr v-if="!schedulePage.rows.length">
-            <td colspan="4" class="empty">{{ t('policies.no_schedules') }}</td>
+            <td colspan="5" class="empty">{{ t('policies.no_schedules') }}</td>
           </tr>
         </tbody>
       </table>
@@ -471,6 +504,15 @@ async function saveAssign() {
         <input v-model="pForm.description" />
       </div>
       <div class="field">
+        <label>{{ t('policies.owner') }}</label>
+        <select v-model="pForm.building_id" :required="!orgWide">
+          <option v-if="orgWide" value="">{{ t('policies.school_wide') }}</option>
+          <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+          <option v-for="b in ownerBuildings" :key="b.id" :value="b.id">{{ b.name }}</option>
+        </select>
+        <span class="muted small">{{ orgWide ? t('policies.owner_hint_org') : t('policies.owner_hint_manager') }}</span>
+      </div>
+      <div class="field">
         <label>{{ t('policies.data') }}</label>
         <textarea v-model="pForm.data" class="mono" style="min-height: 180px"></textarea>
       </div>
@@ -493,6 +535,15 @@ async function saveAssign() {
           <label>{{ t('policies.timezone') }}</label>
           <input v-model="sForm.timezone" required />
         </div>
+      </div>
+      <div class="field">
+        <label>{{ t('policies.owner') }}</label>
+        <select v-model="sForm.building_id" :required="!orgWide">
+          <option v-if="orgWide" value="">{{ t('policies.school_wide') }}</option>
+          <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+          <option v-for="b in ownerBuildings" :key="b.id" :value="b.id">{{ b.name }}</option>
+        </select>
+        <span class="muted small">{{ orgWide ? t('policies.owner_hint_org') : t('policies.owner_hint_manager') }}</span>
       </div>
       <div class="field">
         <label>{{ t('policies.windows_label') }}</label>
@@ -540,7 +591,7 @@ async function saveAssign() {
         <div class="field">
           <label>{{ t('policies.target_type') }}</label>
           <select v-model="aForm.target_type">
-            <option v-for="tt in TARGET_TYPES" :key="tt" :value="tt">{{ targetTypeLabel(tt) }}</option>
+            <option v-for="tt in targetTypes" :key="tt" :value="tt">{{ targetTypeLabel(tt) }}</option>
           </select>
         </div>
         <div v-if="aForm.target_type !== 'org'" class="field">

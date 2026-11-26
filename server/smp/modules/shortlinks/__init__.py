@@ -27,8 +27,8 @@ class ShortlinksModule(Module):
     description = "Short links with expiry and per-teacher ownership"
 
     permissions = (
-        Permission("shortlinks.links.create", "Create and manage own short links", ("teacher",)),
-        Permission("shortlinks.links.manage_all", "Manage everyone's short links"),
+        Permission("shortlinks.links.create", "Create and manage own short links", ("teacher",), org_wide=True),
+        Permission("shortlinks.links.manage_all", "Manage everyone's short links", ("unit_manager",)),
     )
     ui_routes = (UiRoute("/shortlinks", "Short links", "🔗", "shortlinks.links.create", "services"),)
     events = (

@@ -20,6 +20,7 @@ from smp.core.context import Ctx, get_ctx
 from smp.core.errors import AppError
 from smp.core.events import EventBus, InProcessEventBus
 from smp.core.identity import LocalIdentityProvider
+from smp.core.models import Role
 from smp.core.module import ModuleRegistry
 from smp.core.security import SecretKeyMissing
 from smp.core.throttle import LoginThrottle, seed_throttle_from_audit
@@ -107,7 +108,7 @@ def create_app(registry: ModuleRegistry | None = None, bus: EventBus | None = No
     # types come from `smp openapi`, which doesn't need these routes.
     async def admin_user(ctx: Ctx = Depends(get_ctx)) -> Ctx:
         p = ctx.principal
-        if p is None or p.kind != "user" or not any(role == "admin" for role, _ in p.roles):
+        if p is None or p.kind != "user" or not any(r.role == Role.ADMIN and r.room_id is None and r.building_id is None for r in p.roles):
             raise AppError(status.HTTP_403_FORBIDDEN, "docs.admin_only", "the API documentation is for administrators only")
         return ctx
 

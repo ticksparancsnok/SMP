@@ -7,7 +7,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorText } from '../api/client'
-import type { AgentDownload, ApproveIn, Device, DeviceStatus, JoinRequest, Page, Room } from '../api/types'
+import type { AgentDownload, ApproveIn, Building, Device, DeviceStatus, InstallCommand, JoinRequest, Page, Room } from '../api/types'
 import { copyText } from '../clipboard'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
@@ -15,7 +15,7 @@ import RemotePicker from '../components/RemotePicker.vue'
 import { DEVICE_STATUSES, deviceStatusClass, deviceStatusLabel, fmtFingerprint, fmtRelative, isOnline } from '../format'
 import { t } from '../i18n'
 import { usePage, usePageSize } from '../paging'
-import { can } from '../session'
+import { can, canAnywhere } from '../session'
 
 const limit = usePageSize('devices')
 
@@ -31,7 +31,13 @@ const error = ref('')
 // '' = all, '__none' = no room, otherwise a room id. Kept in the URL so dashboard/room links work.
 const roomFilter = ref(typeof route.query.room_id === 'string' ? route.query.room_id : '')
 const q = ref('')
-const canWrite = computed(() => can('core.devices.write'))
+// A manager writes the computers of their buildings (the permission exists per building).
+const canWrite = computed(() => canAnywhere('core.devices.write'))
+const canWriteDevice = (d: Device) => can('core.devices.write', d.room_id)
+// School-wide writers may leave a computer without a room; everyone else must pick one of
+// their rooms (the server enforces it too).
+const orgWide = computed(() => can('core.devices.write'))
+const writableRooms = computed(() => rooms.value.filter((r) => can('core.devices.write', r.id)))
 
 const roomName = (id: string | null | undefined) => (id ? (rooms.value.find((r) => r.id === id)?.name ?? '?') : '–')
 
@@ -156,8 +162,28 @@ async function resetIdentity(d: Device) {
 const download = ref<AgentDownload | null>(null)
 const downloadOpen = ref(false)
 const copied = ref('')
-// what an admin types on the PC: this very server's address (with its port, if any)
-const installCommand = computed(() => `smp-agent.exe install --server ${window.location.host}`)
+// What an admin types on the PC. The server builds it (its address, and the building the
+// PC is in, so the join request names it); until it answers, this server's own address.
+const buildings = ref<Building[]>([])
+const installBuilding = ref('')
+const installInfo = ref<InstallCommand | null>(null)
+const installError = ref('')
+const installCommand = computed(() => installInfo.value?.command ?? `smp-agent.exe install --server ${window.location.host}`)
+// A manager with several buildings has to say which one the PC is in.
+const installNeedsBuilding = computed(() => !orgWide.value && !installBuilding.value)
+
+async function loadInstallCommand() {
+  installError.value = ''
+  copied.value = ''
+  installInfo.value = null
+  if (installNeedsBuilding.value) return
+  try {
+    installInfo.value = await api.get<InstallCommand>('/agent/install-command', { building_id: installBuilding.value || undefined })
+  } catch (e) {
+    installError.value = errorText(e)
+  }
+}
+watch(installBuilding, loadInstallCommand)
 const verifyCommand = 'Get-FileHash .\\smp-agent.exe'
 
 /** The agent version SMP offers, if it differs from what `d` runs (it updates itself). */
@@ -169,7 +195,18 @@ function updatingTo(d: Device): string | null {
 async function openDownload() {
   downloadOpen.value = true
   copied.value = ''
-  download.value = await api.get<AgentDownload>('/agent/download').catch(() => null)
+  installInfo.value = null
+  installError.value = ''
+  const [d, b] = await Promise.all([
+    api.get<AgentDownload>('/agent/download').catch(() => null),
+    api.get<Building[]>('/buildings').catch(() => []),
+  ])
+  download.value = d
+  buildings.value = b
+  // a manager with one building has nothing to choose
+  const preset = !orgWide.value && b.length === 1 ? b[0]!.id : ''
+  if (installBuilding.value === preset) await loadInstallCommand()
+  else installBuilding.value = preset // the watcher loads it
 }
 
 async function copy(what: string, text: string) {
@@ -343,6 +380,7 @@ async function showPolicies(d: Device) {
         <thead>
           <tr>
             <th>{{ t('devices.device') }}</th>
+            <th>{{ t('rooms.building') }}</th>
             <th>MAC / IP</th>
             <th>OS</th>
             <th>{{ t('devices.fingerprint') }}</th>
@@ -353,6 +391,12 @@ async function showPolicies(d: Device) {
         <tbody>
           <tr v-for="r in joinPage.rows" :key="r.id">
             <td><strong class="mono">{{ r.hostname }}</strong></td>
+            <td>
+              <template v-if="r.building_name">{{ r.building_name }}</template>
+              <!-- the installer named a building SMP doesn't know: show what it typed -->
+              <span v-else-if="r.building_hint" class="muted" :title="t('devices.building_unmatched')">{{ r.building_hint }}</span>
+              <template v-else>–</template>
+            </td>
             <td class="mono">
               {{ r.mac ?? '–' }}<br /><span class="muted">{{ r.ip ?? '' }}</span>
               <template v-if="r.observed_ip && r.observed_ip !== r.ip">
@@ -450,7 +494,7 @@ async function showPolicies(d: Device) {
           <td>
             <div class="actions">
               <button class="ghost small" @click="showPolicies(d)">{{ t('devices.policies') }}</button>
-              <template v-if="canWrite">
+              <template v-if="canWriteDevice(d)">
                 <button class="ghost small" @click="openEdit(d)">{{ t('common.edit') }}</button>
                 <button class="danger small" @click="remove(d)">{{ t('common.delete') }}</button>
               </template>
@@ -485,9 +529,10 @@ async function showPolicies(d: Device) {
         </div>
         <div class="field">
           <label>{{ t('common.room') }}</label>
-          <select v-model="form.room_id" :disabled="form.room_mode === 'network'">
-            <option value="">{{ t('devices.none') }}</option>
-            <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+          <select v-model="form.room_id" :disabled="form.room_mode === 'network'" :required="!orgWide && form.room_mode !== 'network'">
+            <option v-if="orgWide" value="">{{ t('devices.none') }}</option>
+            <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+            <option v-for="r in writableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
           </select>
         </div>
       </div>
@@ -564,9 +609,10 @@ async function showPolicies(d: Device) {
       <div class="field">
         <label>{{ t('devices.room_mode') }}</label>
         <label class="check"><input v-model="approveForm.room_mode" type="radio" value="fixed" /> {{ t('devices.room_fixed') }}</label>
-        <select v-if="approveForm.room_mode === 'fixed'" v-model="approveForm.room_id">
-          <option value="">{{ approveForm.as === 'existing' ? t('devices.room_keep') : t('devices.none') }}</option>
-          <option v-for="r in rooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+        <select v-if="approveForm.room_mode === 'fixed'" v-model="approveForm.room_id" :required="!orgWide">
+          <option v-if="orgWide" value="">{{ approveForm.as === 'existing' ? t('devices.room_keep') : t('devices.none') }}</option>
+          <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+          <option v-for="r in writableRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
         <label class="check"><input v-model="approveForm.room_mode" type="radio" value="network" /> {{ t('devices.room_network') }}</label>
       </div>
@@ -591,7 +637,18 @@ async function showPolicies(d: Device) {
         <li>{{ t('devices.download_step_copy') }}</li>
         <li>
           {{ t('devices.download_step_install') }}
-          <div class="cmd">
+          <div v-if="buildings.length" class="field" style="margin-top: 6px">
+            <label>{{ t('rooms.building') }}</label>
+            <select v-model="installBuilding">
+              <option v-if="orgWide" value="">{{ t('devices.install_no_building') }}</option>
+              <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+              <option v-for="b in buildings" :key="b.id" :value="b.id">{{ b.name }}</option>
+            </select>
+            <span class="muted small">{{ t('devices.install_building_hint') }}</span>
+          </div>
+          <div v-if="installError" class="alert err">{{ installError }}</div>
+          <div v-if="installNeedsBuilding" class="muted small">{{ t('devices.install_choose_building') }}</div>
+          <div v-else class="cmd">
             <code class="mono">{{ installCommand }}</code>
             <button class="ghost small" @click="copy('install', installCommand)">
               {{ copied === 'install' ? t('common.copied') : t('common.copy') }}

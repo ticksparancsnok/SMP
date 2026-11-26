@@ -6,13 +6,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorText } from '../api/client'
-import type { Group, Page, Room, User } from '../api/types'
+import type { Building, Group, Page, Room, User } from '../api/types'
 import ImportDialog from '../components/ImportDialog.vue'
 import Modal from '../components/Modal.vue'
 import OtpDisplay from '../components/OtpDisplay.vue'
 import Pager from '../components/Pager.vue'
 import UserDialog from '../components/UserDialog.vue'
-import { fmtDate, fmtRelative, roleLabel, ROLES } from '../format'
+import { fmtDate, fmtRelative, roleLabel, roleScopeName, ROLES } from '../format'
 import { locale, t } from '../i18n'
 import { usePageSize } from '../paging'
 import { can, canAnywhere, session } from '../session'
@@ -25,11 +25,14 @@ const q = ref('')
 const role = ref('')
 const groupFilter = ref('')
 const rooms = ref<Room[]>([])
+const buildings = ref<Building[]>([])
 const groups = ref<Group[]>([])
 const error = ref('')
 const dialog = ref<{ user: User | null } | null>(null)
-const canWrite = computed(() => can('core.users.write'))
-const canImport = computed(() => can('core.users.write') && can('core.groups.write'))
+// A manager writes users of their buildings only (permissions exist per building); the
+// server says per user whether this one may be changed (can_edit).
+const canWrite = computed(() => canAnywhere('core.users.write'))
+const canImport = computed(() => canAnywhere('core.users.write') && canAnywhere('core.groups.write'))
 // Login slips: admins for everyone, class teachers for their own students (server filters).
 const canSlips = computed(() => canWrite.value || can('core.users.reset_class_password'))
 const importOpen = ref(false)
@@ -78,10 +81,9 @@ function downloadSample() {
 
 function imported() {
   firstPage()
-  if (can('core.groups.read')) api.get<Group[]>('/groups').then((g) => (groups.value = g)).catch(() => {})
+  if (canAnywhere('core.groups.read')) api.get<Group[]>('/groups').then((g) => (groups.value = g)).catch(() => {})
 }
 
-const roomName = (id: string | null | undefined) => rooms.value.find((r) => r.id === id)?.name ?? '?'
 
 async function load() {
   try {
@@ -117,7 +119,8 @@ watch([limit, offset], load)
 onMounted(async () => {
   load()
   if (canAnywhere('core.rooms.read')) rooms.value = await api.get<Room[]>('/rooms').catch(() => [])
-  if (can('core.groups.read')) groups.value = await api.get<Group[]>('/groups').catch(() => [])
+  if (canAnywhere('core.buildings.read')) buildings.value = await api.get<Building[]>('/buildings').catch(() => [])
+  if (canAnywhere('core.groups.read')) groups.value = await api.get<Group[]>('/groups').catch(() => [])
 })
 
 async function remove(u: User) {
@@ -211,7 +214,7 @@ function saved() {
           </td>
           <td><div class="chips">
             <span v-for="(r, i) in u.roles" :key="i" class="badge info">
-              {{ roleLabel(r.role) }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
+              {{ roleLabel(r.role) }}{{ roleScopeName(r, buildings, rooms) ? ` – ${roleScopeName(r, buildings, rooms)}` : '' }}
             </span>
           </div></td>
           <td><div class="chips">
@@ -250,8 +253,19 @@ function saved() {
               <button class="ghost small" @click="teacherReset(u)">{{ t('users.new_otp') }}</button>
             </div>
             <div v-if="canWrite" class="actions">
-              <button class="ghost small" @click="dialog = { user: u }">{{ t('common.edit') }}</button>
-              <button v-if="u.id !== session.me?.id" class="danger small" @click="remove(u)">{{ t('common.delete') }}</button>
+              <button
+                class="ghost small"
+                :disabled="!u.can_edit"
+                :title="u.can_edit ? '' : t('code.users.not_editable')"
+                @click="dialog = { user: u }"
+              >{{ t('common.edit') }}</button>
+              <button
+                v-if="u.id !== session.me?.id"
+                class="danger small"
+                :disabled="!u.can_edit"
+                :title="u.can_edit ? '' : t('code.users.not_editable')"
+                @click="remove(u)"
+              >{{ t('common.delete') }}</button>
             </div>
           </td>
         </tr>
@@ -269,8 +283,8 @@ function saved() {
       <button @click="issued = null">{{ t('common.done') }}</button>
     </div>
   </Modal>
-  <ImportDialog v-if="importOpen" @close="importOpen = false" @imported="imported" />
-  <UserDialog v-if="dialog" :user="dialog.user" :rooms="rooms" :groups="groups"
+  <ImportDialog v-if="importOpen" :buildings="buildings" @close="importOpen = false" @imported="imported" />
+  <UserDialog v-if="dialog" :user="dialog.user" :rooms="rooms" :groups="groups" :buildings="buildings"
     @changed="load"
     @close="dialog = null" @saved="saved" />
 </template>

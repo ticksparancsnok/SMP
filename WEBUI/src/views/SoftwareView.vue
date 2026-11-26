@@ -11,6 +11,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { api, errorText } from '../api/client'
 import type {
+  Building,
   Device,
   Page,
   Room,
@@ -23,10 +24,13 @@ import type {
 import Modal from '../components/Modal.vue'
 import { fmtRelative } from '../format'
 import { t, tOr } from '../i18n'
-import { can } from '../session'
+import { can, canAnywhere } from '../session'
 
 const canEdit = computed(() => can('software.packages.write'))
-const canAssign = computed(() => can('software.assignments.write'))
+// Assigning is also a manager's job (their buildings: the permission exists per building);
+// uploading packages is for the school level only.
+const canAssign = computed(() => canAnywhere('software.assignments.write'))
+const assignOrgWide = computed(() => can('software.assignments.write'))
 
 const packages = shallowRef<SoftwarePackage[]>([])
 const error = ref('')
@@ -118,17 +122,22 @@ const targetLabel = (a: SoftwareAssignment) =>
 
 // New assignment (admins)
 const rooms = shallowRef<Room[]>([])
+const buildings = shallowRef<Building[]>([])
 const allDevices = shallowRef<Device[]>([])
-const assignForm = reactive({ target_type: 'org' as 'org' | 'room' | 'device', target_id: '', action: 'install' as 'install' | 'remove' })
+const assignForm = reactive({ target_type: 'org' as 'org' | 'building' | 'room' | 'device', target_id: '', action: 'install' as 'install' | 'remove' })
 const assignError = ref('')
 
 async function loadTargets() {
-  if (!canAssign.value || rooms.value.length || allDevices.value.length) return
-  const [r, d] = await Promise.all([
+  if (!canAssign.value || rooms.value.length || allDevices.value.length || buildings.value.length) return
+  const [r, d, b] = await Promise.all([
     api.get<Room[]>('/rooms').catch(() => []),
     api.get<Page<Device>>('/devices', { limit: 2000 }).catch(() => ({ items: [], total: 0 })),
+    api.get<Building[]>('/buildings').catch(() => []),
   ])
   rooms.value = r
+  buildings.value = b
+  // someone without school-wide rights starts at their building
+  if (!assignOrgWide.value) assignForm.target_type = b.length ? 'building' : 'room'
   allDevices.value = d.items.filter((x) => x.agent_id).sort((a, b) => a.hostname.localeCompare(b.hostname))
 }
 watch(selectedId, loadTargets)
@@ -375,9 +384,16 @@ async function deletePackage(p: SoftwarePackage) {
         <div class="field">
           <label>{{ t('software.target_label') }}</label>
           <select v-model="assignForm.target_type" @change="assignForm.target_id = ''">
-            <option value="org">{{ t('software.target_org') }}</option>
+            <option v-if="assignOrgWide" value="org">{{ t('software.target_org') }}</option>
+            <option v-if="buildings.length" value="building">{{ t('software.target.building') }}</option>
             <option value="room">{{ t('software.target.room') }}</option>
             <option value="device">{{ t('software.target.device') }}</option>
+          </select>
+        </div>
+        <div v-if="assignForm.target_type === 'building'" class="field">
+          <label>{{ t('software.target.building') }}</label>
+          <select v-model="assignForm.target_id" required>
+            <option v-for="b in buildings" :key="b.id" :value="b.id">{{ b.name }}</option>
           </select>
         </div>
         <div v-if="assignForm.target_type === 'room'" class="field">

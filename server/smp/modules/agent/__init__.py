@@ -40,7 +40,8 @@ class AgentModule(Module):
     )
 
     # Subjects after which agents should fetch their config again.
-    WAKE_ON = ("core.policy.changed", "core.settings.changed", "core.device.*", "core.room.*", "agent.config.changed")
+    WAKE_ON = ("core.policy.changed", "core.settings.changed", "core.device.*", "core.room.*",
+               "core.building.*", "agent.config.changed")
 
     def __init__(self) -> None:
         self.hub = AgentHub()

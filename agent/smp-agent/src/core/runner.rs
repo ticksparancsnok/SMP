@@ -30,7 +30,7 @@ use anyhow::{bail, Context, Result};
 use crate::core::api::{ApiError, Client, HeartbeatIn, HeartbeatOut, AGENT_VERSION, PLATFORM};
 use crate::core::capability::Registry;
 use crate::core::identity::Identity;
-use crate::core::state::State;
+use crate::core::state::{normalize_building, State};
 use crate::core::presence::{Presence, PresenceProbe};
 use crate::core::sysinfo::SysInfo;
 use crate::core::update;
@@ -80,6 +80,7 @@ impl Agent {
             }
         };
         let client = Arc::new(Client::new(&state.server, state.identity()?, state.server_cert_sha256.clone()));
+        client.set_building(state.building.clone());
         Ok(Self { client, state, state_path: state_path.to_path_buf(), contact: Contact::new() })
     }
 
@@ -104,6 +105,21 @@ impl Agent {
     /// Where agent.json is: update.json goes next to it.
     pub fn state_dir(&self) -> PathBuf {
         self.state_path.parent().map(Path::to_path_buf).unwrap_or_default()
+    }
+
+    /// Remember the building the installer named and send it with the join requests
+    /// (also those of the service, which loads it from the state file). An empty
+    /// value changes nothing. Validated before anything is stored.
+    pub fn set_building(&mut self, building: &str) -> Result<()> {
+        let Some(building) = normalize_building(building)? else {
+            return Ok(());
+        };
+        if self.state.building.as_deref() != Some(building.as_str()) {
+            self.state.building = Some(building);
+            self.state.save(&self.state_path).context("saving the building")?;
+        }
+        self.client.set_building(self.state.building.clone());
+        Ok(())
     }
 
     fn save_device_id(&mut self, device_id: &str) {

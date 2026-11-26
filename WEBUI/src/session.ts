@@ -7,6 +7,7 @@
 import { reactive, watch } from 'vue'
 import { api, ApiError } from './api/client'
 import type { Manifest, Me, PreferencesPatch, UiRoute } from './api/types'
+import { ROLE_TABLE, ROLES, type RoleName } from './format'
 import { locale, tOr } from './i18n'
 
 export const session = reactive({
@@ -87,24 +88,51 @@ watch(locale, (l) => {
   if (session.me && session.me.preferences.locale !== l) savePreferences({ locale: l })
 })
 
-/** Org-wide permission, or (with roomId) org-wide or granted for that room. Mirrors Principal.can(). */
+/** Org-wide permission, or (with roomId) org-wide, granted for that room, or granted for
+ *  the building the room is in (a manager's admin-type permissions only exist per
+ *  building). Mirrors Principal.can(). */
 export function can(perm: string, roomId?: string | null): boolean {
   const me = session.me
   if (!me) return false
   if (me.permissions.includes(perm)) return true
-  return !!roomId && (me.room_permissions[roomId] ?? []).includes(perm)
+  if (!roomId) return false
+  if ((me.room_permissions[roomId] ?? []).includes(perm)) return true
+  const building = me.room_buildings[roomId]
+  return !!building && (me.building_permissions[building] ?? []).includes(perm)
 }
 
-/** Granted org-wide or for at least one room (e.g. a teacher assigned to some rooms). */
+/** Org-wide permission, or granted for that building. */
+export function canInBuilding(perm: string, buildingId: string | null | undefined): boolean {
+  const me = session.me
+  if (!me) return false
+  if (me.permissions.includes(perm)) return true
+  return !!buildingId && (me.building_permissions[buildingId] ?? []).includes(perm)
+}
+
+/** Granted org-wide, for at least one room (e.g. a teacher assigned to some rooms) or
+ *  for at least one building (e.g. a manager). */
 export function canAnywhere(perm: string): boolean {
   const me = session.me
   if (!me) return false
-  return can(perm) || Object.values(me.room_permissions).some((p) => p.includes(perm))
+  return (
+    can(perm) ||
+    Object.values(me.room_permissions).some((p) => p.includes(perm)) ||
+    Object.values(me.building_permissions).some((p) => p.includes(perm))
+  )
 }
 
-/** Admins and teachers. Students only get their own pages (home, account, short links). */
+/** Anyone who is not (only) a student. Students only get their own pages (home,
+ *  account, short links). */
 export function isStaff(): boolean {
-  return (session.me?.roles ?? []).some((r) => r.role === 'admin' || r.role === 'teacher')
+  return (session.me?.roles ?? []).some((r) => r.role !== 'student')
+}
+
+/** The roles the signed-in user may give to others: what their own roles grant (the role
+ *  table). An API token has no role, the server decides for it, so it is offered all. */
+export function grantableRoles(): RoleName[] {
+  const mine = (session.me?.roles ?? []).map((r) => r.role as RoleName)
+  if (!mine.length) return [...ROLES]
+  return ROLES.filter((role) => mine.some((m) => ROLE_TABLE[m]?.grants.includes(role)))
 }
 
 export function hasModule(name: string): boolean {

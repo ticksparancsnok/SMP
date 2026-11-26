@@ -37,8 +37,10 @@ class DnsModule(Module):
     title = "DNS content filtering"
     description = "Hosts blocklist and allowlist, DNS sinkhole synchronization and import"
     permissions = (
-        Permission("dns.blocklist.read", "View the DNS blocklist and allowlist", ("admin", "teacher")),
-        Permission("dns.blocklist.write", "Edit the DNS blocklist and allowlist", ("admin", "teacher")),
+        # DNS lists are school-wide: org_wide, so teachers (and above) keep using them from
+        # any scope. The admin wildcard covers admins.
+        Permission("dns.blocklist.read", "View the DNS blocklist and allowlist", ("teacher",), org_wide=True),
+        Permission("dns.blocklist.write", "Edit the DNS blocklist and allowlist", ("teacher",), org_wide=True),
         Permission("dns.review.manage", "Manage the DNS AI review queue", ("admin", "teacher")),
     )
     ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.blocklist.read", "services"),)

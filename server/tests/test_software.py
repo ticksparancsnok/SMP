@@ -169,15 +169,30 @@ async def test_exe_packages_need_detection_and_an_uninstall_command_to_be_remove
 def test_the_most_specific_assignment_wins():
     pkg, other, room, dev = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     targets = [
-        Target(pkg, "org", None, None, "install"),
-        Target(pkg, "room", room, None, "remove"),
-        Target(pkg, "device", None, dev, "install"),
-        Target(other, "room", uuid.uuid4(), None, "install"),  # another room
+        Target(pkg, "org", None, None, None, "install"),
+        Target(pkg, "room", None, room, None, "remove"),
+        Target(pkg, "device", None, None, dev, "install"),
+        Target(other, "room", None, uuid.uuid4(), None, "install"),  # another room
     ]
     assert pick(targets, dev, room) == {pkg: "install"}  # the computer's own assignment
     assert pick(targets, uuid.uuid4(), room) == {pkg: "remove"}  # its room's
     assert pick(targets, uuid.uuid4(), None) == {pkg: "install"}  # the school's
     assert pick([], dev, room) == {}
+
+
+def test_a_building_sits_between_the_school_and_a_room():
+    pkg, building, room, dev = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    targets = [
+        Target(pkg, "org", None, None, None, "install"),
+        Target(pkg, "building", building, None, None, "remove"),
+    ]
+    assert pick(targets, dev, room, building) == {pkg: "remove"}  # the building beats the school
+    assert pick(targets, dev, room, uuid.uuid4()) == {pkg: "install"}  # another building's computer
+    assert pick(targets, dev, None) == {pkg: "install"}  # in no room, so in no building
+    targets.append(Target(pkg, "room", None, room, None, "install"))
+    assert pick(targets, dev, room, building) == {pkg: "install"}  # the room beats the building
+    targets.append(Target(pkg, "device", None, None, dev, "remove"))
+    assert pick(targets, dev, room, building) == {pkg: "remove"}  # the computer beats the room
 
 
 async def test_agents_get_their_packages(app, admin, software_dir):

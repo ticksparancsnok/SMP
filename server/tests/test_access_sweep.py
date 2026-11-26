@@ -61,7 +61,8 @@ async def real_objects(app, admin) -> dict[str, str]:
         assert r.status_code in (200, 201), (path, r.status_code, r.text[:200])  # a broken setup must not pass quietly
         return r.json()
 
-    room = await made("/api/v1/rooms", {"name": "Sweep room", "subnets": ["10.77.0.0/24"]})
+    building = await made("/api/v1/buildings", {"name": "Sweep building"})
+    room = await made("/api/v1/rooms", {"name": "Sweep room", "subnets": ["10.77.0.0/24"], "building_id": building["id"]})
     group = await made("/api/v1/groups", {"name": "Sweep 9.A", "kind": "class"})
     user = await made("/api/v1/users", {"username": "sweep.victim", "password": "Victim-Pass-1234",
                                         "roles": [{"role": "teacher"}]})
@@ -80,7 +81,7 @@ async def real_objects(app, admin) -> dict[str, str]:
     link = await made("/api/v1/shortlinks/links", {"target_url": "https://example.org", "code": "sweep1"})
     token = await made("/api/v1/tokens", {"name": "sweep", "permissions": ["core.devices.read"]})
     ids = {
-        "room_id": room["id"], "group_id": group["id"], "user_id": user["id"], "policy_id": policy["id"],
+        "building_id": building["id"], "room_id": room["id"], "group_id": group["id"], "user_id": user["id"], "policy_id": policy["id"],
         "assignment_id": _id(assignment), "schedule_id": _id(schedule), "device_id": device_id,
         "request_id": request["id"], "entry_id": _id(entry), "link_id": _id(link), "token_id": _id(token),
         "code": link.get("code", "sweep1"), "job_id": "0" * 32, "name": "core",
@@ -124,7 +125,7 @@ async def test_nobody_and_students_are_refused_everywhere(app, admin, anon):
 
 async def test_control_an_admin_reaches_the_same_objects(app, admin):
     ids = await real_objects(app, admin)
-    for path in ("/api/v1/devices/{device_id}", "/api/v1/rooms/{room_id}", "/api/v1/users/{user_id}",
+    for path in ("/api/v1/devices/{device_id}", "/api/v1/rooms/{room_id}", "/api/v1/buildings/{building_id}", "/api/v1/users/{user_id}",
                  "/api/v1/classroom/rooms/{room_id}", "/api/v1/modules/{name}/settings"):
         r = await admin.get(fill(path, ids))
         assert r.status_code == 200, (path, r.status_code, r.text[:200])

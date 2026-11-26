@@ -8,12 +8,16 @@ through exactly the same machinery as everyone else's."""
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from smp.core.api import auth, devices, groups, platform, policies, rooms, users
+from smp.core.api import auth, buildings, devices, groups, platform, policies, rooms, users
 from smp.core.dashboard import core_widgets
 from smp.core.module import EventSubject, Module, Permission, UiRoute, Widget
 
 ADMIN = ()  # admin implicitly has every permission
+# Each role also gets the defaults of the roles it inherits (smp/core/roles.py):
+# manager = teacher + MANAGER; unit_manager = manager + UNIT_MANAGER.
 TEACHER = ("teacher",)
+MANAGER = ("manager",)
+UNIT_MANAGER = ("unit_manager",)
 
 
 class CoreSettings(BaseModel):
@@ -31,25 +35,28 @@ class CoreModule(Module):
 
     permissions = (
         Permission("core.users.read", "View users", TEACHER),
-        Permission("core.users.write", "Create, edit, delete users and assign roles", ADMIN),
+        Permission("core.users.write", "Create, edit, delete users and assign roles", MANAGER),
         Permission(
             "core.users.reset_class_password",
             "Issue a new one-time password to students of groups the user teaches",
             TEACHER,
+            org_wide=True,  # checked by the group relation, not by place
         ),
         Permission("core.groups.read", "View groups and members", TEACHER),
-        Permission("core.groups.write", "Manage groups and membership", ADMIN),
+        Permission("core.groups.write", "Manage groups and membership", MANAGER),
         Permission("core.rooms.read", "View rooms (room-scoped)", TEACHER, room_scoped=True),
-        Permission("core.rooms.write", "Manage rooms and their subnets", ADMIN),
+        Permission("core.buildings.read", "View buildings", TEACHER),
+        Permission("core.buildings.write", "Create, rename and delete buildings", UNIT_MANAGER),
+        Permission("core.rooms.write", "Manage rooms and their subnets", MANAGER),
         Permission("core.devices.read", "View devices (room-scoped)", TEACHER, room_scoped=True),
-        Permission("core.devices.write", "Register, move and retire devices", ADMIN),
+        Permission("core.devices.write", "Register, move and retire devices", MANAGER),
         Permission("core.policies.read", "View policies, schedules and assignments", TEACHER),
-        Permission("core.policies.write", "Create and edit policies and schedules", ADMIN),
+        Permission("core.policies.write", "Create and edit policies and schedules", MANAGER),
         Permission("core.policies.assign", "Apply policies to targets (room-scoped for teachers)", TEACHER, room_scoped=True),
-        Permission("core.audit.read", "Read the audit log", ADMIN),
+        Permission("core.audit.read", "Read the audit log", MANAGER),
         Permission("core.settings.read", "Read module settings", ADMIN),
         Permission("core.settings.write", "Change module settings", ADMIN),
-        Permission("core.tokens.manage", "Create and revoke API tokens", ADMIN),
+        Permission("core.tokens.manage", "Create and revoke API tokens", UNIT_MANAGER),
     )
 
     ui_routes = (
@@ -58,6 +65,7 @@ class CoreModule(Module):
         UiRoute("/account", "My account", "👤", None, "account"),
         UiRoute("/users", "Users", "🎓", "core.users.read", "admin"),
         UiRoute("/groups", "Groups", "👥", "core.groups.read", "admin"),
+        UiRoute("/buildings", "Buildings", "🏫", "core.buildings.read", "admin"),
         UiRoute("/rooms", "Rooms", "🏢", "core.rooms.read", "admin"),
         UiRoute("/devices", "Devices", "💻", "core.devices.read", "admin"),
         UiRoute("/policies", "Policies", "📋", "core.policies.read", "admin"),
@@ -74,6 +82,9 @@ class CoreModule(Module):
         EventSubject("core.group.deleted", "Group deleted"),
         EventSubject("core.group.members_changed", "Group membership replaced"),
         EventSubject("core.group.teachers_changed", "Group class teachers replaced"),
+        EventSubject("core.building.created", "Building created"),
+        EventSubject("core.building.updated", "Building edited"),
+        EventSubject("core.building.deleted", "Building deleted"),
         EventSubject("core.room.created", "Room created"),
         EventSubject("core.room.updated", "Room edited (incl. subnets)"),
         EventSubject("core.room.deleted", "Room deleted"),
@@ -91,6 +102,6 @@ class CoreModule(Module):
 
     def router(self) -> APIRouter:
         r = APIRouter()
-        for sub in (auth, users, groups, rooms, devices, policies, platform):
+        for sub in (auth, users, groups, buildings, rooms, devices, policies, platform):
             r.include_router(sub.router)
         return r

@@ -4,15 +4,16 @@
 
 """Software endpoints (mounted at /api/v1/software).
 
-Admins (software.packages.write):
+Unit managers and admins (software.packages.write, school-wide):
     POST   /uploads?filename=...      the installer as the raw request body -> an upload
     POST   /packages                  describe it: arguments, detection, removal, restart
     PATCH  /packages/{id}             change it (another upload_id = a new version)
     DELETE /packages/{id}             only while nothing is assigned
-Admins (software.assignments.write):
-    POST   /assignments               package -> school / room / computer, install | remove
+Managers (inside their buildings), unit managers and admins (software.assignments.write):
+    POST   /assignments               package -> school / building / room / computer, install | remove
     PATCH  /assignments/{id}          switch between install and remove
     DELETE /assignments/{id}          (leaves the program on the computers: see desired.py)
+    A manager may only touch targets inside their buildings (never the whole school).
 Staff (software.status.read; teachers: their rooms' computers):
     GET    /packages                  with per-state counts over the computers you can see
     GET    /packages/{id}
@@ -33,6 +34,7 @@ import re
 import secrets
 import uuid
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -48,7 +50,7 @@ from smp.core import db
 from smp.core.context import Ctx, require
 from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
-from smp.core.models import Device, DeviceStatus, Room
+from smp.core.models import Building, Device, DeviceStatus, Room
 from smp.modules.agent.api import authenticate_agent
 from smp.modules.software import ASSIGN, PACKAGES_WRITE, READ, settings_for, storage
 from smp.modules.software.desired import (
@@ -205,7 +207,7 @@ class SoftwarePackageOut(BaseModel):
 
 class SoftwareAssignmentIn(BaseModel):
     package_id: uuid.UUID
-    target_type: Literal["org", "room", "device"]
+    target_type: Literal["org", "building", "room", "device"]
     target_id: uuid.UUID | None = None
     action: Literal["install", "remove"] = "install"
 
@@ -225,7 +227,7 @@ class SoftwareAssignmentOut(BaseModel):
     package_id: uuid.UUID
     target_type: str
     target_id: uuid.UUID | None
-    target_name: str | None  # room name or hostname; None for the whole school
+    target_name: str | None  # building or room name, or hostname; None for the whole school
     action: str
     created_at: datetime
 
@@ -460,100 +462,168 @@ async def delete_package(package_id: uuid.UUID, ctx: Ctx = Depends(require(PACKA
 # --------------------------------------------------------------------------- assignments
 
 
-async def _target(ctx: Ctx, target_type: str, target_id: uuid.UUID | None) -> tuple[uuid.UUID | None, uuid.UUID | None, str | None]:
-    """(room_id, device_id, display name), checking the target is this school's."""
+@dataclass(frozen=True)
+class _Target:
+    """An assignment's target, checked to be this school's."""
+
+    type: str
+    building_id: uuid.UUID | None = None
+    room_id: uuid.UUID | None = None
+    device_id: uuid.UUID | None = None
+    name: str | None = None
+    # Where the target sits (a computer: its room), for the scope check and the audit.
+    scope_room_id: uuid.UUID | None = None
+    scope_building_id: uuid.UUID | None = None
+
+    @property
+    def id(self) -> uuid.UUID | None:
+        return self.building_id or self.room_id or self.device_id
+
+    @property
+    def audit_buildings(self) -> list[uuid.UUID] | None:
+        """Which buildings an audit entry about it concerns (None: Ctx.audit works it out)."""
+        return [self.scope_building_id] if self.scope_building_id is not None else None
+
+
+async def _target(ctx: Ctx, target_type: str, target_id: uuid.UUID | None) -> _Target:
+    """The target of an assignment, checking it is this school's."""
+    if target_type == "building":
+        building = await ctx.get(Building, target_id)
+        return _Target(target_type, building_id=building.id, name=building.name, scope_building_id=building.id)
     if target_type == "room":
         room = await ctx.get(Room, target_id)
-        return room.id, None, room.name
+        return _Target(target_type, room_id=room.id, name=room.name, scope_room_id=room.id,
+                       scope_building_id=room.building_id)
     if target_type == "device":
         device = await ctx.get(Device, target_id)
-        return None, device.id, device.hostname
-    return None, None, None
+        room = await ctx.db.get(Room, device.room_id) if device.room_id is not None else None
+        return _Target(target_type, device_id=device.id, name=device.hostname, scope_room_id=device.room_id,
+                       scope_building_id=room.building_id if room is not None else None)
+    return _Target(target_type)
+
+
+def _check_assign(ctx: Ctx, t: _Target) -> None:
+    """The caller may assign to this target: the whole school needs the school-wide
+    permission; a building, room or computer (through its room) the one for it. A
+    computer in no room counts as school-level."""
+    if t.type == "building":
+        ctx.check(ASSIGN, building_id=t.building_id)
+    elif t.type in ("room", "device"):
+        ctx.check(ASSIGN, room_id=t.scope_room_id)
+    else:
+        ctx.check(ASSIGN)
+
+
+def _out_assignment(a: SoftwareAssignment, name: str | None) -> SoftwareAssignmentOut:
+    return SoftwareAssignmentOut(
+        id=a.id, package_id=a.package_id, target_type=a.target_type,
+        target_id=a.building_id or a.room_id or a.device_id, target_name=name, action=a.action, created_at=a.created_at,
+    )
 
 
 @router.get("/packages/{package_id}/assignments", response_model=list[SoftwareAssignmentOut])
 async def list_assignments(package_id: uuid.UUID, ctx: Ctx = Depends(require(READ, any_room=True))):
-    """Teachers see the school-wide ones and those for their rooms and their computers."""
+    """The school-wide ones (they reach the caller's computers too) and those for the
+    caller's buildings, rooms and computers; teachers and managers see no others."""
     await ctx.get(SoftwarePackage, package_id)
     rows = list((await ctx.db.execute(
         ctx.select(SoftwareAssignment).where(SoftwareAssignment.package_id == package_id)
         .order_by(SoftwareAssignment.created_at)
     )).scalars())
     rooms = await _room_names(ctx)
+    buildings = dict((await ctx.db.execute(select(Building.id, Building.name).where(Building.org_id == ctx.org_id))).all())
     device_ids = [a.device_id for a in rows if a.device_id]
     devices = {d.id: d for d in (await ctx.db.execute(ctx.select(Device).where(Device.id.in_(device_ids)))).scalars()}
     allowed = ctx.principal.rooms_with(READ)
+    visible_buildings: set[uuid.UUID] = set()
+    if allowed:  # a building counts as visible when one of its rooms is
+        visible_buildings = set((await ctx.db.execute(
+            select(Room.building_id).where(Room.org_id == ctx.org_id, Room.id.in_(allowed), Room.building_id.is_not(None))
+        )).scalars())
     out = []
     for a in rows:
-        room = a.room_id if a.target_type == "room" else (devices[a.device_id].room_id if a.device_id in devices else None)
-        if allowed is not None and a.target_type != "org" and room not in allowed:
-            continue
-        name = rooms.get(a.room_id) if a.room_id else (devices[a.device_id].hostname if a.device_id in devices else None)
-        out.append(SoftwareAssignmentOut(id=a.id, package_id=a.package_id, target_type=a.target_type,
-                                 target_id=a.room_id or a.device_id, target_name=name, action=a.action,
-                                 created_at=a.created_at))
+        if allowed is not None and a.target_type != "org":
+            if a.target_type == "building":
+                if a.building_id not in visible_buildings:
+                    continue
+            else:
+                room = a.room_id if a.target_type == "room" else (
+                    devices[a.device_id].room_id if a.device_id in devices else None)
+                if room not in allowed:
+                    continue
+        if a.building_id:
+            name = buildings.get(a.building_id)
+        elif a.room_id:
+            name = rooms.get(a.room_id)
+        else:
+            name = devices[a.device_id].hostname if a.device_id in devices else None
+        out.append(_out_assignment(a, name))
     return out
 
 
 @router.post("/assignments", response_model=SoftwareAssignmentOut, status_code=201)
-async def create_assignment(body: SoftwareAssignmentIn, ctx: Ctx = Depends(require(ASSIGN))):
+async def create_assignment(body: SoftwareAssignmentIn, ctx: Ctx = Depends(require(ASSIGN, any_room=True))):
     p = await ctx.get(SoftwarePackage, body.package_id)
-    room_id, device_id, name = await _target(ctx, body.target_type, body.target_id)
+    t = await _target(ctx, body.target_type, body.target_id)
+    _check_assign(ctx, t)  # managers: only inside their buildings
     if body.action == "remove" and not removable(p.upload.kind, p.uninstall_command):
         raise AppError(status.HTTP_409_CONFLICT, "software.not_removable",
                        "this package can't be removed by SMP: give it an uninstall command first")
     exists_already = await ctx.db.scalar(select(func.count()).where(
         SoftwareAssignment.package_id == p.id,
-        SoftwareAssignment.room_id.is_(None) if room_id is None else SoftwareAssignment.room_id == room_id,
-        SoftwareAssignment.device_id.is_(None) if device_id is None else SoftwareAssignment.device_id == device_id,
+        SoftwareAssignment.building_id.is_(None) if t.building_id is None else SoftwareAssignment.building_id == t.building_id,
+        SoftwareAssignment.room_id.is_(None) if t.room_id is None else SoftwareAssignment.room_id == t.room_id,
+        SoftwareAssignment.device_id.is_(None) if t.device_id is None else SoftwareAssignment.device_id == t.device_id,
     ))
     if exists_already:
         raise AppError(status.HTTP_409_CONFLICT, "software.assignment_exists",
                        "this package is already assigned there; change that assignment instead")
-    a = SoftwareAssignment(org_id=ctx.org_id, package_id=p.id, target_type=body.target_type, room_id=room_id,
-                           device_id=device_id, action=body.action, created_by=ctx.principal.id)
+    a = SoftwareAssignment(org_id=ctx.org_id, package_id=p.id, target_type=body.target_type,
+                           building_id=t.building_id, room_id=t.room_id, device_id=t.device_id,
+                           action=body.action, created_by=ctx.principal.id)
     ctx.db.add(a)
     await ctx.db.flush()
     ctx.audit("software.assignment.create", a, {
         "package_id": str(p.id), "package": p.name, "version": p.version, "target_type": a.target_type,
-        "target_id": str(room_id or device_id) if (room_id or device_id) else None, "target_name": name,
-        "action": a.action,
-    })
+        "target_id": str(t.id) if t.id else None, "target_name": t.name, "action": a.action,
+    }, building_ids=t.audit_buildings)
     _wake(ctx, "software assigned")
     await ctx.commit()
-    return SoftwareAssignmentOut(id=a.id, package_id=p.id, target_type=a.target_type, target_id=room_id or device_id,
-                         target_name=name, action=a.action, created_at=a.created_at)
+    return _out_assignment(a, t.name)
 
 
 @router.patch("/assignments/{assignment_id}", response_model=SoftwareAssignmentOut)
-async def update_assignment(assignment_id: uuid.UUID, body: SoftwareAssignmentUpdate, ctx: Ctx = Depends(require(ASSIGN))):
+async def update_assignment(assignment_id: uuid.UUID, body: SoftwareAssignmentUpdate,
+                            ctx: Ctx = Depends(require(ASSIGN, any_room=True))):
     a = await ctx.get(SoftwareAssignment, assignment_id)
+    t = await _target(ctx, a.target_type, a.building_id or a.room_id or a.device_id)
+    _check_assign(ctx, t)  # only the action changes, the target stays
     p = await ctx.get(SoftwarePackage, a.package_id)
     if body.action == "remove" and not removable(p.upload.kind, p.uninstall_command):
         raise AppError(status.HTTP_409_CONFLICT, "software.not_removable",
                        "this package can't be removed by SMP: give it an uninstall command first")
-    _, _, name = await _target(ctx, a.target_type, a.room_id or a.device_id)
     if a.action != body.action:
         ctx.audit("software.assignment.update", a, {
-            "package": p.name, "target_type": a.target_type, "target_name": name, "action": body.action,
+            "package": p.name, "target_type": a.target_type, "target_name": t.name, "action": body.action,
             "previous_action": a.action,
-        })
+        }, building_ids=t.audit_buildings)
         a.action = body.action
         _wake(ctx, "software assignment changed")
         await ctx.commit()
-    return SoftwareAssignmentOut(id=a.id, package_id=p.id, target_type=a.target_type, target_id=a.room_id or a.device_id,
-                         target_name=name, action=a.action, created_at=a.created_at)
+    return _out_assignment(a, t.name)
 
 
 @router.delete("/assignments/{assignment_id}", status_code=204)
-async def delete_assignment(assignment_id: uuid.UUID, ctx: Ctx = Depends(require(ASSIGN))):
+async def delete_assignment(assignment_id: uuid.UUID, ctx: Ctx = Depends(require(ASSIGN, any_room=True))):
     """The program stays where it is installed (assign "remove" to uninstall it)."""
     a = await ctx.get(SoftwareAssignment, assignment_id)
+    t = await _target(ctx, a.target_type, a.building_id or a.room_id or a.device_id)
+    _check_assign(ctx, t)
     p = await ctx.get(SoftwarePackage, a.package_id)
     ctx.audit("software.assignment.delete", a, {
-        "package": p.name, "target_type": a.target_type,
-        "target_id": str(a.room_id or a.device_id) if (a.room_id or a.device_id) else None, "action": a.action,
-    })
+        "package": p.name, "target_type": a.target_type, "target_id": str(t.id) if t.id else None,
+        "target_name": t.name, "action": a.action,
+    }, building_ids=t.audit_buildings)
     await ctx.db.delete(a)
     _wake(ctx, "software unassigned")
     await ctx.commit()

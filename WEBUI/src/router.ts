@@ -17,6 +17,7 @@ const router = createRouter({
     { path: '/account', component: () => import('./views/AccountView.vue') },
     { path: '/users', component: () => import('./views/UsersView.vue'), meta: { perm: 'core.users.read' } },
     { path: '/groups', component: () => import('./views/GroupsView.vue'), meta: { perm: 'core.groups.read' } },
+    { path: '/buildings', component: () => import('./views/BuildingsView.vue'), meta: { perm: 'core.buildings.read' } },
     { path: '/rooms', component: () => import('./views/RoomsView.vue'), meta: { perm: 'core.rooms.read' } },
     { path: '/devices', component: () => import('./views/DevicesView.vue'), meta: { perm: 'core.devices.read' } },
     { path: '/policies', component: () => import('./views/PoliciesView.vue'), meta: { perm: 'core.policies.read' } },

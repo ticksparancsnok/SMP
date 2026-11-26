@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,25 @@ pub struct State {
     pub server_cert_sha256: Option<String>,
     /// Set once an admin approved the machine.
     pub device_id: Option<String>,
+    /// Which building of the school this PC is in, as the installer typed it (an id or
+    /// a name as SMP shows it). Only a hint sent with the join request, so that
+    /// building's manager sees the PC waiting; the admin still chooses the room.
+    /// Optional in the file: states written by older agents don't have it, and an older
+    /// agent reading a newer state file ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub building: Option<String>,
+}
+
+/// The longest building hint accepted (an id is 36 characters; names are short).
+const MAX_BUILDING_CHARS: usize = 200;
+
+/// Clean up what the installer gave: trimmed, empty means "none".
+pub fn normalize_building(input: &str) -> Result<Option<String>> {
+    let building = input.trim();
+    if building.chars().count() > MAX_BUILDING_CHARS {
+        bail!("the building is too long (at most {MAX_BUILDING_CHARS} characters)");
+    }
+    Ok((!building.is_empty()).then(|| building.to_string()))
 }
 
 impl State {
@@ -41,6 +60,7 @@ impl State {
             protection: protection.to_string(),
             server_cert_sha256: None,
             device_id: None,
+            building: None,
         })
     }
 
@@ -93,5 +113,38 @@ mod tests {
         assert_eq!(loaded.device_id.as_deref(), Some("abc"));
         assert_eq!(loaded.identity().unwrap().fingerprint(), id.fingerprint());
         assert!(State::load(&dir.path().join("missing.json")).unwrap().is_none());
+    }
+
+    #[test]
+    fn building_round_trips_and_is_left_out_when_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.json");
+        let mut state = State::new("https://smp.example", &Identity::generate()).unwrap();
+        state.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("building"), "an unset building must not be written: {text}");
+        assert_eq!(State::load(&path).unwrap().unwrap().building, None);
+
+        state.building = Some("Main building".into());
+        state.save(&path).unwrap();
+        assert_eq!(State::load(&path).unwrap().unwrap().building.as_deref(), Some("Main building"));
+    }
+
+    #[test]
+    fn a_state_file_from_an_older_agent_loads_without_building() {
+        let old = r#"{"server":"https://smp.example","key":"AAAA","protection":"none",
+            "server_cert_sha256":null,"device_id":"abc"}"#;
+        let state: State = serde_json::from_str(old).unwrap();
+        assert_eq!(state.building, None);
+        assert_eq!(state.device_id.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn building_is_trimmed_and_capped() {
+        assert_eq!(normalize_building("  A wing \n").unwrap().as_deref(), Some("A wing"));
+        assert_eq!(normalize_building("   ").unwrap(), None);
+        assert!(normalize_building(&"x".repeat(200)).unwrap().is_some());
+        assert!(normalize_building(&"x".repeat(201)).is_err());
+        assert!(normalize_building(&"é".repeat(200)).unwrap().is_some()); // characters, not bytes
     }
 }

@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from smp.core.api import ORMModel
 from smp.core.context import Ctx, get_ctx, require
+from smp.core.dashboard import audit_in_scope
 from smp.core.db import utcnow
+from smp.core.errors import AppError
 from smp.core.models import ApiToken, AuditLog, ModuleSetting
 from smp.core.module import Widget
 from smp.core.security import new_token
@@ -144,6 +146,14 @@ async def create_token(body: TokenIn, ctx: Ctx = Depends(require("core.tokens.ma
 @router.delete("/tokens/{token_id}", status_code=204)
 async def revoke_token(token_id: uuid.UUID, ctx: Ctx = Depends(require("core.tokens.manage"))):
     t = await ctx.get(ApiToken, token_id)
+    # Below an admin, only tokens that hold nothing the caller lacks (a unit manager
+    # must not be able to disable an admin's token).
+    p = ctx.principal
+    assert p is not None
+    if "*" not in p.global_perms and not set(t.permissions) <= set(p.all_permissions(ctx.registry)):
+        raise AppError(
+            status.HTTP_403_FORBIDDEN, "tokens.exceeds_permissions", "the token holds permissions you don't have"
+        )
     if t.revoked_at is None:
         t.revoked_at = utcnow()
         ctx.audit("core.token.revoke", t, {"name": t.name})
@@ -168,7 +178,7 @@ class AuditOut(ORMModel):
 
 @router.get("/audit", response_model=list[AuditOut])
 async def list_audit(
-    ctx: Ctx = Depends(require("core.audit.read")),
+    ctx: Ctx = Depends(require("core.audit.read", any_room=True)),
     action: str | None = Query(None, description="exact action, or prefix ending in '.' e.g. 'core.user.'"),
     actor_id: str | None = None,
     target_type: str | None = None,
@@ -179,6 +189,9 @@ async def list_audit(
     limit: int = Query(100, le=1000),
 ):
     stmt = ctx.select(AuditLog)
+    assert ctx.principal is not None
+    if (in_scope := audit_in_scope(ctx.principal)) is not None:
+        stmt = stmt.where(in_scope)  # building managers: entries about their buildings only
     if action:
         stmt = stmt.where(AuditLog.action.startswith(action) if action.endswith(".") else AuditLog.action == action)
     if actor_id:

@@ -6,18 +6,35 @@
 
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, exists, func, or_, select
 
-from smp.core.context import Ctx
+from smp.core.context import Ctx, Principal
 from smp.core.db import utcnow
 from smp.core.models import AuditLog, Device, Group, PolicyAssignment, RoleAssignment, Room, User
 from smp.core.module import Widget, WidgetItem
+from smp.core.policy import assignment_scope
 
 # A device is online while its agent reports; agents check in at least every ~25 s
 # (long poll), so 90 s without a heartbeat means it's off or off the network.
 # The web UI uses the same window (WEBUI/src/format.ts, isOnline).
 ONLINE_WINDOW = timedelta(seconds=90)
-ROLE_LABELS = {"admin": ("admin", "admins"), "teacher": ("teacher", "teachers"), "student": ("student", "students")}
+ROLE_LABELS = {
+    "admin": ("admin", "admins"),
+    "unit_manager": ("unit manager", "unit managers"),
+    "manager": ("manager", "managers"),
+    "teacher": ("teacher", "teachers"),
+    "student": ("student", "students"),
+}
+
+
+def audit_in_scope(principal: Principal) -> ColumnElement[bool] | None:
+    """Which audit entries the principal may read: None = all (org-wide grant);
+    otherwise a condition on AuditLog.building_ids (entries about their buildings;
+    org-level entries have NULL there and never match)."""
+    buildings = principal.buildings_with("core.audit.read")
+    if buildings is None:
+        return None
+    return AuditLog.building_ids.overlap(list(buildings))
 
 
 async def core_widgets(ctx: Ctx) -> list[Widget]:
@@ -52,13 +69,23 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
             Widget(id="core.devices", title="Devices", value=total, hint=hint, data=data, icon="💻", link="/devices", order=20)
         )
 
-    if p.can("core.users.read"):
-        total = await count(select(func.count()).select_from(User).where(User.org_id == ctx.org_id))
-        rows = await ctx.db.execute(
-            select(RoleAssignment.role, func.count(func.distinct(RoleAssignment.user_id)))
-            .where(RoleAssignment.org_id == ctx.org_id)
-            .group_by(RoleAssignment.role)
+    if p.can_anywhere("core.users.read"):
+        users_q = select(func.count()).select_from(User).where(User.org_id == ctx.org_id)
+        roles_q = select(RoleAssignment.role, func.count(func.distinct(RoleAssignment.user_id))).where(
+            RoleAssignment.org_id == ctx.org_id
         )
+        if (mine := p.buildings_with("core.users.read")) is not None:
+            # A building manager counts the users of their buildings: those with a role
+            # scoped to the building or to one of its rooms.
+            b = list(mine)
+            in_building = or_(
+                RoleAssignment.building_id.in_(b),
+                RoleAssignment.room_id.in_(select(Room.id).where(Room.building_id.in_(b))),
+            )
+            users_q = users_q.where(exists().where(RoleAssignment.user_id == User.id, in_building))
+            roles_q = roles_q.where(in_building)
+        total = await count(users_q)
+        rows = await ctx.db.execute(roles_q.group_by(RoleAssignment.role))
         by_role = dict(rows.all())
         hint = " · ".join(
             f"{by_role[r]} {one if by_role[r] == 1 else many}" for r, (one, many) in ROLE_LABELS.items() if by_role.get(r)
@@ -73,7 +100,7 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
         out.append(Widget(id="core.groups", title="Groups", value=n, icon="👥", link="/groups", order=40))
 
     if p.can_anywhere("core.policies.read"):
-        n = await count(
+        temp_q = (
             select(func.count())
             .select_from(PolicyAssignment)
             .where(
@@ -83,24 +110,34 @@ async def core_widgets(ctx: Ctx) -> list[Widget]:
                 (PolicyAssignment.starts_at.is_(None)) | (PolicyAssignment.starts_at <= now),
             )
         )
+        if (listable := assignment_scope(p)) is not None:  # only what GET /policy-assignments would list
+            temp_q = temp_q.where(listable)
+        n = await count(temp_q)
         out.append(
             Widget(id="core.temporary_policies", title="Temporary policies", value=n, hint="e.g. exam mode",
                    icon="📋", link="/policies?tab=assignments", order=50)
         )
 
-    if p.can("core.audit.read"):
-        failed = await count(
-            select(func.count())
-            .select_from(AuditLog)
-            .where(AuditLog.org_id == ctx.org_id, AuditLog.action == "core.auth.login_failed", AuditLog.at >= now - timedelta(hours=24))
-        )
-        out.append(
-            Widget(id="core.failed_logins", title="Failed logins", value=failed, hint="last 24 hours",
-                   icon="🔒", link="/audit?action=core.auth.login_failed", order=60)
-        )
-        recent = await ctx.db.execute(
-            select(AuditLog).where(AuditLog.org_id == ctx.org_id).order_by(AuditLog.id.desc()).limit(8)
-        )
+    if p.can_anywhere("core.audit.read"):
+        in_scope = audit_in_scope(p)
+        if in_scope is None:  # org-level entries (failed logins) are for org-wide readers only
+            failed = await count(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.org_id == ctx.org_id,
+                    AuditLog.action == "core.auth.login_failed",
+                    AuditLog.at >= now - timedelta(hours=24),
+                )
+            )
+            out.append(
+                Widget(id="core.failed_logins", title="Failed logins", value=failed, hint="last 24 hours",
+                       icon="🔒", link="/audit?action=core.auth.login_failed", order=60)
+            )
+        recent_q = select(AuditLog).where(AuditLog.org_id == ctx.org_id)
+        if in_scope is not None:
+            recent_q = recent_q.where(in_scope)
+        recent = await ctx.db.execute(recent_q.order_by(AuditLog.id.desc()).limit(8))
         out.append(
             Widget(
                 id="core.recent_activity",

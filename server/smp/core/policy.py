@@ -5,12 +5,12 @@
 """Policy resolution: which policy of each kind applies to a device/user right now.
 
 Rules (documented in docs/architecture.md):
-  1. Candidate assignments are those targeting the org, the device's room, the
-     device itself, the user, or any of the user's groups.
+  1. Candidate assignments are those targeting the org, the building of the device's
+     room, the device's room, the device itself, the user, or any of the user's groups.
   2. An assignment counts only if enabled, inside [starts_at, ends_at) and, when it
      has a schedule, inside one of the schedule's windows.
   3. Per kind, the winner is the highest `priority`; ties go to the more specific
-     target (device/user > room/group > org); remaining ties to the newest.
+     target (device/user > room/group > building > org); remaining ties to the newest.
 
 So the default policy is an org assignment with priority 0, a room's lesson-time
 policy is a room assignment on a schedule, and "exam mode" is a room assignment with
@@ -24,22 +24,33 @@ from datetime import datetime, time
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import ColumnElement, and_, delete, exists, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from smp.core.db import utcnow
-from smp.core.models import Device, GroupMember, Policy, PolicyAssignment, Room, Schedule, TargetType
+from smp.core.models import (
+    Device,
+    GroupBuilding,
+    GroupMember,
+    Policy,
+    PolicyAssignment,
+    RoleAssignment,
+    Room,
+    Schedule,
+    TargetType,
+)
 
 if TYPE_CHECKING:
-    from smp.core.context import Ctx
+    from smp.core.context import Ctx, Principal
 
 SPECIFICITY = {
     TargetType.ORG: 0,
-    TargetType.ROOM: 1,
-    TargetType.GROUP: 1,
-    TargetType.DEVICE: 2,
-    TargetType.USER: 2,
+    TargetType.BUILDING: 1,
+    TargetType.ROOM: 2,
+    TargetType.GROUP: 2,
+    TargetType.DEVICE: 3,
+    TargetType.USER: 3,
 }
 
 
@@ -123,6 +134,11 @@ async def effective_policies(
     target_filters = [PolicyAssignment.target_type == TargetType.ORG]
     if room_id:
         target_filters.append((PolicyAssignment.target_type == TargetType.ROOM) & (PolicyAssignment.target_id == room_id))
+        # The room's building, looked up inside the same query (NULL matches nothing).
+        building_id = select(Room.building_id).where(Room.id == room_id).scalar_subquery()
+        target_filters.append(
+            (PolicyAssignment.target_type == TargetType.BUILDING) & (PolicyAssignment.target_id == building_id)
+        )
     if device is not None:
         target_filters.append(
             (PolicyAssignment.target_type == TargetType.DEVICE) & (PolicyAssignment.target_id == device.id)
@@ -204,6 +220,53 @@ async def room_for_ip(db: AsyncSession, org_id: uuid.UUID, ip: str) -> Room | No
             if addr.version == net.version and addr in net and (best is None or net.prefixlen > best[0]):
                 best = (net.prefixlen, room)
     return best[1] if best else None
+
+
+# --------------------------------------------------------------------------- scope of targets
+
+
+def group_within(group_id: Any, buildings: set[uuid.UUID]) -> ColumnElement[bool]:
+    """SQL condition: the group belongs to at least one building and all of its
+    buildings are in `buildings` (a school-wide group is in none). `group_id` is a
+    value or a column of an enclosing query."""
+    has_any = exists().where(GroupBuilding.group_id == group_id)
+    outside = exists().where(GroupBuilding.group_id == group_id, GroupBuilding.building_id.not_in(list(buildings)))
+    return and_(has_any, not_(outside))
+
+
+def user_within(user_id: Any, buildings: set[uuid.UUID]) -> ColumnElement[bool]:
+    """SQL condition: the user has at least one role assignment and every one of them
+    is scoped to one of `buildings` or to a room in one of them (an org-wide
+    assignment is outside any building)."""
+    b = list(buildings)
+    rooms_in = select(Room.id).where(Room.building_id.in_(b))
+    has_any = exists().where(RoleAssignment.user_id == user_id)
+    inside = or_(
+        and_(RoleAssignment.building_id.is_not(None), RoleAssignment.building_id.in_(b)),
+        and_(RoleAssignment.room_id.is_not(None), RoleAssignment.room_id.in_(rooms_in)),
+    )
+    outside = exists().where(RoleAssignment.user_id == user_id, not_(inside))
+    return and_(has_any, not_(outside))
+
+
+def assignment_scope(principal: "Principal") -> ColumnElement[bool] | None:
+    """Which policy assignments the principal may list: None = all (org-wide read);
+    otherwise a condition on PolicyAssignment. The org's own assignments are visible to
+    every reader; the others only when their target lies in the reader's rooms or
+    buildings (a group or user by the same rule as for assigning: see group_within)."""
+    buildings = principal.buildings_with("core.policies.read")
+    rooms = principal.rooms_with("core.policies.read")
+    if buildings is None or rooms is None:
+        return None
+    t, tid = PolicyAssignment.target_type, PolicyAssignment.target_id
+    return or_(
+        t == TargetType.ORG,
+        and_(t == TargetType.BUILDING, tid.in_(list(buildings))),
+        and_(t == TargetType.ROOM, tid.in_(list(rooms))),
+        and_(t == TargetType.DEVICE, tid.in_(select(Device.id).where(Device.room_id.in_(list(rooms))))),
+        and_(t == TargetType.GROUP, group_within(tid, buildings)),
+        and_(t == TargetType.USER, user_within(tid, buildings)),
+    )
 
 
 # --------------------------------------------------------------------------- change helpers
