@@ -8,7 +8,8 @@ DISTINCT and a plpgsql trigger). Start one with:
     docker compose up -d db          # from the repo root
     pytest                           # uses 127.0.0.1:5432 by default
 
-Override with SMP_TEST_DATABASE_URL. Only the separate smp_test database is touched.
+Override with SMP_TEST_DATABASE_URL. Only the separate smp_test database is touched
+(smp_test_gw0, smp_test_gw1, ... when run in parallel with `pytest -n auto`).
 
 The test database is dropped and recreated on every run.
 """
@@ -28,6 +29,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 
 TEST_DB_URL = os.environ.get("SMP_TEST_DATABASE_URL", "postgresql+asyncpg://smp:smp@127.0.0.1:5432/smp_test")
+# `pytest -n auto` (pytest-xdist): every worker gets its own database, smp_test_gw0, ...
+if worker := os.environ.get("PYTEST_XDIST_WORKER"):
+    TEST_DB_URL = urlsplit(TEST_DB_URL)._replace(path=f"{urlsplit(TEST_DB_URL).path}_{worker}").geturl()
 os.environ.update(
     SMP_DATABASE_URL=TEST_DB_URL,
     SMP_COOKIE_SECURE="false",
@@ -113,6 +117,16 @@ def migrated_db():
         raise err[0]
 
 
+@pytest.fixture(autouse=True)
+def no_login_penalty(monkeypatch):
+    """Failed logins are padded to LOGIN_PENALTY_SECONDS (1 s) so their timing reveals
+    nothing (issue #4). Tests fail logins on purpose all the time, so skip the wait here;
+    tests/test_login_timing.py turns it back on to test the padding itself."""
+    from smp.core.api import auth
+
+    monkeypatch.setattr(auth, "LOGIN_PENALTY_SECONDS", 0.0)
+
+
 @pytest.fixture(scope="session")
 def testpol() -> PolicyTestModule:
     return PolicyTestModule()
@@ -128,6 +142,15 @@ async def app(migrated_db, testpol):
 @pytest_asyncio.fixture(loop_scope="session")
 async def org(app, testpol):
     """Fresh data for every test: one org with an admin user."""
+    # Event handlers from the previous test (e.g. the DNS re-sync after a change) run as
+    # background tasks and may still be reading the tables; TRUNCATE would deadlock with them.
+    await app.state.bus.drain()
+    # Classroom watches are in-memory too: one left over from an earlier test times out 20 s
+    # later, and the pruner then writes an audit entry whenever that is (mid-TRUNCATE: deadlock).
+    from smp.modules.classroom.watch import FrameStore, WatchRegistry
+
+    classroom = app.state.registry.get("classroom")
+    classroom.watches, classroom.frames = WatchRegistry(), FrameStore()
     async with db.sessionmaker()() as s:
         await s.execute(text("TRUNCATE organizations CASCADE"))
         o = Organization(slug="default", name="Test School")

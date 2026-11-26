@@ -8,6 +8,7 @@ Checks its format, that the line-based reader the Docker builds use (tools/versi
 agrees with a real TOML parser, and that no component got a version of its own back."""
 
 import json
+import re
 import shutil
 import subprocess
 import tomllib
@@ -97,8 +98,11 @@ def test_pep440(value, pep440):
 
 @pytest.mark.parametrize("bad", ["1.0", "1.0.2C", "1.0.2 c", "1.0.2  C", "v1.0.2", "1.0.2 AB", ""])
 def test_bad_versions_are_refused(tmp_path, bad):
-    text = VERSION_TOML.read_text().replace('version = "1.0.0 A"', f'version = "{bad}"')
-    assert f'"{bad}"' in text  # the Site-blocker line was replaced
+    # Swap the [Site-blocker] version, whatever it currently is.
+    text, n = re.subn(
+        r'(\[Site-blocker\][^\[]*?\nversion = )"[^"\n]*"', lambda m: f'{m.group(1)}"{bad}"', VERSION_TOML.read_text()
+    )
+    assert n == 1  # the Site-blocker line was replaced
     f = tmp_path / "Version.toml"
     f.write_text(text)
     with pytest.raises(ValueError, match=r"\[Site-blocker\]"):

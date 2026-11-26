@@ -113,9 +113,9 @@ async def desired_for_devices(
         stmt = stmt.where(SoftwareAssignment.package_id == package_id)
     targets = _targets(await db.execute(stmt))
     building_of = dict((await db.execute(
-        select(Room.id, Room.building_id).where(Room.org_id == org_id, Room.building_id.is_not(None))
+        select(Room.id, Room.building_id).where(Room.org_id == org_id, Room.building_id.is_not(None))  # ruff: ignore[line-too-long]
     )).all())
-    return {device_id: pick(targets, device_id, room_id, building_of.get(room_id)) for device_id, room_id in devices}
+    return {device_id: pick(targets, device_id, room_id, (building_of.get(room_id) if room_id is not None else None)) for device_id, room_id in devices}  # ruff: ignore[line-too-long]
 
 
 def effective_state(action: str | None, row: SoftwareDeviceState | None, current_sha256: str) -> str | None:

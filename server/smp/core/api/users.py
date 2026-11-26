@@ -46,6 +46,7 @@ from smp.core.xlsx_users import (
     read_users,
     write_users,
 )
+from typing import Annotated
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -462,20 +463,19 @@ def _filtered_users(
 
 
 @router.get("", response_model=Page[UserOut])
-async def list_users(
-    ctx: Ctx = Depends(require(USERS_READ, any_room=True)),
+async def list_users(  # ruff: ignore[missing-return-type-public-function, too-many-arguments, too-many-positional-arguments]
+    ctx: Annotated[Ctx, Depends(require(USERS_READ, any_room=True))],
     q: str | None = None,
     role: Role | None = None,
     group_id: uuid.UUID | None = None,
-    limit: int = Query(100, le=1000),
+    limit: Annotated[int, Query(le=1000)] = 100,
     offset: int = 0,
 ):
-    """Everyone for an org-wide reader; otherwise the users with an assignment in the
-    caller's buildings."""
+    """Everyone for an org-wide reader; otherwise the users with an assignment in the caller's buildings."""  # ruff: ignore[docstring-missing-returns, line-too-long]
     acc = await _access(ctx)
     stmt = _filtered_users(ctx, q, role, group_id, acc.read_b)
-    total = await ctx.db.scalar(stmt.with_only_columns(func.count()).order_by(None))
-    rows = await ctx.db.execute(stmt.order_by(User.username).limit(limit).offset(offset))
+    total = await ctx.db.scalar(stmt.with_only_columns(func.count()).order_by(None))  # ruff: ignore[line-too-long]
+    rows = await ctx.db.execute(stmt.order_by(User.username).limit(limit).offset(offset))  # ruff: ignore[line-too-long]
     users = list(rows.scalars())
     await acc.load_users(users)
     return Page(items=[_out(acc, u) for u in users], total=total or 0)
