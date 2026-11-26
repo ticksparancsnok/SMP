@@ -7,12 +7,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from smp.core.context import Ctx
 from smp.core.models import ApiToken
-
-if TYPE_CHECKING:
-    from smp.core.context import Ctx
 
 
 async def delete_tokens_of(ctx: Ctx, user_id: uuid.UUID) -> list[dict[str, Any]]:
