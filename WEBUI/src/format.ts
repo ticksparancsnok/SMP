@@ -6,8 +6,44 @@
 // are functions (called during render) rather than constant tables.
 import { intlLocale, locale, t, tOr, type Locale } from './i18n'
 
-export const ROLES = ['admin', 'teacher', 'student'] as const
+/** Roles, most powerful first. */
+export const ROLES = ['admin', 'unit_manager', 'manager', 'teacher', 'student'] as const
+export type RoleName = (typeof ROLES)[number]
 export const roleLabel = (role: string | null | undefined) => tOr(`role.${role}`, role ?? '')
+
+export type ScopeKind = 'org' | 'building' | 'room'
+
+/** The role table, mirroring server/smp/core/roles.py (the server is authoritative; the
+ *  UI uses this to offer only what the server will accept).
+ *  - scopes: where the role may be assigned (org = the whole school)
+ *  - grants: the roles a holder may give to others (inside their own scope)
+ *  - managesTokens: holders may create API tokens, so losing the role (at school scope)
+ *    deletes the tokens they made (server/smp/core/api/users.py) */
+export const ROLE_TABLE: Record<
+  RoleName,
+  { scopes: readonly ScopeKind[]; grants: readonly RoleName[]; managesTokens: boolean }
+> = {
+  admin: { scopes: ['org'], grants: ['admin', 'unit_manager', 'manager', 'teacher', 'student'], managesTokens: true },
+  unit_manager: { scopes: ['org'], grants: ['manager', 'teacher', 'student'], managesTokens: true },
+  manager: { scopes: ['building'], grants: ['teacher', 'student'], managesTokens: false },
+  teacher: { scopes: ['org', 'building', 'room'], grants: [], managesTokens: false },
+  student: { scopes: ['org', 'building'], grants: [], managesTokens: false },
+}
+
+/** Roles that may be class teachers of a group (they include the teacher's powers). */
+export const TEACHING_ROLES = ['teacher', 'manager', 'unit_manager'] as const
+
+/** Where a role assignment applies, as text: the building's or room's name, '' for the
+ *  whole school or a name we can't look up (the person may not be allowed to list it). */
+export function roleScopeName(
+  r: { room_id?: string | null; building_id?: string | null },
+  buildings: { id: string; name: string }[],
+  rooms: { id: string; name: string }[],
+): string {
+  if (r.room_id) return rooms.find((x) => x.id === r.room_id)?.name ?? ''
+  if (r.building_id) return buildings.find((x) => x.id === r.building_id)?.name ?? ''
+  return ''
+}
 
 export const DEVICE_STATUSES = ['pending', 'active', 'retired'] as const
 const DEVICE_STATUS_CLASS: Record<string, string> = { pending: 'warning', active: 'ok', retired: 'closed' }
@@ -17,7 +53,7 @@ export const deviceStatusClass = (s: string) => DEVICE_STATUS_CLASS[s] ?? ''
 export const GROUP_KINDS = ['class', 'staff', 'custom'] as const
 export const groupKindLabel = (kind: string) => tOr(`group_kind.${kind}`, kind)
 
-export const TARGET_TYPES = ['org', 'room', 'group', 'device', 'user'] as const
+export const TARGET_TYPES = ['org', 'building', 'room', 'group', 'device', 'user'] as const
 export const targetTypeLabel = (type: string) => tOr(`target.${type}`, type)
 
 /** Monday = 0 … Sunday = 6, as in schedule windows. */

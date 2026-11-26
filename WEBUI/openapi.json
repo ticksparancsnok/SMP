@@ -7,7 +7,7 @@
    "name": "AGPL-3.0-or-later",
    "identifier": "AGPL-3.0-or-later"
   },
-  "version": "1.0.4 A"
+  "version": "1.0.4 B"
  },
  "paths": {
   "/api/v1/auth/login": {
@@ -169,6 +169,7 @@
      "users"
     ],
     "summary": "List Users",
+    "description": "Everyone for an org-wide reader; otherwise the users with an assignment in the\ncaller's buildings.",
     "operationId": "list_users_api_v1_users_get",
     "parameters": [
      {
@@ -270,7 +271,7 @@
      "users"
     ],
     "summary": "Create User",
-    "description": "Every new local user can log in: with the given password, or with a generated\none-time password. Either way they must choose their own at first login.",
+    "description": "Every new local user can log in: with the given password, or with a generated\none-time password. Either way they must choose their own at first login.\n\nA manager (limited to buildings) may only create teachers and students; a role\nwithout a scope goes to every building they manage.",
     "operationId": "create_user_api_v1_users_post",
     "requestBody": {
      "required": true,
@@ -405,7 +406,7 @@
      "users"
     ],
     "summary": "Export Credentials",
-    "description": "Login slips: the filtered users that have a usable (unused, unexpired) one-time\npassword, with that password. Admins get every such user; class teachers only the\nstudents they may reset (members of groups they teach). Audited. The first three\ncolumns are the import format, so the file also works as a user list.",
+    "description": "Login slips: the filtered users that have a usable (unused, unexpired) one-time\npassword, with that password. Whoever may edit users gets every such user they may\nedit (a manager: those of their buildings); class teachers only the students they\nmay reset (members of groups they teach). Audited. The first three columns are the\nimport format, so the file also works as a user list.",
     "operationId": "export_credentials_api_v1_users_credentials_xlsx_get",
     "parameters": [
      {
@@ -542,7 +543,7 @@
      "users"
     ],
     "summary": "Import Users",
-    "description": "Create students from an .xlsx (body = the raw file). Each gets their own\none-time password (download them with GET /users/credentials.xlsx) and must choose\na password at first login; usernames that already exist are skipped. Any invalid\nrow rejects the whole file (422, detail = ImportResult). With dry_run=true nothing\nis written: use it to preview.",
+    "description": "Create students from an .xlsx (body = the raw file). Each gets their own\none-time password (download them with GET /users/credentials.xlsx) and must choose\na password at first login; usernames that already exist are skipped. Any invalid\nrow rejects the whole file (422, detail = ImportResult). With dry_run=true nothing\nis written: use it to preview.\n\nWhere the students go: a manager's import always goes to their own building(s)\n(`building_ids` may name a subset); an admin's or unit manager's goes to the given\n`building_ids` (repeat the parameter), or school-wide when there are none. Classes\nthe file creates belong to the same buildings.",
     "operationId": "import_users_api_v1_users_import_post",
     "parameters": [
      {
@@ -553,6 +554,20 @@
        "type": "boolean",
        "default": false,
        "title": "Dry Run"
+      }
+     },
+     {
+      "name": "building_ids",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "format": "uuid"
+       },
+       "default": [],
+       "title": "Building Ids"
       }
      }
     ],
@@ -725,6 +740,7 @@
      "users"
     ],
     "summary": "Set Roles",
+    "description": "Replace the user's role assignments. See `create_user` for what the caller may\ngrant. Nobody changes their own roles, except an admin, who must keep their highest\norg-wide role.",
     "operationId": "set_roles_api_v1_users__user_id__roles_put",
     "parameters": [
      {
@@ -782,7 +798,7 @@
      "users"
     ],
     "summary": "Set Groups",
-    "description": "Replace the user's class/group memberships (the user-side view of\nPUT /groups/{id}/members).",
+    "description": "Replace the user's class/group memberships (the user-side view of\nPUT /groups/{id}/members). A manager only touches groups of their buildings.",
     "operationId": "set_groups_api_v1_users__user_id__groups_put",
     "parameters": [
      {
@@ -841,7 +857,7 @@
      "users"
     ],
     "summary": "Set Password",
-    "description": "Reset: a given password (admins only), or (body without password) a new\none-time password (admins, or class teachers for their students). Either way all\nsessions end and the user must choose a new password.",
+    "description": "Reset: a given password (whoever may edit the user), or (body without password) a\nnew one-time password (the same, or class teachers for their students). Either way\nall sessions end and the user must choose a new password.",
     "operationId": "set_password_api_v1_users__user_id__password_post",
     "parameters": [
      {
@@ -895,6 +911,7 @@
      "groups"
     ],
     "summary": "List Groups",
+    "description": "Every group for an org-wide reader; otherwise the groups with a building among the caller's.",
     "operationId": "list_groups_api_v1_groups_get",
     "responses": {
      "200": {
@@ -1132,7 +1149,7 @@
      "groups"
     ],
     "summary": "Set Members",
-    "description": "Replace the member list (handy for directory sync and CSV import).",
+    "description": "Replace the member list (handy for directory sync and CSV import). A manager\ncan only add users they can see, and members they can't see stay.",
     "operationId": "set_members_api_v1_groups__group_id__members_put",
     "parameters": [
      {
@@ -1240,7 +1257,7 @@
      "groups"
     ],
     "summary": "Set Teachers",
-    "description": "Replace the group's class teachers. Only users with the teacher role qualify.\nClass teachers can issue new one-time passwords to the group's students.",
+    "description": "Replace the group's class teachers. Only users holding a role that includes the\nteacher's powers qualify (teacher, manager, unit manager). Class teachers can issue\nnew one-time passwords to the group's students. A manager can only name users they\ncan see, and teachers they can't see stay.",
     "operationId": "set_teachers_api_v1_groups__group_id__teachers_put",
     "parameters": [
      {
@@ -1283,6 +1300,198 @@
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/buildings": {
+   "get": {
+    "tags": [
+     "buildings"
+    ],
+    "summary": "List Buildings",
+    "operationId": "list_buildings_api_v1_buildings_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/BuildingOut"
+         },
+         "type": "array",
+         "title": "Response List Buildings Api V1 Buildings Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "buildings"
+    ],
+    "summary": "Create Building",
+    "operationId": "create_building_api_v1_buildings_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BuildingIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BuildingOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/buildings/{building_id}": {
+   "get": {
+    "tags": [
+     "buildings"
+    ],
+    "summary": "Get Building",
+    "operationId": "get_building_api_v1_buildings__building_id__get",
+    "parameters": [
+     {
+      "name": "building_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Building Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BuildingOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "patch": {
+    "tags": [
+     "buildings"
+    ],
+    "summary": "Update Building",
+    "operationId": "update_building_api_v1_buildings__building_id__patch",
+    "parameters": [
+     {
+      "name": "building_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Building Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BuildingUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BuildingOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "buildings"
+    ],
+    "summary": "Delete Building",
+    "operationId": "delete_building_api_v1_buildings__building_id__delete",
+    "parameters": [
+     {
+      "name": "building_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Building Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
      },
      "422": {
       "description": "Validation Error",
@@ -3668,7 +3877,7 @@
      "agent"
     ],
     "summary": "List Join Requests",
-    "description": "Machines waiting for approval.",
+    "description": "Machines waiting for approval (managers: those that named one of their buildings).",
     "operationId": "list_join_requests_api_v1_agent_join_requests_get",
     "responses": {
      "200": {
@@ -3720,6 +3929,7 @@
      "agent"
     ],
     "summary": "Approve",
+    "description": "School-wide callers approve anything. A manager approves a request that named one\nof their buildings, into a room of their buildings (a new computer, or taking over\none of theirs), whichever way the room is chosen.",
     "operationId": "approve_api_v1_agent_join_requests__request_id__approve_post",
     "parameters": [
      {
@@ -3867,13 +4077,64 @@
     }
    }
   },
+  "/api/v1/agent/install-command": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Install Command",
+    "description": "The command to run on a PC (as administrator) so that its join request names the\nbuilding. A manager gets their building (no choice needed if they have only one, and\nonly their own are allowed); school-wide callers may name any building or none.",
+    "operationId": "install_command_api_v1_agent_install_command_get",
+    "parameters": [
+     {
+      "name": "building_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "uuid"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Building Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InstallCommandOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/agent/devices/{device_id}/reset-identity": {
    "post": {
     "tags": [
      "agent"
     ],
     "summary": "Reset Identity",
-    "description": "Forget the device's key (e.g. a stolen disk or a broken install). Its agent is\nrefused from now on and has to join again; approve it as this same device.",
+    "description": "Forget the device's key (e.g. a stolen disk or a broken install). Its agent is\nrefused from now on and has to join again; approve it as this same device. Managers:\nonly computers in their buildings.",
     "operationId": "reset_identity_api_v1_agent_devices__device_id__reset_identity_post",
     "parameters": [
      {
@@ -4622,7 +4883,7 @@
      "software"
     ],
     "summary": "List Assignments",
-    "description": "Teachers see the school-wide ones and those for their rooms and their computers.",
+    "description": "The school-wide ones (they reach the caller's computers too) and those for the\ncaller's buildings, rooms and computers; teachers and managers see no others.",
     "operationId": "list_assignments_api_v1_software_packages__package_id__assignments_get",
     "parameters": [
      {
@@ -5315,6 +5576,85 @@
     ],
     "title": "AuditOut"
    },
+   "BuildingIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "BuildingIn"
+   },
+   "BuildingOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "room_count": {
+      "type": "integer",
+      "title": "Room Count",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "description"
+    ],
+    "title": "BuildingOut"
+   },
+   "BuildingUpdate": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     }
+    },
+    "type": "object",
+    "title": "BuildingUpdate"
+   },
    "DeviceCreate": {
     "properties": {
      "hostname": {
@@ -5845,6 +6185,21 @@
       "type": "string",
       "title": "Description",
       "default": ""
+     },
+     "building_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "format": "uuid"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Ids"
      }
     },
     "type": "object",
@@ -5882,6 +6237,15 @@
        }
       ],
       "title": "External Id"
+     },
+     "building_ids": {
+      "items": {
+       "type": "string",
+       "format": "uuid"
+      },
+      "type": "array",
+      "title": "Building Ids",
+      "default": []
      },
      "member_count": {
       "type": "integer",
@@ -5968,6 +6332,21 @@
        }
       ],
       "title": "Description"
+     },
+     "building_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string",
+         "format": "uuid"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Ids"
      }
     },
     "type": "object",
@@ -6215,6 +6594,49 @@
     ],
     "title": "ImportResult"
    },
+   "InstallCommandOut": {
+    "properties": {
+     "command": {
+      "type": "string",
+      "title": "Command"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
+     },
+     "building_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Name"
+     },
+     "server": {
+      "type": "string",
+      "title": "Server"
+     }
+    },
+    "type": "object",
+    "required": [
+     "command",
+     "building_id",
+     "building_name",
+     "server"
+    ],
+    "title": "InstallCommandOut"
+   },
    "JoinOut": {
     "properties": {
      "status": {
@@ -6372,6 +6794,40 @@
        }
       ],
       "title": "Rejected At"
+     },
+     "building_hint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Hint"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
+     },
+     "building_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Name"
      }
     },
     "type": "object",
@@ -6783,6 +7239,25 @@
       "type": "object",
       "title": "Room Permissions"
      },
+     "building_permissions": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Building Permissions",
+      "default": {}
+     },
+     "room_buildings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Room Buildings",
+      "default": {}
+     },
      "must_change_password": {
       "type": "boolean",
       "title": "Must Change Password",
@@ -7033,6 +7508,18 @@
       "type": "object",
       "title": "Data",
       "default": {}
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      }
     },
     "type": "object",
@@ -7048,6 +7535,18 @@
       "type": "string",
       "format": "uuid",
       "title": "Id"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      },
      "kind": {
       "type": "string",
@@ -7075,6 +7574,7 @@
     "type": "object",
     "required": [
      "id",
+     "building_id",
      "kind",
      "name",
      "description",
@@ -7120,6 +7620,18 @@
        }
       ],
       "title": "Data"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      }
     },
     "type": "object",
@@ -7258,10 +7770,13 @@
     "type": "string",
     "enum": [
      "admin",
+     "unit_manager",
+     "manager",
      "teacher",
      "student"
     ],
-    "title": "Role"
+    "title": "Role",
+    "description": "The role names. What each one is allowed (scopes, inheritance, who may hand it\nout) is the table in smp/core/roles.py; what it may do is the permissions' default\nroles in the module manifests."
    },
    "RoleIn": {
     "properties": {
@@ -7279,13 +7794,26 @@
        }
       ],
       "title": "Room Id"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      }
     },
     "type": "object",
     "required": [
      "role"
     ],
-    "title": "RoleIn"
+    "title": "RoleIn",
+    "description": "One role assignment: org-wide (no scope), for a building or for a room (never\nboth). Where each role may sit is the table in smp/core/roles.py."
    },
    "RoleOut": {
     "properties": {
@@ -7304,6 +7832,18 @@
        }
       ],
       "title": "Room Id"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      }
     },
     "type": "object",
@@ -7321,10 +7861,17 @@
       "minLength": 1,
       "title": "Name"
      },
-     "building": {
-      "type": "string",
-      "title": "Building",
-      "default": ""
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      },
      "description": {
       "type": "string",
@@ -7357,6 +7904,18 @@
       "type": "string",
       "title": "Name"
      },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
+     },
      "building": {
       "type": "string",
       "title": "Building"
@@ -7382,6 +7941,7 @@
     "required": [
      "id",
      "name",
+     "building_id",
      "building",
      "description",
      "subnets"
@@ -7432,16 +7992,17 @@
       ],
       "title": "Name"
      },
-     "building": {
+     "building_id": {
       "anyOf": [
        {
-        "type": "string"
+        "type": "string",
+        "format": "uuid"
        },
        {
         "type": "null"
        }
       ],
-      "title": "Building"
+      "title": "Building Id"
      },
      "description": {
       "anyOf": [
@@ -7555,6 +8116,18 @@
       "type": "array",
       "title": "Windows",
       "default": []
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      }
     },
     "type": "object",
@@ -7569,6 +8142,18 @@
       "type": "string",
       "format": "uuid",
       "title": "Id"
+     },
+     "building_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Building Id"
      },
      "name": {
       "type": "string",
@@ -7590,6 +8175,7 @@
     "type": "object",
     "required": [
      "id",
+     "building_id",
      "name",
      "timezone",
      "windows"
@@ -7669,6 +8255,7 @@
       "type": "string",
       "enum": [
        "org",
+       "building",
        "room",
        "device"
       ],
@@ -8444,6 +9031,7 @@
     "type": "string",
     "enum": [
      "org",
+     "building",
      "room",
      "group",
      "device",
@@ -8843,6 +9431,11 @@
       "title": "Can Reset Password",
       "default": false
      },
+     "can_edit": {
+      "type": "boolean",
+      "title": "Can Edit",
+      "default": false
+     },
      "one_time_password": {
       "anyOf": [
        {
@@ -8984,6 +9577,11 @@
      "can_reset_password": {
       "type": "boolean",
       "title": "Can Reset Password",
+      "default": false
+     },
+     "can_edit": {
+      "type": "boolean",
+      "title": "Can Edit",
       "default": false
      }
     },

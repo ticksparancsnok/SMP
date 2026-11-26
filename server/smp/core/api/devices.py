@@ -78,6 +78,16 @@ class DeviceOut(ORMModel):
     notes: str
 
 
+def _check_write_in(ctx: Ctx, room_id: uuid.UUID | None) -> None:
+    """The caller may write devices of this room (None: a device in no room, which only
+    an org-wide grant reaches). Checked before the room is looked up, so a manager
+    can't tell another building's room from a missing one."""
+    if room_id is None:
+        ctx.check("core.devices.write")
+    else:
+        ctx.check("core.devices.write", room_id=room_id)
+
+
 def _event(d: Device) -> dict:
     return {"id": str(d.id), "hostname": d.hostname, "room_id": str(d.room_id) if d.room_id else None}
 
@@ -111,7 +121,8 @@ async def list_devices(
 
 
 @router.post("", response_model=DeviceOut, status_code=201)
-async def create_device(body: DeviceCreate, ctx: Ctx = Depends(require("core.devices.write"))):
+async def create_device(body: DeviceCreate, ctx: Ctx = Depends(require("core.devices.write", any_room=True))):
+    _check_write_in(ctx, body.room_id)
     if body.room_id:
         await ctx.get(Room, body.room_id)
     d = Device(org_id=ctx.org_id, status=DeviceStatus.PENDING, **body.model_dump())
@@ -131,9 +142,14 @@ async def get_device(device_id: uuid.UUID, ctx: Ctx = Depends(require("core.devi
 
 
 @router.patch("/{device_id}", response_model=DeviceOut)
-async def update_device(device_id: uuid.UUID, body: DeviceUpdate, ctx: Ctx = Depends(require("core.devices.write"))):
+async def update_device(
+    device_id: uuid.UUID, body: DeviceUpdate, ctx: Ctx = Depends(require("core.devices.write", any_room=True))
+):
     d = await ctx.get(Device, device_id)
+    _check_write_in(ctx, d.room_id)  # where it is now
     changes = body.model_dump(exclude_unset=True)
+    if "room_id" in changes and changes["room_id"] != d.room_id:
+        _check_write_in(ctx, changes["room_id"])  # and where it goes
     if changes.get("room_id"):
         await ctx.get(Room, changes["room_id"])
     old_room = d.room_id
@@ -148,8 +164,9 @@ async def update_device(device_id: uuid.UUID, body: DeviceUpdate, ctx: Ctx = Dep
 
 
 @router.delete("/{device_id}", status_code=204)
-async def delete_device(device_id: uuid.UUID, ctx: Ctx = Depends(require("core.devices.write"))):
+async def delete_device(device_id: uuid.UUID, ctx: Ctx = Depends(require("core.devices.write", any_room=True))):
     d = await ctx.get(Device, device_id)
+    _check_write_in(ctx, d.room_id)
     removed = await remove_assignments_for(ctx, TargetType.DEVICE, d.id)
     ctx.audit("core.device.delete", d, {"hostname": d.hostname, "removed_assignments": removed})
     ctx.emit("core.device.deleted", _event(d))

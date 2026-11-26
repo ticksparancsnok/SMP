@@ -4,9 +4,10 @@
 
 //! The Windows service.
 //!
-//!   smp-agent install [--server https://...]   (as administrator) copy the exe to
-//!       C:\Program Files\SMP, create the identity, send the join request, register
-//!       and start the "SMPAgent" service. Running it again upgrades the exe.
+//!   smp-agent install [--server https://...] [--building <id or name>]
+//!       (as administrator) copy the exe to C:\Program Files\SMP, create the identity,
+//!       send the join request, register and start the "SMPAgent" service. Running it
+//!       again upgrades the exe.
 //!   smp-agent uninstall [--purge]               stop and remove the service
 //!                                               (--purge: also forget the identity)
 //!
@@ -32,6 +33,7 @@ use windows_service::service_control_handler::{self, ServiceControlHandlerResult
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_service::{define_windows_service, service_dispatcher};
 
+use crate::core::api::JoinOut;
 use crate::core::runner::Agent;
 use crate::core::state;
 use crate::core::sysinfo::SysInfo;
@@ -46,12 +48,15 @@ static STOP: AtomicBool = AtomicBool::new(false);
 
 // ------------------------------------------------------------------ install / uninstall
 
-pub fn install(server: Option<String>) -> Result<()> {
+pub fn install(server: Option<String>, building: Option<String>) -> Result<()> {
     let server = match server {
         Some(s) => s,
         None => ask("SMP server address (e.g. https://192.168.1.10): ")?,
     };
     let server = normalize_server(&server)?;
+    if let Some(building) = &building {
+        state::normalize_building(building)?; // too long: say so before changing anything
+    }
 
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
         .context("the installer must run as administrator (right click -> Run as administrator)")?;
@@ -66,12 +71,24 @@ pub fn install(server: Option<String>) -> Result<()> {
 
     // The identity, and the join request (an admin approves it in SMP -> Devices).
     let state_path = state::default_path();
-    let agent = Agent::open(&state_path, Some(&server))?;
-    match agent.client.join(&SysInfo::collect()) {
-        Ok(reply) if reply.status == "approved" => println!("This computer is already approved in SMP."),
-        Ok(reply) if reply.status == "rejected" => println!("{}", crate::REJECTED_NOTE),
-        Ok(reply) => crate::show_fingerprint(&reply.fingerprint_display),
-        Err(e) => println!("Couldn't reach {server} now ({e}); the service will keep trying."),
+    let mut agent = Agent::open(&state_path, Some(&server))?;
+    if let Some(building) = &building {
+        agent.set_building(building)?; // given on the command line: wins over a stored one
+    }
+    let reply = send_first_join(&agent, &server);
+    let waiting = reply.as_ref().is_none_or(|r| r.status != "approved" && r.status != "rejected");
+    if building.is_none() && agent.state.building.is_none() && agent.state.device_id.is_none() && waiting {
+        if let Some(answer) = ask_building()? {
+            agent.set_building(&answer)?;
+            // The first request is already with the server: send it again with the hint
+            // (if it was never reached, the service sends the hint with its own retries).
+            if reply.is_some() {
+                match agent.client.join(&SysInfo::collect()) {
+                    Ok(_) => println!("Building noted for the join request."),
+                    Err(e) => println!("Couldn't reach {server} now ({e}); the service will keep trying."),
+                }
+            }
+        }
     }
 
     let info = ServiceInfo {
@@ -101,6 +118,36 @@ pub fn install(server: Option<String>) -> Result<()> {
     println!("Installed: {} (service \"{DISPLAY_NAME}\"), server {server}.", exe.display());
     println!("Logs: {}", super::state_dir().join("logs").display());
     Ok(())
+}
+
+/// The first join request, and what to tell the installer about the answer.
+/// None: the server wasn't reached.
+fn send_first_join(agent: &Agent, server: &str) -> Option<JoinOut> {
+    match agent.client.join(&SysInfo::collect()) {
+        Ok(reply) => {
+            match reply.status.as_str() {
+                "approved" => println!("This computer is already approved in SMP."),
+                "rejected" => println!("{}", crate::REJECTED_NOTE),
+                _ => crate::show_fingerprint(&reply.fingerprint_display),
+            }
+            Some(reply)
+        }
+        Err(e) => {
+            println!("Couldn't reach {server} now ({e}); the service will keep trying.");
+            None
+        }
+    }
+}
+
+/// "Which building is this PC in?" Enter skips. Too long: say so and ask again.
+fn ask_building() -> Result<Option<String>> {
+    loop {
+        let answer = ask("Building in SMP (id or name, Enter to skip): ")?;
+        match state::normalize_building(&answer) {
+            Ok(building) => return Ok(building),
+            Err(e) => println!("{e}"),
+        }
+    }
 }
 
 pub fn uninstall(purge: bool) -> Result<()> {

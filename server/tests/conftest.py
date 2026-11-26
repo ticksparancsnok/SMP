@@ -16,6 +16,7 @@ The test database is dropped and recreated on every run.
 import asyncio
 import os
 import threading
+import uuid
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -24,7 +25,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 TEST_DB_URL = os.environ.get("SMP_TEST_DATABASE_URL", "postgresql+asyncpg://smp:smp@127.0.0.1:5432/smp_test")
 os.environ.update(
@@ -176,4 +177,49 @@ async def login_as(app, admin: httpx.AsyncClient, username: str, roles: list[dic
         assert r.json()["must_change_password"] is True
         r = await c.post("/api/v1/auth/password", json={"current_password": INITIAL_PW, "new_password": OWN_PW})
         assert r.status_code == 204, r.text
+        yield c
+
+
+async def make_building(name: str, rooms: list[str] = ()) -> tuple[str, list[str]]:
+    """Create a building (and rooms in it) directly in the DB: (building id, room ids)."""
+    from smp.core.models import Building, Room
+
+    async with db.sessionmaker()() as s:
+        org = (await s.execute(select(Organization))).scalar_one()
+        b = Building(org_id=org.id, name=name)
+        s.add(b)
+        await s.flush()
+        room_rows = [Room(org_id=org.id, name=r, building_id=b.id) for r in rooms]
+        s.add_all(room_rows)
+        await s.commit()
+        return str(b.id), [str(r.id) for r in room_rows]
+
+
+@asynccontextmanager
+async def login_scoped(app, username: str, roles: list[dict]):
+    """Create a user directly in the DB with any role assignments, including the
+    building-scoped ones the users API may not hand out to the caller ({"role":
+    "manager", "building_id": ...}), and yield a logged-in client for them."""
+    async with db.sessionmaker()() as s:
+        org = (await s.execute(select(Organization))).scalar_one()
+        s.add(
+            User(
+                org_id=org.id,
+                username=username,
+                password_hash=hash_password(OWN_PW),
+                roles=[
+                    RoleAssignment(
+                        org_id=org.id,
+                        role=r["role"],
+                        room_id=uuid.UUID(r["room_id"]) if r.get("room_id") else None,
+                        building_id=uuid.UUID(r["building_id"]) if r.get("building_id") else None,
+                    )
+                    for r in roles
+                ],
+            )
+        )
+        await s.commit()
+    async with make_client(app) as c:
+        r = await c.post("/api/v1/auth/login", json={"username": username, "password": OWN_PW})
+        assert r.status_code == 200, r.text
         yield c

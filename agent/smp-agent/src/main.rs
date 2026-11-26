@@ -5,11 +5,13 @@
 //! smp-agent: the SMP device agent.
 //!
 //!   smp-agent join --server https://192.168.1.10   ask to be managed, wait for approval
+//!       [--building <id or name>]                  (a hint: which building this PC is in)
 //!   smp-agent run                                  run in the foreground (development)
 //!   smp-agent status                               show identity and server
 //!
 //! Windows (as administrator):
-//!   smp-agent install [--server https://...]       install the service, send the join request
+//!   smp-agent install [--server https://...] [--building <id or name>]
+//!                                                  install the service, send the join request
 //!   smp-agent uninstall [--purge]                  remove it
 //! and, started by Windows / the service only: `service`, `session-helper`.
 
@@ -53,6 +55,10 @@ enum Command {
         /// Send the request and exit instead of waiting for the approval
         #[arg(long)]
         no_wait: bool,
+        /// The building this PC is in: its id or name as SMP shows it. Only a hint, so
+        /// that building's manager sees the request; an admin still approves the PC.
+        #[arg(long)]
+        building: Option<String>,
     },
     /// Run the agent in the foreground (Ctrl+C stops it)
     Run,
@@ -64,6 +70,10 @@ enum Command {
         /// The SMP address (asked for when left out)
         #[arg(long)]
         server: Option<String>,
+        /// The building this PC is in: its id or name as SMP shows it (asked for when
+        /// left out and the PC isn't approved yet). Only a hint for SMP's managers.
+        #[arg(long)]
+        building: Option<String>,
     },
     /// Stop and remove the Windows service
     #[cfg(windows)]
@@ -147,8 +157,14 @@ fn real_main(cli: Cli) -> Result<()> {
     let state_path = cli.state.unwrap_or_else(core::state::default_path);
     let stop = AtomicBool::new(false);
     match cli.command {
-        Command::Join { server, no_wait } => {
+        Command::Join { server, no_wait, building } => {
+            if let Some(building) = &building {
+                core::state::normalize_building(building)?; // too long: stop before creating anything
+            }
             let mut agent = Agent::open(&state_path, Some(&server))?;
+            if let Some(building) = &building {
+                agent.set_building(building)?;
+            }
             if no_wait {
                 let r = agent.client.join(&core::sysinfo::SysInfo::collect())?;
                 if r.status == "rejected" {
@@ -173,10 +189,13 @@ fn real_main(cli: Cli) -> Result<()> {
             println!("server:       {}", agent.state.server);
             println!("fingerprint:  {}", agent.client.identity().display_fingerprint());
             println!("device id:    {}", agent.state.device_id.as_deref().unwrap_or("(not approved yet)"));
+            if let Some(building) = &agent.state.building {
+                println!("building:     {building}");
+            }
             println!("state file:   {}", state_path.display());
         }
         #[cfg(windows)]
-        Command::Install { server } => platform::service::install(server)?,
+        Command::Install { server, building } => platform::service::install(server, building)?,
         #[cfg(windows)]
         Command::Uninstall { purge } => platform::service::uninstall(purge)?,
         #[cfg(windows)]

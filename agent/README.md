@@ -30,7 +30,14 @@ As administrator (right click -> Run as administrator, or an admin command promp
 ```
 smp-agent.exe install                       asks for SMP's address
 smp-agent.exe install --server 192.168.1.10  or give it (https:// is added)
+smp-agent.exe install --server 192.168.1.10 --building <id or name>
 ```
+
+`--building` says which building the PC is in (the id or name SMP shows; the SMP web UI
+can generate the whole command). It is only a hint sent with the join request, so that
+building's manager sees the PC under **Waiting for approval**; whoever approves it still
+chooses the room. Left out, `install` asks for it (Enter skips) while the PC isn't approved
+yet. `smp-agent join` takes `--building` too, and `status` shows it.
 
 This copies the exe to `C:\Program Files\SMP`, creates the PC's key in
 `C:\ProgramData\SMP`, sends the join request, prints a fingerprint such as

@@ -5,19 +5,24 @@
 """Software deployment: install and remove programs on the school's Windows computers.
 
 How it fits together:
-  1. An admin uploads an installer (.msi or .exe, storage.py) and describes it as a
-     package: silent-install arguments, how to tell it's installed, how to remove it,
-     whether to restart the computer afterwards (api.py).
-  2. An admin assigns the package to the whole school, a room or one computer, to be
-     installed or removed (desired.py: the most specific assignment wins).
+  1. A unit manager (or admin) uploads an installer (.msi or .exe, storage.py) and
+     describes it as a package: silent-install arguments, how to tell it's installed,
+     how to remove it, whether to restart the computer afterwards (api.py).
+  2. They, or a building's manager, assign the package to the whole school (unit level
+     only), a building, a room or one computer, to be installed or removed (desired.py:
+     the most specific assignment wins: computer > room > building > school). A manager
+     assigns only inside their own buildings and picks from the packages that exist.
   3. Each computer's agent gets its list in the heartbeat config (agent_config below,
      section "software"), downloads what it lacks from this server (signed, limited to
      a few computers at a time), installs it and reports how it went.
 
 Why not a core policy kind (like "classroom")? Teachers with a room may assign any
 existing policy to their room (exam mode), and anything that can install software
-runs code as SYSTEM on the computers: here only admins decide. Policies also pick one
-winner per kind, while software adds up (school baseline + room extras), and their
+runs code as SYSTEM on the computers: teachers get no say here. What a package contains
+is decided at unit level (uploads need software.packages.write, so managers can't add
+their own installers); a manager only chooses which of those reach their buildings. The
+installer itself still runs as SYSTEM on every computer it reaches. Policies also pick
+one winner per kind, while software adds up (school baseline + room extras), and their
 schedules would install and uninstall programs every lesson.
 """
 
@@ -90,9 +95,10 @@ class SoftwareModule(Module):
     permissions = (
         Permission(READ, "See software packages and how their installation is going (room-scoped)",
                    ("teacher",), room_scoped=True),
-        # Admins only: whatever a package contains runs as SYSTEM on every computer it reaches.
-        Permission(PACKAGES_WRITE, "Upload, change and delete software packages"),
-        Permission(ASSIGN, "Choose which computers install or remove a package"),
+        # Unit managers and up, school-wide: whatever a package contains runs as SYSTEM on every computer it reaches.
+        Permission(PACKAGES_WRITE, "Upload, change and delete software packages", ("unit_manager",)),
+        # Building-level: a manager only inside their buildings (api.py checks each target).
+        Permission(ASSIGN, "Choose which computers install or remove a package", ("manager",)),
     )
     ui_routes = (UiRoute("/software", "Software deployment", "⏬", READ, "services"),)
     settings_model = SoftwareSettings

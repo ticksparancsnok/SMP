@@ -261,7 +261,7 @@ async def test_dashboard(app, admin):
     assert widgets["core.devices"]["value"] == 2
     assert "1 without a room" in widgets["core.devices"]["hint"]
     assert widgets["core.devices"]["data"] == {"online": 0, "unassigned": 1}  # the UI builds its hint from this
-    assert widgets["core.users"]["data"] == {"admin": 1, "teacher": 0, "student": 0}
+    assert widgets["core.users"]["data"] == {"admin": 1, "unit_manager": 0, "manager": 0, "teacher": 0, "student": 0}
     assert widgets["core.users"]["value"] == 1
     assert widgets["core.recent_activity"]["kind"] == "list"
     assert widgets["shortlinks.mine"]["value"] == 0
@@ -418,7 +418,7 @@ async def test_policy_changed_emitted_for_resolution_changes(app, admin, testpol
     assert await changed_after(admin.patch(f"/api/v1/devices/{d['id']}", json={"room_id": r2["id"]}))
     assert not await changed_after(admin.patch(f"/api/v1/devices/{d['id']}", json={"notes": "x"}))
     assert await changed_after(admin.patch(f"/api/v1/rooms/{r1['id']}", json={"subnets": ["10.9.0.0/24"]}))
-    assert not await changed_after(admin.patch(f"/api/v1/rooms/{r1['id']}", json={"building": "B"}))
+    assert not await changed_after(admin.patch(f"/api/v1/rooms/{r1['id']}", json={"description": "B"}))
     assert await changed_after(admin.put(f"/api/v1/groups/{g['id']}/members", json=[u["id"]]))
     assert not await changed_after(admin.put(f"/api/v1/groups/{g['id']}/members", json=[u["id"]]))
 

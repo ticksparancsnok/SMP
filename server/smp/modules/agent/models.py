@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Attribution required in modified versions: see NOTICE
 
+import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from smp.core.db import Base, OrgScoped, Timestamps, UUIDPk
@@ -24,6 +25,10 @@ class AgentJoinRequest(UUIDPk, Timestamps, OrgScoped, Base):
     os_name: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
     agent_version: Mapped[str | None] = mapped_column(String(32))
+    # The building name the installer typed on the machine (free text), and the building
+    # it matched (None when nothing matched).
+    building_hint: Mapped[str | None] = mapped_column(String(200))
+    building_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("buildings.id", ondelete="SET NULL"))
     # ip: the address SMP sees the request come from (the per-address limit on pending
     # requests uses it: it can't be made up). reported_ip: the machine's own address, as
     # its agent says (differs behind a NAT); None from agents before 1.0.3.

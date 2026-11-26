@@ -6,14 +6,32 @@
 <script setup lang="ts">
 // Student import from .xlsx: choose a file -> server-side dry run (preview, nothing
 // written) -> confirm -> real import. Any invalid row blocks the whole file.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api, ApiError, errorText } from '../api/client'
-import type { ImportResult } from '../api/types'
+import type { Building, ImportResult } from '../api/types'
 import { locale, t, tOr } from '../i18n'
+import { can } from '../session'
 import Modal from './Modal.vue'
 
+const props = defineProps<{ buildings: Building[] }>()
 const emit = defineEmits<{ close: []; imported: [] }>()
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+// Where the imported users go. Admins and unit managers may choose none (the whole
+// school) or some buildings; a manager's users always go to their own buildings, all of
+// them unless a subset is chosen.
+const orgWide = can('core.users.write')
+const buildingIds = ref(new Set<string>(orgWide ? [] : props.buildings.map((b) => b.id)))
+function toggleBuilding(id: string) {
+  const s = new Set(buildingIds.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  buildingIds.value = s
+}
+// The preview depends on the buildings (a class may exist in another one): redo it.
+watch(buildingIds, async () => {
+  if (file.value && !done.value) preview.value = await run(true)
+})
 
 const file = ref<File | null>(null)
 const preview = ref<ImportResult | null>(null)
@@ -31,7 +49,10 @@ async function run(dryRun: boolean): Promise<ImportResult | null> {
   busy.value = true
   error.value = ''
   try {
-    return await api.upload<ImportResult>('/users/import', file.value, XLSX, { dry_run: dryRun })
+    return await api.upload<ImportResult>('/users/import', file.value, XLSX, {
+      dry_run: dryRun,
+      building_ids: [...buildingIds.value],
+    })
   } catch (e) {
     // 422 carries the same ImportResult shape with the row errors.
     const detail = e instanceof ApiError ? (e.detail as ImportResult | undefined) : undefined
@@ -81,6 +102,21 @@ function sample() {
       <div v-if="error" class="alert err">{{ error }}</div>
 
       <template v-if="!done">
+        <div v-if="buildings.length" class="field">
+          <label>{{ t('import.buildings') }}</label>
+          <div class="chips">
+            <label
+              v-for="b in buildings"
+              :key="b.id"
+              class="check badge"
+              :class="{ info: buildingIds.has(b.id) }"
+              style="cursor: pointer"
+            >
+              <input type="checkbox" :checked="buildingIds.has(b.id)" :disabled="busy" style="display: none" @change="toggleBuilding(b.id)" />{{ b.name }}
+            </label>
+          </div>
+          <span class="muted small">{{ orgWide ? t('import.buildings_hint_org') : t('import.buildings_hint_manager') }}</span>
+        </div>
         <div class="field">
           <label>{{ t('import.file') }}</label>
           <input type="file" :accept="`.xlsx,${XLSX}`" :disabled="busy" @change="onFile" />

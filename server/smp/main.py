@@ -21,6 +21,8 @@ from smp.core.context import Ctx, get_ctx
 from smp.core.errors import AppError
 from smp.core.events import EventBus, InProcessEventBus
 from smp.core.identity import LocalIdentityProvider
+from smp.core.models import Role
+from smp.core.module import ModuleRegistry
 from smp.core.security import SecretKeyMissing
 from smp.core.throttle import LoginThrottle, seed_throttle_from_audit
 from smp.modules import build_registry
@@ -141,7 +143,7 @@ def create_app(  # ruff: ignore[complex-structure, undocumented-public-function]
     # which doesn't need these routes.
     async def admin_user(ctx: Annotated[Ctx, Depends(get_ctx)]) -> Ctx:  # ruff: ignore[unused-async]
         p = ctx.principal
-        if p is None or p.kind != "user" or not any(role == "admin" for role, _ in p.roles):  # ruff: ignore[line-too-long]
+        if p is None or p.kind != "user" or not any(r.role == Role.ADMIN and r.room_id is None and r.building_id is None for r in p.roles):  # ruff: ignore[line-too-long]
             raise AppError(
                 status.HTTP_403_FORBIDDEN,
                 "docs.admin_only",

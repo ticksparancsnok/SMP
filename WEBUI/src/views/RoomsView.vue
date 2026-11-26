@@ -7,17 +7,25 @@
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api, errorText } from '../api/client'
-import type { Room } from '../api/types'
+import type { Building, Room } from '../api/types'
 import Modal from '../components/Modal.vue'
 import Pager from '../components/Pager.vue'
 import { t } from '../i18n'
 import { usePage } from '../paging'
-import { can } from '../session'
+import { can, canAnywhere, canInBuilding } from '../session'
 
 const rooms = shallowRef<Room[]>([])
 const roomPage = usePage(rooms, { key: 'rooms' })
 const error = ref('')
-const canWrite = computed(() => can('core.rooms.write'))
+// A manager writes rooms of their buildings only (the permission exists per building).
+const canWrite = computed(() => canAnywhere('core.rooms.write'))
+const canWriteRoom = (r: Room) => can('core.rooms.write', r.id)
+// School-wide writers may leave a room without a building and set its subnets.
+const orgWide = computed(() => can('core.rooms.write'))
+const buildings = shallowRef<Building[]>([])
+const writableBuildings = computed(() =>
+  buildings.value.filter((b) => orgWide.value || canInBuilding('core.rooms.write', b.id)),
+)
 
 async function load() {
   try {
@@ -27,18 +35,22 @@ async function load() {
     error.value = errorText(e)
   }
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  api.get<Building[]>('/buildings').then((b) => (buildings.value = b)).catch(() => {})
+})
 
 const edit = ref<Room | null>(null)
 const open = ref(false)
-const form = reactive({ name: '', building: '', description: '', subnets: '' })
+const form = reactive({ name: '', building_id: '', description: '', subnets: '' })
 const formError = ref('')
 
 function openEdit(r: Room | null) {
   edit.value = r
   Object.assign(form, {
     name: r?.name ?? '',
-    building: r?.building ?? '',
+    // a new room starts in the only building a manager may use
+    building_id: r?.building_id ?? (!orgWide.value && writableBuildings.value.length === 1 ? writableBuildings.value[0]!.id : ''),
     description: r?.description ?? '',
     subnets: (r?.subnets ?? []).join('\n'),
   })
@@ -49,9 +61,10 @@ function openEdit(r: Room | null) {
 async function save() {
   const body = {
     name: form.name,
-    building: form.building,
+    building_id: form.building_id || null,
     description: form.description,
-    subnets: form.subnets.split(/[\s,]+/).filter(Boolean),
+    // only school-wide writers may set subnets: the server refuses them from others
+    ...(orgWide.value ? { subnets: form.subnets.split(/[\s,]+/).filter(Boolean) } : {}),
   }
   try {
     if (edit.value) await api.patch(`/rooms/${edit.value.id}`, body)
@@ -99,7 +112,7 @@ async function remove(r: Room) {
       <tbody>
         <tr v-for="r in roomPage.rows" :key="r.id">
           <td><strong>{{ r.name }}</strong></td>
-          <td>{{ r.building }}</td>
+          <td>{{ r.building || '–' }}</td>
           <td><div class="chips">
             <span v-for="s in r.subnets" :key="s" class="badge mono">{{ s }}</span>
           </div></td>
@@ -108,7 +121,7 @@ async function remove(r: Room) {
           </td>
           <td class="muted">{{ r.description }}</td>
           <td>
-            <div v-if="canWrite" class="actions">
+            <div v-if="canWriteRoom(r)" class="actions">
               <button class="ghost small" @click="openEdit(r)">{{ t('common.edit') }}</button>
               <button class="danger small" @click="remove(r)">{{ t('common.delete') }}</button>
             </div>
@@ -132,12 +145,23 @@ async function remove(r: Room) {
         </div>
         <div class="field">
           <label>{{ t('rooms.building') }}</label>
-          <input v-model="form.building" />
+          <select v-model="form.building_id" :required="!orgWide">
+            <option v-if="orgWide" value="">{{ t('rooms.no_building') }}</option>
+            <option v-else value="" disabled>{{ t('policies.choose') }}</option>
+            <option v-for="b in writableBuildings" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
         </div>
       </div>
       <div class="field">
         <label>{{ t('rooms.subnets_label') }}</label>
-        <textarea v-model="form.subnets" class="mono" placeholder="10.0.12.0/24" style="min-height: 70px"></textarea>
+        <textarea
+          v-model="form.subnets"
+          class="mono"
+          placeholder="10.0.12.0/24"
+          style="min-height: 70px"
+          :disabled="!orgWide"
+        ></textarea>
+        <span v-if="!orgWide" class="muted small">{{ t('rooms.subnets_unit_only') }}</span>
       </div>
       <div class="field">
         <label>{{ t('common.description') }}</label>

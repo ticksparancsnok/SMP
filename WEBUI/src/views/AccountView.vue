@@ -6,21 +6,24 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api, errorText } from '../api/client'
-import type { Room } from '../api/types'
-import { passwordRules, roleLabel } from '../format'
+import type { Building, Room } from '../api/types'
+import { passwordRules, roleLabel, roleScopeName } from '../format'
 import { t } from '../i18n'
 import { canAnywhere, session } from '../session'
 
 const rooms = ref<Room[]>([])
+const buildings = ref<Building[]>([])
 const pw = reactive({ current: '', next: '', again: '' })
 const msg = ref<{ ok: boolean; text: string } | null>(null)
 const busy = ref(false)
 
 onMounted(async () => {
   if (canAnywhere('core.rooms.read')) rooms.value = await api.get<Room[]>('/rooms').catch(() => [])
+  if (canAnywhere('core.buildings.read')) buildings.value = await api.get<Building[]>('/buildings').catch(() => [])
 })
 
-const roomName = (id: string) => rooms.value.find((r) => r.id === id)?.name ?? id
+// The building or room a role applies to ('' for the whole school or when it can't be looked up)
+const scopeOf = (r: { room_id?: string | null; building_id?: string | null }) => roleScopeName(r, buildings.value, rooms.value)
 
 async function changePassword() {
   msg.value = null
@@ -57,7 +60,7 @@ async function changePassword() {
             <th>{{ t('common.roles') }}</th>
             <td><div class="chips">
               <span v-for="(r, i) in session.me.roles" :key="i" class="badge info">
-                {{ roleLabel(r.role) }}{{ r.room_id ? ` – ${roomName(r.room_id)}` : '' }}
+                {{ roleLabel(r.role) }}{{ scopeOf(r) ? ` – ${scopeOf(r)}` : '' }}
               </span>
             </div></td>
           </tr>

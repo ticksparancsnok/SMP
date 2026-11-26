@@ -114,6 +114,10 @@ class MeOut(BaseModel):  # ruff: ignore[undocumented-public-class]
     roles: list[dict[str, str | None]]
     permissions: list[str]
     room_permissions: dict[str, list[str]]
+    # Building-level permissions per building (building-scoped roles only), and which
+    # building each room of those buildings is in (room id -> building id).
+    building_permissions: dict[str, list[str]] = {}
+    room_buildings: dict[str, str] = {}
     must_change_password: bool = False
     preferences: PreferencesOut = PreferencesOut()
 
@@ -245,7 +249,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: Annotat
     await _start_session(db, request, response, user)
     _audit_login(db, request, org.id, user, body.username, True)
     await db.commit()
-    return _me(principal_for_user(user, registry), user, org, registry)
+    return _me(await principal_for_user(db, user, registry), user, org, registry)
 
 
 @router.post("/logout", status_code=204)
@@ -363,9 +367,18 @@ def _me(p, user: User | None, org, registry) -> MeOut:
         display_name=user.display_name if user else p.name,
         org_id=org.id,
         org_name=org.name,
-        roles=[{"role": r, "room_id": str(room) if room else None} for r, room in p.roles],
+        roles=[
+            {
+                "role": r.role,
+                "room_id": str(r.room_id) if r.room_id else None,
+                "building_id": str(r.building_id) if r.building_id else None,
+            }
+            for r in p.roles
+        ],
         permissions=p.all_permissions(registry),
         room_permissions={str(k): sorted(v) for k, v in p.room_perms.items()},
+        building_permissions={str(k): sorted(v) for k, v in p.building_perms.items()},
+        room_buildings={str(k): str(v) for k, v in p.room_buildings.items()},
         must_change_password=bool(user and user.must_change_password),
         preferences=_preferences(user),
     )

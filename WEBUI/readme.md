@@ -27,7 +27,7 @@ npm run typecheck    # shows every place that no longer matches the API
 src/
   api/client.ts      fetch wrapper (cookie auth, error messages)
   api/types.ts       friendly aliases for the generated OpenAPI types
-  session.ts         current user, can()/canAnywhere(), menu built from module manifests
+  session.ts         current user, can()/canInBuilding()/canAnywhere(), menu built from module manifests
   router.ts          routes + permission guard
   App.vue            shell: sidebar, mobile top bar
   views/             one file per page

@@ -40,4 +40,4 @@ version = "1.0.4 B"
 
 [release] # Marks the latest stable release (to:do under github releases)
 name = "smp-latest-stable-release"
-version = "1.0.3"
+version = "1.0.4"

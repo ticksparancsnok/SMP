@@ -160,7 +160,7 @@ async def test_import_dry_run_then_import(app, admin):
     assert anna["otp_status"] == "active"
     async with make_client(app) as c:
         me = (await c.post("/api/v1/auth/login", json={"username": "kiss.peter", "password": otps["kiss.peter"]})).json()
-        assert me["must_change_password"] is True and me["roles"] == [{"role": "student", "room_id": None}]
+        assert me["must_change_password"] is True and me["roles"] == [{"role": "student", "room_id": None, "building_id": None}]
         bad = await c.post("/api/v1/auth/login", json={"username": "nagy.anna", "password": otps["kiss.peter"]})
         assert bad.status_code == 401
 

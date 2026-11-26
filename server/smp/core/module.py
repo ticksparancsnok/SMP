@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel
 
+from smp.core.roles import ADMIN, with_inherited
 from smp.version import SERVER_VERSION
 
 if TYPE_CHECKING:
@@ -55,10 +56,19 @@ class Permission:
     code: str  # "<module>.<thing>.<verb>", e.g. "dns.blocklist.write"
     description: str
     default_roles: tuple[str, ...] = ()  # roles that get it out of the box ("admin" always does)
-    # True for permissions about things that live in a room (devices, screens, room
-    # policies). A role assigned for one room grants room-scoped permissions only in
-    # that room; its other permissions (e.g. create short links) apply org-wide.
+    # Three kinds of permission, by how a scoped role assignment applies them:
+    # - room_scoped: about things that live in a room (devices, screens, room policies).
+    #   A role assigned for one room grants it only in that room; assigned for a
+    #   building, in every room of that building.
+    # - org_wide: inherently school-wide data (DNS lists, own short links). Any holder
+    #   may use it school-wide, even through a room- or building-scoped role.
+    # - neither ("building-level", the admin-type powers: users, groups, devices...):
+    #   from a building-scoped role it applies only inside that building and the
+    #   handler must check it per building/room; requiring it org-wide
+    #   (`require(perm)`) denies such holders (fail-closed). A room-scoped role keeps
+    #   granting it org-wide (the legacy teacher behaviour).
     room_scoped: bool = False
+    org_wide: bool = False
 
 
 @dataclass(frozen=True)
@@ -154,6 +164,7 @@ class Module:
                     "description": p.description,
                     "default_roles": list(p.default_roles),
                     "room_scoped": p.room_scoped,
+                    "org_wide": p.org_wide,
                 }
                 for p in self.permissions
             ],
@@ -172,6 +183,7 @@ class ModuleRegistry:
         self._permissions: dict[str, Permission] = {}
         for m in modules:
             self._add(m)
+        # Permissions a role is given by name; role_permissions() adds the inherited ones.
         self._role_perms: dict[str, frozenset[str]] = {}
         for p in self._permissions.values():
             for role in p.default_roles:
@@ -207,11 +219,19 @@ class ModuleRegistry:
         p = self._permissions.get(perm)
         return p is not None and p.room_scoped
 
+    def is_org_wide(self, perm: str) -> bool:
+        p = self._permissions.get(perm)
+        return p is not None and p.org_wide
+
     def role_permissions(self, role: str) -> frozenset[str]:
-        """Permissions granted by a role. Admin is a wildcard."""
-        if role == "admin":
+        """Permissions granted by a role: its own defaults plus those of every role it
+        inherits (smp/core/roles.py). Admin is a wildcard."""
+        if role == ADMIN:
             return frozenset({"*"})
-        return self._role_perms.get(role, frozenset())
+        perms: frozenset[str] = frozenset()
+        for name in with_inherited(role):
+            perms |= self._role_perms.get(name, frozenset())
+        return perms
 
     def policy_model(self, kind: str) -> type[BaseModel] | None:
         m = self._modules.get(kind)

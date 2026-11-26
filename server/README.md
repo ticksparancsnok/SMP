@@ -37,7 +37,8 @@ The test database is dropped and recreated each run, and the migrations are appl
 smp/
   core/
     models.py       shared domain model (read this first)
-    context.py      Ctx, Principal, require(): what every handler uses
+    roles.py        the role table: rank, where each role may be assigned, inheritance, who may grant what
+    context.py      Ctx, Principal (org / building / room grants), require(): what every handler uses
     module.py       Module contract + registry
     policy.py       schedule evaluation, policy resolution, IP -> device/room
     events.py       event bus (NATS-style subjects)

@@ -9,7 +9,7 @@ For agents (signed requests, see crypto.py; no user session involved):
     POST /join/status     pending | approved | unknown (rejected/expired: join again)
     POST /heartbeat       report state, get the config; long-polls while unchanged
 
-For admins (core.devices.write):
+For admins and managers (core.devices.write; a manager only inside their buildings):
     GET  /join-requests                       pending machines
     POST /join-requests/{id}/approve          -> a new Device, or a new identity for one
     POST /join-requests/{id}/reject           remembered: it can't ask again (key or MAC)
@@ -17,6 +17,12 @@ For admins (core.devices.write):
     POST /join-requests/{id}/allow            forget a rejection
     POST /devices/{id}/reset-identity         forget the key: the agent must join again
     GET  /download                            version, size, SHA-256 of the offered agent
+    GET  /install-command?building_id=        the install command with the building preset
+
+A join request may carry the building the installer named (JoinIn.building: an id or a
+name). It is resolved to a building; that building's managers see and approve the
+request, but only into rooms of their buildings. Requests without a (matching) building
+are for those with the school-wide permission.
 
 For anyone (no sign-in), outside /api:
     GET  /downloads/smp-agent.exe             the Windows agent (see download.py)
@@ -53,7 +59,7 @@ from smp.core.context import Ctx, client_ip, require
 from smp.core.dashboard import ONLINE_WINDOW
 from smp.core.errors import AppError
 from smp.core.events import Event
-from smp.core.models import AuditLog, Device, DeviceStatus, ModuleSetting, Organization, Room
+from smp.core.models import AuditLog, Building, Device, DeviceStatus, ModuleSetting, Organization, Room
 from smp.core.policy import emit_policy_changed, room_for_ip
 from smp.modules.agent import crypto, download
 from smp.modules.agent.models import AgentJoinRequest
@@ -125,9 +131,9 @@ async def _default_org(s: AsyncSession, slug: str | None) -> Organization:
 
 
 def _audit(s: AsyncSession, org_id, action: str, request: Request, target: Any = None, details: dict | None = None,
-           actor: str = "agent") -> None:
+           actor: str = "agent", building_ids: list[uuid.UUID] | None = None) -> None:
     s.add(AuditLog(
-        org_id=org_id, actor_type="agent", actor_name=actor, action=action,
+        org_id=org_id, actor_type="agent", actor_name=actor, action=action, building_ids=building_ids,
         target_type=type(target).__name__.lower() if target is not None else None,
         target_id=str(target.id) if target is not None else None,
         details=details or {}, ip=client_ip(request),
@@ -210,6 +216,9 @@ class JoinIn(BaseModel):
     agent_version: str | None = Field(default=None, max_length=32)
     org: str | None = None
     address: str | None = Field(default=None, max_length=64)  # the machine's own IP (see above)
+    # Which building the PC is in (a building's id or name; the installer's --building).
+    # Only a hint for who sees the request: whoever approves it still picks the room.
+    building: str | None = Field(default=None, max_length=200)
 
 
 class JoinOut(BaseModel):
@@ -218,6 +227,25 @@ class JoinOut(BaseModel):
     fingerprint: str
     fingerprint_display: str
     server_time: str
+
+
+async def resolve_building(s: AsyncSession, org_id: uuid.UUID, hint: str | None) -> uuid.UUID | None:
+    """The building a hint names: its id, else its name (case-insensitive, exact), else
+    None. A name that fits two buildings only by case is taken as written, or not at all."""
+    if not hint:
+        return None
+    try:
+        wanted = uuid.UUID(hint)
+    except ValueError:
+        pass
+    else:
+        if (found := (await s.execute(select(Building.id).where(Building.org_id == org_id, Building.id == wanted))).scalar_one_or_none()) is not None:
+            return found
+    rows = (await s.execute(select(Building.id, Building.name).where(
+        Building.org_id == org_id, func.lower(Building.name) == hint.lower()))).all()
+    if len(rows) == 1:
+        return rows[0][0]
+    return next((b for b, name in rows if name == hint), None)
 
 
 @router.post("/join", response_model=JoinOut)
@@ -254,6 +282,8 @@ async def join(request: Request):
             await s.commit()
             return JoinOut(status="rejected", fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp),
                            server_time=_server_time())
+        hint = (body.building or "").strip() or None
+        building_id = await resolve_building(s, org.id, hint)
         if req is None:
             pending = AgentJoinRequest.rejected_at.is_(None)
             if mac:  # one request per machine: a reinstalled PC's new request replaces its old one
@@ -267,10 +297,13 @@ async def join(request: Request):
                 raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "agent.too_many_join_requests", "too many pending join requests")
             req = AgentJoinRequest(org_id=org.id, fingerprint=fp, public_key=body.public_key)
             s.add(req)
-            _audit(s, org.id, "agent.join.request", request, details={"hostname": body.hostname, "fingerprint": fp})
+            _audit(s, org.id, "agent.join.request", request, details={"hostname": body.hostname, "fingerprint": fp},
+                   building_ids=[building_id] if building_id else None)
         req.hostname, req.mac, req.ip = body.hostname, mac, ip  # ip: observed (the limit above)
         req.reported_ip = reported_address(body.address)
         req.os_name, req.os_version, req.agent_version = body.os_name, body.os_version, body.agent_version
+        if hint is not None:  # an agent that sends none (older, or told nothing) leaves what it said before
+            req.building_hint, req.building_id = hint, building_id
         req.expires_at = now + JOIN_TTL
         await s.commit()
     return JoinOut(status="pending", fingerprint=fp, fingerprint_display=crypto.display_fingerprint(fp), server_time=_server_time())
@@ -465,6 +498,17 @@ class JoinRequestOut(BaseModel):
     # likely another machine pretending to be it (same hostname/MAC) than a reinstall.
     suggested_device_online: bool = False
     rejected_at: datetime | None = None
+    # The building the installer named, as typed, and the building it matched.
+    building_hint: str | None = None
+    building_id: uuid.UUID | None = None
+    building_name: str | None = None
+
+
+class InstallCommandOut(BaseModel):
+    command: str  # for the PC, as administrator
+    building_id: uuid.UUID | None  # None: no building preset (school-wide callers only)
+    building_name: str | None
+    server: str  # this server's address as the browser reaches it
 
 
 class DownloadInfo(BaseModel):
@@ -483,14 +527,25 @@ class ApproveIn(BaseModel):
     replace_online: bool = False
 
 
+def _scope(ctx: Ctx) -> set[uuid.UUID] | None:
+    """The buildings whose machines the caller handles; None: all of them, and also the
+    requests and devices that have no building (school-wide permission)."""
+    return ctx.principal.buildings_with(WRITE)
+
+
+def _check_request(ctx: Ctx, req: AgentJoinRequest) -> None:
+    """The caller may act on this request: school-wide, or it names one of their buildings."""
+    ctx.check(WRITE, building_id=req.building_id)
+
+
 @router.get("/join-requests", response_model=list[JoinRequestOut])
-async def list_join_requests(ctx: Ctx = Depends(require(WRITE))):
-    """Machines waiting for approval."""
+async def list_join_requests(ctx: Ctx = Depends(require(WRITE, any_room=True))):
+    """Machines waiting for approval (managers: those that named one of their buildings)."""
     return await _join_requests(ctx, rejected=False)
 
 
 @router.get("/join-requests/rejected", response_model=list[JoinRequestOut])
-async def list_rejected(ctx: Ctx = Depends(require(WRITE))):
+async def list_rejected(ctx: Ctx = Depends(require(WRITE, any_room=True))):
     """Machines an admin rejected: they can't ask again (also not with a new key from the
     same MAC) until "allow again" or REJECT_TTL after they last tried."""
     return await _join_requests(ctx, rejected=True)
@@ -499,18 +554,21 @@ async def list_rejected(ctx: Ctx = Depends(require(WRITE))):
 async def _join_requests(ctx: Ctx, rejected: bool) -> list[JoinRequestOut]:
     now = datetime.now(UTC)
     state = AgentJoinRequest.rejected_at.is_not(None) if rejected else AgentJoinRequest.rejected_at.is_(None)
-    rows = (
-        await ctx.db.execute(
-            ctx.select(AgentJoinRequest).where(AgentJoinRequest.expires_at > now, state).order_by(AgentJoinRequest.created_at)
-        )
-    ).scalars()
+    stmt = ctx.select(AgentJoinRequest).where(AgentJoinRequest.expires_at > now, state)
+    buildings = _scope(ctx)
+    rooms = ctx.principal.rooms_with(WRITE)  # the same scope, as rooms: the devices a request may point at
+    if buildings is not None:
+        stmt = stmt.where(AgentJoinRequest.building_id.in_(buildings))
+    names = dict((await ctx.db.execute(select(Building.id, Building.name).where(Building.org_id == ctx.org_id))).all())
     out = []
-    for r in rows:
+    for r in (await ctx.db.execute(stmt.order_by(AgentJoinRequest.created_at))).scalars():
         stmt = ctx.select(Device).where(func.lower(Device.hostname) == r.hostname.lower())
         if r.mac:  # a MAC match is the better hint (hostnames get reused)
             stmt = ctx.select(Device).where(
                 or_(func.lower(Device.hostname) == r.hostname.lower(), Device.mac == r.mac.lower())
             ).order_by((Device.mac == r.mac.lower()).desc())
+        if rooms is not None:  # a manager hears nothing about devices outside their buildings
+            stmt = stmt.where(Device.room_id.in_(rooms))
         match = (await ctx.db.execute(stmt.limit(1))).scalar_one_or_none()
         out.append(JoinRequestOut(
             id=r.id, hostname=r.hostname, mac=r.mac, ip=r.reported_ip or r.ip, observed_ip=r.ip,
@@ -518,20 +576,42 @@ async def _join_requests(ctx: Ctx, rejected: bool) -> list[JoinRequestOut]:
             agent_version=r.agent_version, fingerprint=r.fingerprint, fingerprint_display=crypto.display_fingerprint(r.fingerprint),
             created_at=r.created_at, expires_at=r.expires_at, suggested_device_id=match.id if match else None,
             suggested_device_online=match is not None and _agent_online(match), rejected_at=r.rejected_at,
+            building_hint=r.building_hint, building_id=r.building_id, building_name=names.get(r.building_id),
         ))
     return out
 
 
 @router.post("/join-requests/{request_id}/approve")
-async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(require(WRITE))) -> dict[str, str]:
+async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(require(WRITE, any_room=True))) -> dict[str, str]:
+    """School-wide callers approve anything. A manager approves a request that named one
+    of their buildings, into a room of their buildings (a new computer, or taking over
+    one of theirs), whichever way the room is chosen."""
     req = await ctx.get(AgentJoinRequest, request_id)
+    _check_request(ctx, req)
     if body.room_id is not None:
         await ctx.get(Room, body.room_id)
+    network: Room | None = None  # "by network": the room the computer's address belongs to
+    if body.room_mode == "network" and (req.reported_ip or req.ip):
+        network = await network_room(ctx.db, ctx.org_id, req.reported_ip, req.ip)
+    scoped = _scope(ctx) is not None
+    if scoped:
+        if body.room_mode == "fixed":
+            if body.room_id is None:
+                raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "agent.room_required",
+                               "choose a room of your building for this computer")
+            ctx.check(WRITE, room_id=body.room_id)
+        elif network is None or not ctx.principal.can(WRITE, room_id=network.id):
+            # It would land in no room, or in somebody else's: not for a manager to decide.
+            raise AppError(status.HTTP_403_FORBIDDEN, "agent.room_out_of_scope",
+                           "this computer's network isn't a room of your buildings; choose a room instead",
+                           permission=WRITE)
     taken = (await ctx.db.execute(ctx.select(Device).where(Device.agent_id == req.fingerprint))).scalar_one_or_none()
     if taken is not None:
         raise AppError(status.HTTP_409_CONFLICT, "agent.key_in_use", "this key already belongs to a device")
     if body.device_id is not None:
         device = await ctx.get(Device, body.device_id)
+        if scoped:
+            ctx.check(WRITE, room_id=device.room_id)  # a computer in no room is school-level
         old_room = device.room_id
         # A request with an online PC's hostname and MAC is easy to fake (a student's
         # laptop): approving it "as" that PC would cut off the real one and let the laptop
@@ -555,15 +635,19 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
     if body.room_mode == "fixed":
         device.room_id = body.room_id if body.room_id is not None else device.room_id
     elif req.reported_ip or req.ip:
-        room = await network_room(ctx.db, ctx.org_id, req.reported_ip, req.ip)
-        device.room_id = room.id if room else None
+        device.room_id = network.id if network else None
     await ctx.db.delete(req)
     await ctx.db.flush()
+    # Its room's building (from the device itself), and the one the request named.
+    building_ids = {b for b in (req.building_id, network.building_id if network else None) if b is not None}
+    if device.room_id is not None and (room_building := await ctx.db.scalar(
+            select(Room.building_id).where(Room.id == device.room_id))) is not None:
+        building_ids.add(room_building)
     ctx.audit("agent.join.approve", device, {
         "hostname": device.hostname, "fingerprint": req.fingerprint,
         "as_existing_device": body.device_id is not None, "room_mode": body.room_mode,
         "replaced_online_agent": body.device_id is not None and body.replace_online,
-    })
+    }, building_ids=sorted(building_ids) or None)
     ctx.emit("core.device.updated" if body.device_id else "core.device.created", {"id": str(device.id), "hostname": device.hostname})
     if device.room_id != old_room:
         emit_policy_changed(ctx, device_id=device.id, old_room_id=old_room, room_id=device.room_id)
@@ -572,10 +656,11 @@ async def approve(request_id: uuid.UUID, body: ApproveIn, ctx: Ctx = Depends(req
 
 
 @router.post("/join-requests/{request_id}/reject", status_code=204)
-async def reject(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
+async def reject(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE, any_room=True))):
     """No. The machine is remembered (key and MAC), so it doesn't come straight back
     with a new request, also not after an IP change or a reinstall."""
     req = await ctx.get(AgentJoinRequest, request_id)
+    _check_request(ctx, req)
     ctx.audit("agent.join.reject", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "ip": req.ip, "mac": req.mac})
     now = datetime.now(UTC)
     req.rejected_at, req.expires_at = now, now + REJECT_TTL
@@ -583,9 +668,10 @@ async def reject(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
 
 
 @router.post("/join-requests/{request_id}/allow", status_code=204)
-async def allow_again(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
+async def allow_again(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE, any_room=True))):
     """Forget a rejection: the machine's next request shows up as a normal one."""
     req = await ctx.get(AgentJoinRequest, request_id)
+    _check_request(ctx, req)
     if req.rejected_at is None:
         raise AppError(status.HTTP_409_CONFLICT, "agent.not_rejected", "this request wasn't rejected")
     ctx.audit("agent.join.allow_again", req, {"hostname": req.hostname, "fingerprint": req.fingerprint, "mac": req.mac})
@@ -594,13 +680,36 @@ async def allow_again(request_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE)))
 
 
 @router.get("/download", response_model=DownloadInfo)
-async def download_info(ctx: Ctx = Depends(require(WRITE))):
+async def download_info(ctx: Ctx = Depends(require(WRITE, any_room=True))):
     """What the Devices page shows next to the download link."""
     build = await run_in_threadpool(download.current_build)
     if build is None:
         return DownloadInfo(available=False, url=download.URL_PATH)
     return DownloadInfo(available=True, url=download.URL_PATH, version=build.version, size=build.size,
                         sha256=build.sha256)
+
+
+@router.get("/install-command", response_model=InstallCommandOut)
+async def install_command(request: Request, building_id: uuid.UUID | None = None,
+                          ctx: Ctx = Depends(require(WRITE, any_room=True))):
+    """The command to run on a PC (as administrator) so that its join request names the
+    building. A manager gets their building (no choice needed if they have only one, and
+    only their own are allowed); school-wide callers may name any building or none."""
+    mine = _scope(ctx)
+    if mine is not None:
+        if building_id is None:
+            if len(mine) != 1:
+                raise AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "agent.building_required",
+                               "choose the building the computer is in")
+            (building_id,) = mine
+        ctx.check(WRITE, building_id=building_id)
+    building = await ctx.get(Building, building_id) if building_id is not None else None
+    server = str(request.base_url).rstrip("/")  # scheme and host as the proxy in front passed them on
+    command = f"smp-agent.exe install --server {server}"
+    if building is not None:
+        command += f" --building {building.id}"
+    return InstallCommandOut(command=command, building_id=building.id if building else None,
+                             building_name=building.name if building else None, server=server)
 
 
 @public.get("/downloads/{file_name}", include_in_schema=False)
@@ -616,10 +725,12 @@ async def download_agent(file_name: str):
 
 
 @router.post("/devices/{device_id}/reset-identity", status_code=204)
-async def reset_identity(device_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE))):
+async def reset_identity(device_id: uuid.UUID, ctx: Ctx = Depends(require(WRITE, any_room=True))):
     """Forget the device's key (e.g. a stolen disk or a broken install). Its agent is
-    refused from now on and has to join again; approve it as this same device."""
+    refused from now on and has to join again; approve it as this same device. Managers:
+    only computers in their buildings."""
     device = await ctx.get(Device, device_id)
+    ctx.check(WRITE, room_id=device.room_id)
     ctx.audit("agent.identity.reset", device, {"hostname": device.hostname, "fingerprint": device.agent_id})
     device.agent_id = device.agent_public_key = None
     device.status = DeviceStatus.PENDING

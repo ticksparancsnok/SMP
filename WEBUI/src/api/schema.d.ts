@@ -104,13 +104,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Users */
+        /**
+         * List Users
+         * @description Everyone for an org-wide reader; otherwise the users with an assignment in the
+         *     caller's buildings.
+         */
         get: operations["list_users_api_v1_users_get"];
         put?: never;
         /**
          * Create User
          * @description Every new local user can log in: with the given password, or with a generated
          *     one-time password. Either way they must choose their own at first login.
+         *
+         *     A manager (limited to buildings) may only create teachers and students; a role
+         *     without a scope goes to every building they manage.
          */
         post: operations["create_user_api_v1_users_post"];
         delete?: never;
@@ -151,9 +158,10 @@ export interface paths {
         /**
          * Export Credentials
          * @description Login slips: the filtered users that have a usable (unused, unexpired) one-time
-         *     password, with that password. Admins get every such user; class teachers only the
-         *     students they may reset (members of groups they teach). Audited. The first three
-         *     columns are the import format, so the file also works as a user list.
+         *     password, with that password. Whoever may edit users gets every such user they may
+         *     edit (a manager: those of their buildings); class teachers only the students they
+         *     may reset (members of groups they teach). Audited. The first three columns are the
+         *     import format, so the file also works as a user list.
          */
         get: operations["export_credentials_api_v1_users_credentials_xlsx_get"];
         put?: never;
@@ -201,6 +209,11 @@ export interface paths {
          *     a password at first login; usernames that already exist are skipped. Any invalid
          *     row rejects the whole file (422, detail = ImportResult). With dry_run=true nothing
          *     is written: use it to preview.
+         *
+         *     Where the students go: a manager's import always goes to their own building(s)
+         *     (`building_ids` may name a subset); an admin's or unit manager's goes to the given
+         *     `building_ids` (repeat the parameter), or school-wide when there are none. Classes
+         *     the file creates belong to the same buildings.
          */
         post: operations["import_users_api_v1_users_import_post"];
         delete?: never;
@@ -236,7 +249,12 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set Roles */
+        /**
+         * Set Roles
+         * @description Replace the user's role assignments. See `create_user` for what the caller may
+         *     grant. Nobody changes their own roles, except an admin, who must keep their highest
+         *     org-wide role.
+         */
         put: operations["set_roles_api_v1_users__user_id__roles_put"];
         post?: never;
         delete?: never;
@@ -256,7 +274,7 @@ export interface paths {
         /**
          * Set Groups
          * @description Replace the user's class/group memberships (the user-side view of
-         *     PUT /groups/{id}/members).
+         *     PUT /groups/{id}/members). A manager only touches groups of their buildings.
          */
         put: operations["set_groups_api_v1_users__user_id__groups_put"];
         post?: never;
@@ -277,9 +295,9 @@ export interface paths {
         put?: never;
         /**
          * Set Password
-         * @description Reset: a given password (admins only), or (body without password) a new
-         *     one-time password (admins, or class teachers for their students). Either way all
-         *     sessions end and the user must choose a new password.
+         * @description Reset: a given password (whoever may edit the user), or (body without password) a
+         *     new one-time password (the same, or class teachers for their students). Either way
+         *     all sessions end and the user must choose a new password.
          */
         post: operations["set_password_api_v1_users__user_id__password_post"];
         delete?: never;
@@ -295,7 +313,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Groups */
+        /**
+         * List Groups
+         * @description Every group for an org-wide reader; otherwise the groups with a building among the caller's.
+         */
         get: operations["list_groups_api_v1_groups_get"];
         put?: never;
         /** Create Group */
@@ -336,7 +357,8 @@ export interface paths {
         get: operations["list_members_api_v1_groups__group_id__members_get"];
         /**
          * Set Members
-         * @description Replace the member list (handy for directory sync and CSV import).
+         * @description Replace the member list (handy for directory sync and CSV import). A manager
+         *     can only add users they can see, and members they can't see stay.
          */
         put: operations["set_members_api_v1_groups__group_id__members_put"];
         post?: never;
@@ -357,8 +379,10 @@ export interface paths {
         get: operations["list_teachers_api_v1_groups__group_id__teachers_get"];
         /**
          * Set Teachers
-         * @description Replace the group's class teachers. Only users with the teacher role qualify.
-         *     Class teachers can issue new one-time passwords to the group's students.
+         * @description Replace the group's class teachers. Only users holding a role that includes the
+         *     teacher's powers qualify (teacher, manager, unit manager). Class teachers can issue
+         *     new one-time passwords to the group's students. A manager can only name users they
+         *     can see, and teachers they can't see stay.
          */
         put: operations["set_teachers_api_v1_groups__group_id__teachers_put"];
         post?: never;
@@ -366,6 +390,43 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/buildings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Buildings */
+        get: operations["list_buildings_api_v1_buildings_get"];
+        put?: never;
+        /** Create Building */
+        post: operations["create_building_api_v1_buildings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/buildings/{building_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Building */
+        get: operations["get_building_api_v1_buildings__building_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Building */
+        delete: operations["delete_building_api_v1_buildings__building_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Building */
+        patch: operations["update_building_api_v1_buildings__building_id__patch"];
         trace?: never;
     };
     "/api/v1/rooms": {
@@ -996,7 +1057,7 @@ export interface paths {
         };
         /**
          * List Join Requests
-         * @description Machines waiting for approval.
+         * @description Machines waiting for approval (managers: those that named one of their buildings).
          */
         get: operations["list_join_requests_api_v1_agent_join_requests_get"];
         put?: never;
@@ -1037,7 +1098,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve */
+        /**
+         * Approve
+         * @description School-wide callers approve anything. A manager approves a request that named one
+         *     of their buildings, into a room of their buildings (a new computer, or taking over
+         *     one of theirs), whichever way the room is chosen.
+         */
         post: operations["approve_api_v1_agent_join_requests__request_id__approve_post"];
         delete?: never;
         options?: never;
@@ -1106,6 +1172,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/install-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Install Command
+         * @description The command to run on a PC (as administrator) so that its join request names the
+         *     building. A manager gets their building (no choice needed if they have only one, and
+         *     only their own are allowed); school-wide callers may name any building or none.
+         */
+        get: operations["install_command_api_v1_agent_install_command_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/devices/{device_id}/reset-identity": {
         parameters: {
             query?: never;
@@ -1118,7 +1206,8 @@ export interface paths {
         /**
          * Reset Identity
          * @description Forget the device's key (e.g. a stolen disk or a broken install). Its agent is
-         *     refused from now on and has to join again; approve it as this same device.
+         *     refused from now on and has to join again; approve it as this same device. Managers:
+         *     only computers in their buildings.
          */
         post: operations["reset_identity_api_v1_agent_devices__device_id__reset_identity_post"];
         delete?: never;
@@ -1365,7 +1454,8 @@ export interface paths {
         };
         /**
          * List Assignments
-         * @description Teachers see the school-wide ones and those for their rooms and their computers.
+         * @description The school-wide ones (they reach the caller's computers too) and those for the
+         *     caller's buildings, rooms and computers; teachers and managers see no others.
          */
         get: operations["list_assignments_api_v1_software_packages__package_id__assignments_get"];
         put?: never;
@@ -1612,6 +1702,40 @@ export interface components {
             /** Ip */
             ip: string | null;
         };
+        /** BuildingIn */
+        BuildingIn: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+        };
+        /** BuildingOut */
+        BuildingOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Room Count
+             * @default 0
+             */
+            room_count: number;
+        };
+        /** BuildingUpdate */
+        BuildingUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+        };
         /** DeviceCreate */
         DeviceCreate: {
             /** Hostname */
@@ -1788,6 +1912,8 @@ export interface components {
              * @default
              */
             description: string;
+            /** Building Ids */
+            building_ids?: string[] | null;
         };
         /** GroupOut */
         GroupOut: {
@@ -1804,6 +1930,11 @@ export interface components {
             description: string;
             /** External Id */
             external_id: string | null;
+            /**
+             * Building Ids
+             * @default []
+             */
+            building_ids: string[];
             /**
              * Member Count
              * @default 0
@@ -1835,6 +1966,8 @@ export interface components {
             kind?: string | null;
             /** Description */
             description?: string | null;
+            /** Building Ids */
+            building_ids?: string[] | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1938,6 +2071,17 @@ export interface components {
              */
             errors: components["schemas"]["ImportIssue"][];
         };
+        /** InstallCommandOut */
+        InstallCommandOut: {
+            /** Command */
+            command: string;
+            /** Building Id */
+            building_id: string | null;
+            /** Building Name */
+            building_name: string | null;
+            /** Server */
+            server: string;
+        };
         /** JoinOut */
         JoinOut: {
             /**
@@ -1996,6 +2140,12 @@ export interface components {
             suggested_device_online: boolean;
             /** Rejected At */
             rejected_at?: string | null;
+            /** Building Hint */
+            building_hint?: string | null;
+            /** Building Id */
+            building_id?: string | null;
+            /** Building Name */
+            building_name?: string | null;
         };
         /** LayoutModel */
         LayoutModel: {
@@ -2152,6 +2302,20 @@ export interface components {
                 [key: string]: string[];
             };
             /**
+             * Building Permissions
+             * @default {}
+             */
+            building_permissions: {
+                [key: string]: string[];
+            };
+            /**
+             * Room Buildings
+             * @default {}
+             */
+            room_buildings: {
+                [key: string]: string;
+            };
+            /**
              * Must Change Password
              * @default false
              */
@@ -2254,6 +2418,8 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
+            /** Building Id */
+            building_id?: string | null;
         };
         /** PolicyOut */
         PolicyOut: {
@@ -2262,6 +2428,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Building Id */
+            building_id: string | null;
             /** Kind */
             kind: string;
             /** Name */
@@ -2288,6 +2456,8 @@ export interface components {
             data?: {
                 [key: string]: unknown;
             } | null;
+            /** Building Id */
+            building_id?: string | null;
         };
         /**
          * PreferencesOut
@@ -2341,14 +2511,23 @@ export interface components {
         };
         /**
          * Role
+         * @description The role names. What each one is allowed (scopes, inheritance, who may hand it
+         *     out) is the table in smp/core/roles.py; what it may do is the permissions' default
+         *     roles in the module manifests.
          * @enum {string}
          */
-        Role: "admin" | "teacher" | "student";
-        /** RoleIn */
+        Role: "admin" | "unit_manager" | "manager" | "teacher" | "student";
+        /**
+         * RoleIn
+         * @description One role assignment: org-wide (no scope), for a building or for a room (never
+         *     both). Where each role may sit is the table in smp/core/roles.py.
+         */
         RoleIn: {
             role: components["schemas"]["Role"];
             /** Room Id */
             room_id?: string | null;
+            /** Building Id */
+            building_id?: string | null;
         };
         /** RoleOut */
         RoleOut: {
@@ -2356,16 +2535,15 @@ export interface components {
             role: string;
             /** Room Id */
             room_id: string | null;
+            /** Building Id */
+            building_id?: string | null;
         };
         /** RoomIn */
         RoomIn: {
             /** Name */
             name: string;
-            /**
-             * Building
-             * @default
-             */
-            building: string;
+            /** Building Id */
+            building_id?: string | null;
             /**
              * Description
              * @default
@@ -2386,6 +2564,8 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /** Building Id */
+            building_id: string | null;
             /** Building */
             building: string;
             /** Description */
@@ -2416,8 +2596,8 @@ export interface components {
         RoomUpdate: {
             /** Name */
             name?: string | null;
-            /** Building */
-            building?: string | null;
+            /** Building Id */
+            building_id?: string | null;
             /** Description */
             description?: string | null;
             /** Subnets */
@@ -2466,6 +2646,8 @@ export interface components {
             windows: {
                 [key: string]: unknown;
             }[];
+            /** Building Id */
+            building_id?: string | null;
         };
         /** ScheduleOut */
         ScheduleOut: {
@@ -2474,6 +2656,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Building Id */
+            building_id: string | null;
             /** Name */
             name: string;
             /** Timezone */
@@ -2522,7 +2706,7 @@ export interface components {
              * Target Type
              * @enum {string}
              */
-            target_type: "org" | "room" | "device";
+            target_type: "org" | "building" | "room" | "device";
             /** Target Id */
             target_id?: string | null;
             /**
@@ -2812,7 +2996,7 @@ export interface components {
          * TargetType
          * @enum {string}
          */
-        TargetType: "org" | "room" | "group" | "device" | "user";
+        TargetType: "org" | "building" | "room" | "group" | "device" | "user";
         /** TokenCreated */
         TokenCreated: {
             /**
@@ -2944,6 +3128,11 @@ export interface components {
              * @default false
              */
             can_reset_password: boolean;
+            /**
+             * Can Edit
+             * @default false
+             */
+            can_edit: boolean;
             /** One Time Password */
             one_time_password?: string | null;
         };
@@ -2988,6 +3177,11 @@ export interface components {
              * @default false
              */
             can_reset_password: boolean;
+            /**
+             * Can Edit
+             * @default false
+             */
+            can_edit: boolean;
         };
         /** UserUpdate */
         UserUpdate: {
@@ -3440,6 +3634,7 @@ export interface operations {
         parameters: {
             query?: {
                 dry_run?: boolean;
+                building_ids?: string[];
             };
             header?: never;
             path?: never;
@@ -3938,6 +4133,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_buildings_api_v1_buildings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingOut"][];
+                };
+            };
+        };
+    };
+    create_building_api_v1_buildings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_building_api_v1_buildings__building_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                building_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_building_api_v1_buildings__building_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                building_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_building_api_v1_buildings__building_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                building_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingOut"];
                 };
             };
             /** @description Validation Error */
@@ -5658,6 +6001,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DownloadInfo"];
+                };
+            };
+        };
+    };
+    install_command_api_v1_agent_install_command_get: {
+        parameters: {
+            query?: {
+                building_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallCommandOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

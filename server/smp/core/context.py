@@ -23,19 +23,20 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import Any, NamedTuple, TypeVar
 from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import Select, select
+from sqlalchemy import Select, case, select
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from smp.core.config import get_settings
 from smp.core.db import get_session, utcnow
 from smp.core.errors import AppError
 from smp.core.events import Event, EventBus
-from smp.core.models import ApiToken, AuditLog, AuthSession, ModuleSetting, Organization, User
+from smp.core.models import ApiToken, AuditLog, AuthSession, Building, ModuleSetting, Organization, Room, User
 from smp.core.module import ModuleRegistry
 from smp.core.security import hash_token
 
@@ -54,9 +55,27 @@ _ALLOWED_DURING_PASSWORD_CHANGE = {
 _TOUCH_INTERVAL = timedelta(minutes=1)
 
 
+class ScopedRole(NamedTuple):
+    """One role assignment of a user: org-wide when both ids are None."""
+
+    role: str
+    room_id: uuid.UUID | None = None
+    building_id: uuid.UUID | None = None
+
+
 @dataclass
 class Principal:
-    """An authenticated caller: a user (browser session) or a service (API token)."""
+    """An authenticated caller: a user (browser session) or a service (API token).
+
+    What a caller may do is split by where the grant applies (see Permission in
+    smp/core/module.py for the three kinds of permission):
+      global_perms    everywhere ("*" = everything: admin)
+      room_perms      per room (room-scoped permissions of room- and building-scoped roles;
+                      a building's room-scoped permissions are expanded to its rooms)
+      building_perms  per building (building-level permissions of building-scoped roles)
+      room_buildings  room -> building for the rooms of the buildings the user is assigned
+                      to, so a building grant can be checked for a room
+    """
 
     kind: str  # "user" | "token"
     id: uuid.UUID
@@ -64,24 +83,52 @@ class Principal:
     name: str
     global_perms: frozenset[str]
     room_perms: dict[uuid.UUID, frozenset[str]] = field(default_factory=dict)
-    roles: list[tuple[str, uuid.UUID | None]] = field(default_factory=list)
+    building_perms: dict[uuid.UUID, frozenset[str]] = field(default_factory=dict)
+    room_buildings: dict[uuid.UUID, uuid.UUID] = field(default_factory=dict)
+    roles: list[ScopedRole] = field(default_factory=list)
     must_change_password: bool = False
 
-    def can(self, perm: str, room_id: uuid.UUID | None = None) -> bool:
-        """Org-wide check, or (when room_id is given) org-wide OR granted for that room."""
+    def can(self, perm: str, room_id: uuid.UUID | None = None, building_id: uuid.UUID | None = None) -> bool:
+        """Org-wide check, or (when room_id / building_id is given) org-wide OR granted
+        for that room (directly or through its building) OR for that building."""
         if "*" in self.global_perms or perm in self.global_perms:
             return True
-        return room_id is not None and perm in self.room_perms.get(room_id, frozenset())
+        if room_id is not None:
+            if perm in self.room_perms.get(room_id, frozenset()):
+                return True
+            room_building = self.room_buildings.get(room_id)
+            if room_building is not None and perm in self.building_perms.get(room_building, frozenset()):
+                return True
+        return building_id is not None and perm in self.building_perms.get(building_id, frozenset())
 
     def can_anywhere(self, perm: str) -> bool:
-        return self.can(perm) or any(perm in p for p in self.room_perms.values())
+        return (
+            self.can(perm)
+            or any(perm in p for p in self.room_perms.values())
+            or any(perm in p for p in self.building_perms.values())
+        )
 
     def rooms_with(self, perm: str) -> set[uuid.UUID] | None:
         """Rooms where perm applies; None means all rooms (org-wide grant).
         Use it to filter list endpoints."""
         if self.can(perm):
             return None
-        return {room for room, perms in self.room_perms.items() if perm in perms}
+        rooms = {room for room, perms in self.room_perms.items() if perm in perms}
+        rooms |= {
+            room for room, b in self.room_buildings.items() if perm in self.building_perms.get(b, frozenset())
+        }
+        return rooms
+
+    def buildings_with(self, perm: str) -> set[uuid.UUID] | None:
+        """Buildings where perm applies; None means all buildings (org-wide grant)."""
+        if self.can(perm):
+            return None
+        return {b for b, perms in self.building_perms.items() if perm in perms}
+
+    @property
+    def scope_building_ids(self) -> set[uuid.UUID]:
+        """Every building the principal holds a building-scoped role in."""
+        return {r.building_id for r in self.roles if r.building_id is not None}
 
     def all_permissions(self, registry: ModuleRegistry) -> list[str]:
         if "*" in self.global_perms:
@@ -106,8 +153,8 @@ class Ctx:
         self._pending: list[Event] = []
 
     # ---- authorization
-    def check(self, perm: str, room_id: uuid.UUID | None = None) -> None:
-        if self.principal is None or not self.principal.can(perm, room_id):
+    def check(self, perm: str, room_id: uuid.UUID | None = None, building_id: uuid.UUID | None = None) -> None:
+        if self.principal is None or not self.principal.can(perm, room_id, building_id):
             raise AppError(status.HTTP_403_FORBIDDEN, "permission.missing", f"missing permission {perm}", permission=perm)
 
     # ---- org-scoped data access
@@ -144,9 +191,17 @@ class Ctx:
         *,
         target_type: str | None = None,
         target_id: Any = None,
+        building_ids: list[uuid.UUID] | None = None,
     ) -> None:
         """Record an audit entry in the current transaction (committed with the change).
-        `target` may be an ORM object; its class name and id are recorded."""
+        `target` may be an ORM object; its class name and id are recorded.
+
+        building_ids says which buildings the entry is about (their managers may read
+        it); NULL means an org-level entry. Without it they come from the target: a
+        Building is its own; an object with a building_id (Room, Policy...) has that
+        one; one with a room_id (Device, software assignment...) has its room's
+        building, looked up by the INSERT itself (the table is append-only, so it can't
+        be filled in later)."""
         if target is not None:
             target_type = target_type or type(target).__name__.lower()
             target_id = target_id if target_id is not None else getattr(target, "id", None)
@@ -161,6 +216,7 @@ class Ctx:
                 target_type=target_type,
                 target_id=str(target_id) if target_id is not None else None,
                 details=details or {},
+                building_ids=_audit_building_ids(target, building_ids),  # type: ignore[arg-type]
                 ip=client_ip(self.request),
                 user_agent=(self.request.headers.get("user-agent") or "")[:400] or None,
             )
@@ -177,6 +233,27 @@ class Ctx:
             await self.bus.publish(ev)
 
 
+def _audit_building_ids(target: Any, explicit: list[uuid.UUID] | None) -> Any:
+    """The AuditLog.building_ids value for a target: a list, a SQL expression that
+    yields one when the row is inserted, or None (an org-level entry)."""
+    if explicit is not None:
+        return list(explicit)
+    if target is None:
+        return None
+    if isinstance(target, Building):
+        return [target.id]
+    if (building_id := getattr(target, "building_id", None)) is not None:
+        return [building_id]
+    if (room_id := getattr(target, "room_id", None)) is not None:
+        # NULL (not {NULL}) when the room is in no building.
+        return (
+            select(case((Room.building_id.is_not(None), pg_array([Room.building_id])), else_=None))
+            .where(Room.id == room_id)
+            .scalar_subquery()
+        )
+    return None
+
+
 def client_ip(request: Request) -> str | None:
     # Behind a reverse proxy, run uvicorn with --forwarded-allow-ips so this is the real client.
     return request.client.host if request.client else None
@@ -185,18 +262,47 @@ def client_ip(request: Request) -> str | None:
 # --------------------------------------------------------------------------- authentication
 
 
-def principal_for_user(user: User, registry: ModuleRegistry) -> Principal:
+async def principal_for_user(db: AsyncSession, user: User, registry: ModuleRegistry) -> Principal:
     global_perms: set[str] = set()
     room_perms: dict[uuid.UUID, set[str]] = {}
+    building_perms: dict[uuid.UUID, set[str]] = {}
+    building_roles: list[tuple[uuid.UUID, frozenset[str]]] = []
     for ra in user.roles:
         perms = registry.role_permissions(ra.role)
-        if ra.room_id is None:
+        if ra.building_id is not None:
+            # Building assignment: room-scoped permissions per room (below), school-wide
+            # data org-wide, the admin-type powers only inside that building. Never
+            # global: a building-level permission must not leak to the whole school.
+            building_roles.append((ra.building_id, perms))
+            for p in perms:
+                if registry.is_org_wide(p):
+                    global_perms.add(p)
+                elif not registry.is_room_scoped(p):
+                    building_perms.setdefault(ra.building_id, set()).add(p)
+        elif ra.room_id is None:
             global_perms |= perms
         else:
             # Room assignment: room-scoped permissions only for that room, the rest org-wide.
             scoped = {p for p in perms if registry.is_room_scoped(p)}
             room_perms.setdefault(ra.room_id, set()).update(scoped)
             global_perms |= perms - scoped
+    room_buildings: dict[uuid.UUID, uuid.UUID] = {}
+    if building_roles:
+        # Rooms are looked up now, so a room moved into a building is covered at once.
+        rows = await db.execute(
+            select(Room.id, Room.building_id).where(
+                Room.org_id == user.org_id, Room.building_id.in_({b for b, _ in building_roles})
+            )
+        )
+        rooms_of: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for room_id, building_id in rows:
+            assert building_id is not None
+            room_buildings[room_id] = building_id
+            rooms_of.setdefault(building_id, []).append(room_id)
+        for building_id, perms in building_roles:
+            scoped = {p for p in perms if registry.is_room_scoped(p)}
+            for room_id in rooms_of.get(building_id, ()):
+                room_perms.setdefault(room_id, set()).update(scoped)
     return Principal(
         kind="user",
         id=user.id,
@@ -204,7 +310,9 @@ def principal_for_user(user: User, registry: ModuleRegistry) -> Principal:
         name=user.username,
         global_perms=frozenset(global_perms),
         room_perms={k: frozenset(v) for k, v in room_perms.items()},
-        roles=[(ra.role, ra.room_id) for ra in user.roles],
+        building_perms={k: frozenset(v) for k, v in building_perms.items()},
+        room_buildings=room_buildings,
+        roles=[ScopedRole(ra.role, ra.room_id, ra.building_id) for ra in user.roles],
         must_change_password=user.must_change_password,
     )
 
@@ -247,7 +355,7 @@ async def _principal_from_cookie(db: AsyncSession, token: str, registry: ModuleR
     if now - sess.last_seen_at > _TOUCH_INTERVAL:
         sess.last_seen_at = now
         await db.commit()
-    return principal_for_user(user, registry)
+    return await principal_for_user(db, user, registry)
 
 
 async def get_principal(request: Request, db: AsyncSession = Depends(get_session)) -> Principal:
@@ -304,8 +412,10 @@ def require(*perms: str, any_room: bool = False) -> Callable[..., Awaitable[Ctx]
     """Dependency factory: authenticate and check permissions.
 
     any_room=False (default): the permission must be granted org-wide.
-    any_room=True: a grant for at least one room is enough; the handler MUST then
-    filter/check per room with ctx.principal.rooms_with(...) / ctx.check(perm, room_id).
+    any_room=True: a grant for at least one room is enough, and so is one for a
+    building (or a building's rooms); the handler MUST then filter/check per room or
+    building with ctx.principal.rooms_with(...) / buildings_with(...) or
+    ctx.check(perm, room_id=..., building_id=...).
     """
 
     async def dep(ctx: Ctx = Depends(get_ctx)) -> Ctx:

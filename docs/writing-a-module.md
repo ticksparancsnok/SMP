@@ -36,10 +36,17 @@ class DnsModule(Module):
     title = "Site blocker"        # all server text is English; the UI translates (section 6)
     permissions = (
         Permission("dns.review.manage", "Approve/reject classifier verdicts", ("teacher",)),
-        Permission("dns.lists.write", "Edit block/allow lists"),          # admin only
+        Permission("dns.lists.write", "Edit block/allow lists"),          # no default role: admin only
         # Things that happen *in a room* are room_scoped: a teacher assigned to
-        # Lab 1 gets this permission only for Lab 1.
+        # Lab 1 gets this permission only for Lab 1 (and one assigned to a building,
+        # in every room of it).
         # Permission("classroom.screens.lock", "Lock screens", ("teacher",), room_scoped=True),
+        # Inherently school-wide data is org_wide: every holder may use it school-wide,
+        # whatever scope their role was given at.
+        # Permission("shortlinks.links.create", "Create own links", ("teacher",), org_wide=True),
+        # Neither flag = "building-level" (the admin-type powers): from a building-scoped
+        # role it applies only inside that building (see below).
+        # Permission("dns.rules.write", "Edit rules of the own building", ("manager",)),
     )
     ui_routes = (UiRoute("/dns", "Site blocker", "🌐", "dns.review.manage"),)
     events = (EventSubject("dns.domain.blocked", "A domain was auto-blocked"),)
@@ -56,7 +63,7 @@ class DnsModule(Module):
     async def _on_policy_changed(self, event): ...
 
     async def dashboard(self, ctx) -> list[Widget]:   # cards on the home page
-        if not ctx.principal.can("dns.review.manage"):
+        if not ctx.principal.can("dns.review.manage"):   # org-wide check; see "Dashboard widgets" below
             return []
         top = ...  # query your tables
         return [Widget(id="dns.top_blocked", kind="list", title="Top blocked domains", icon="🌐",
@@ -70,6 +77,20 @@ class DnsModule(Module):
 
 from smp.modules.dns import models  # noqa: E402,F401  (so Alembic sees the tables)
 ```
+
+### Permissions: kinds and default roles
+
+**Kinds.** Pick one per permission; it decides how a *scoped* role assignment (a room or a building) applies it (the full table is in [architecture.md](architecture.md), "RBAC"):
+
+| Kind | Declare | A room-scoped role gives it | A building-scoped role gives it |
+|---|---|---|---|
+| room-scoped | `room_scoped=True`: things that live in a room (screens, devices, room policies) | in that room | in every room of the building |
+| org-wide | `org_wide=True`: inherently school-wide data (blocklists, own short links) | everywhere | everywhere |
+| building-level | neither flag: administrating people, rooms, policies | everywhere (legacy teacher behaviour) | **only in that building** |
+
+Building-level is the safe default: a manager of one building must not get a school-wide power because a permission was left unclassified. The price is that `require("perm")` (org-wide) denies them, so a handler for a building-level permission uses `any_room=True` and scopes its data (section 4). Flag `org_wide` only when the data really is the whole school's.
+
+**Default roles.** List the *lowest* role that should have the permission; roles inherit (`smp/core/roles.py`): `manager` gets everything `teacher` has, `unit_manager` everything `manager` has, and `admin` has everything. So `("teacher",)` means teachers, managers and unit managers; `("manager",)` managers and up; `("unit_manager",)` unit managers and admins; no default role means admin only. Don't list `admin` (it always has it) or the roles above the one you mean. `student` gets nothing unless you say so (and think about it first).
 
 ## 2. Register it
 
@@ -114,9 +135,27 @@ Rules:
 - **Query through `ctx.get()` / `ctx.select(Model)`.** They add the `org_id` filter. If you write raw `select()`, add `Model.org_id == ctx.org_id` yourself.
 - **Audit every state change** that a human would ask about later ("who unblocked this?").
 - **Commit explicitly** with `await ctx.commit()`. Nothing is committed automatically.
-- **Room-scoped actions** (lock screens, exam mode): use `require(perm, any_room=True)` and then `ctx.check(perm, device.room_id)`.
+- **Room-scoped and building-level actions** (lock screens, exam mode, a manager's rooms): use `require(perm, any_room=True)` (a grant for some room or building is enough to get in) and then check per object: `ctx.check(perm, room_id=device.room_id)` or `ctx.check(perm, building_id=thing.building_id)`. A check with no room or building (`room_id=None`) needs an org-wide grant, so things in no room or building are unit level. When something moves, check the old *and* the new place. For an object outside the caller's scope whose existence shouldn't leak, answer 404 rather than 403 (as the users and buildings endpoints do).
+- **List endpoints:** filter by where the caller's permission applies. `rooms_with(perm)` and `buildings_with(perm)` return `None` for "everywhere", otherwise the set of ids (a building grant includes that building's rooms in `rooms_with`):
+
+  ```python
+  @router.get("/things")
+  async def list_things(ctx: Ctx = Depends(require("mymod.things.read", any_room=True))):
+      stmt = ctx.select(Thing).order_by(Thing.name)
+      p = ctx.principal
+      if (rooms := p.rooms_with("mymod.things.read")) is not None:       # room-scoped permission
+          stmt = stmt.where(Thing.room_id.in_(rooms))
+      # building-level permission, for things with an owner building:
+      # if (buildings := p.buildings_with("mymod.things.manage")) is not None:
+      #     stmt = stmt.where(Thing.building_id.in_(buildings))
+      return list((await ctx.db.execute(stmt)).scalars())
+  ```
+
+  Forgetting this is the one way to leak between buildings, so write a test with a manager of another building (section 7).
+- **Audit and buildings:** `ctx.audit(action, obj, details)` records which buildings the entry is about (`audit_log.building_ids`), and that decides which managers can read it. It works it out from `obj`: a `Building`, an object with `building_id`, or one with `room_id` (looked up inside the INSERT). Pass `building_ids=[...]` when `obj` doesn't carry it (a link table, a user's role change) or the entry concerns two buildings (a move: the old and the new). Without any building the entry is unit level only. It is set at insert time and never updated (the table is append-only).
 - Read settings with `await ctx.settings("dns")`. It returns your pydantic model with defaults filled in.
 - Effective policy for a device: `await effective_policies(ctx.db, ctx.org_id, device=d, kinds={"dns"})` (from `smp.core.policy`).
+- **Dashboard widgets** (`Module.dashboard`) are built for every signed-in user, so they obey the same scope: use `can_anywhere(perm)` to decide whether to show a card, then restrict its counts and lists with `rooms_with` / `buildings_with` as above. A card that counts the whole school for a manager of one building leaks the other buildings' data.
 - **Errors a user can see: raise `AppError`** (`smp.core.errors`) instead of `HTTPException`, with an English message, a stable code, and the values in the message as params:
 
   ```python
@@ -166,4 +205,4 @@ Use `api.get/post/...` from `src/api/client.ts`, and `can()`/`canAnywhere()` fro
 
 ## 7. Tests
 
-Add `server/tests/test_<module>.py`. The fixtures `admin`, `anon`, `login_as(...)` and `org` (fresh DB per test) are in `tests/conftest.py`.
+Add `server/tests/test_<module>.py`. The fixtures `admin`, `anon`, `login_as(...)` and `org` (fresh DB per test) are in `tests/conftest.py`. For scoped behaviour, `make_building(name, rooms=[...])` creates a building with rooms and `login_scoped(app, username, roles)` logs in a user with any role assignments (e.g. `{"role": "manager", "building_id": ...}`, which the users API hands out only to some callers). Test the cases that matter: a manager of the building, a manager of *another* building (must see and change nothing), a unit manager, and a teacher assigned to a room.
