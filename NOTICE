@@ -29,12 +29,16 @@ It must be kept:
     link), and in the `--help` text of the agent program.
 
 The notice may be translated and reworded to fit the interface, as long as it says
-that the work is based on SMP and gives the address above. Everything else about
+that the work is based on SMP (with the copyright notice above and a "Powered by SMP"
+attribution link to the original project. and gives the address above. Everything else about
 the work, including its name, may be changed freely.
 
 Source code for network users (section 13): if you run a modified SMP for others
 over a network, its interface must offer them the source code of your version. The
 "source code" link in the web interface does this; point it at your own repository.
+
+No Endorsement: Modified versions must clearly indicate that they have been changed and
+may not use the "GG4Ever" name to imply official endorsement without written permission.
 
 
 THIRD-PARTY COMPONENTS
