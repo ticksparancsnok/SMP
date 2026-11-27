@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever" (https://github.com/ticksparancsnok/SMP)
+# License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3
 # Attribution required in modified versions: see NOTICE
 # TODO(evaluate, issue #5): this resolver answers anyone who can reach the port (an "open
 # resolver"). Fine behind the school's NAT; if the port is ever reachable from the

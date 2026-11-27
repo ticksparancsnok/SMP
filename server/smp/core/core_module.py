@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[missing-copyright-notice]
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever" (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[missing-copyright-notice]
+# License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3
 # Attribution required in modified versions: see NOTICE
 
 """The core registers itself as a module so its permissions, routes and events go through exactly the same machinery as everyone else's."""  # ruff: ignore[line-too-long]

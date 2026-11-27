@@ -99,7 +99,7 @@ each computer's state; teachers see their rooms'. Only a "remove" assignment uni
 ## License
 
 SMP - School Management Portal, https://github.com/ticksparancsnok/SMP
-Copyright (C) 2026 GG4Ever
+Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever"
 
 SMP is free software under the **GNU Affero General Public License v3 or later**
 ([LICENSE](LICENSE)). Anyone may use, study, change and share it, also commercially.
@@ -113,5 +113,5 @@ documentation and in the web interface (the small notice on the sign-in page and
 the side bar). Everything else, including the name of your system, is yours to change.
 
 Third-party components and their licenses are listed in [NOTICE](NOTICE). Every source
-file carries an `SPDX-License-Identifier` line. Contributions are accepted under the
+file carries a copyright and license header. Contributions are accepted under the
 same license.

@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[implicit-namespace-package, missing-copyright-notice]
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever" (https://github.com/ticksparancsnok/SMP)  # ruff: ignore[implicit-namespace-package, missing-copyright-notice]
+# License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3
 # Attribution required in modified versions: see NOTICE
 
 """Make the tray icons and the lock screen logo from the SMP logo.

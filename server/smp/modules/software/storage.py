@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2026 GG4Ever (https://github.com/ticksparancsnok/SMP)
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever" (https://github.com/ticksparancsnok/SMP)
+# License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3
 # Attribution required in modified versions: see NOTICE
 
 """Installer files on the server's disk, and handing them out without flooding the network.
