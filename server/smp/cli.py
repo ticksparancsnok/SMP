@@ -26,12 +26,9 @@ import os
 import pathlib
 import sys
 import time
-from typing import TYPE_CHECKING
 
+from alembic.config import Config  # ruff: ignore[typing-only-third-party-import]
 from sqlalchemy import select
-
-if TYPE_CHECKING:
-    from alembic.config import Config
 
 
 def alembic_config() -> Config:  # ruff: ignore[undocumented-public-function]

@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, status
@@ -36,9 +36,20 @@ from smp.core.config import get_settings
 from smp.core.db import get_session, utcnow
 from smp.core.errors import AppError
 from smp.core.events import Event, EventBus
-from smp.core.models import ApiToken, AuditLog, AuthSession, Building, ModuleSetting, Organization, Room, User
-from smp.core.module import ModuleRegistry
+from smp.core.models import (
+    ApiToken,
+    AuditLog,
+    AuthSession,
+    Building,
+    ModuleSetting,
+    Organization,
+    Room,
+    User,
+)
 from smp.core.security import hash_token
+
+if TYPE_CHECKING:
+    from smp.core.module import ModuleRegistry
 
 T = TypeVar("T")
 

@@ -7,7 +7,7 @@ import logging
 import time
 import uuid
 from datetime import timedelta
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -19,7 +19,9 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession  # FastAPI resolves endpoint parameter types at runtime
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,  # FastAPI resolves endpoint parameter types at runtime
+)
 
 from smp.core.config import get_settings
 from smp.core.context import (
@@ -47,10 +49,7 @@ from smp.core.security import (
     password_needs_rehash,
     verify_password_async,
 )
-
-if TYPE_CHECKING:
-    from smp.core.throttle import LoginThrottle
-
+from smp.core.throttle import LoginThrottle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger(__name__)

@@ -39,12 +39,9 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from sqlalchemy.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio.session import AsyncSession
 
 # Failures older than this no longer count towards a lockout.
 FAILURE_MEMORY_SECONDS = 15 * 60

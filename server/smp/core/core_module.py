@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
@@ -21,12 +19,9 @@ from smp.core.api import (
     rooms,
     users,
 )
+from smp.core.context import Ctx
 from smp.core.dashboard import core_widgets
 from smp.core.module import EventSubject, Module, Permission, UiRoute, Widget
-
-if TYPE_CHECKING:
-    from smp.core.context import Ctx
-
 
 ADMIN = ()  # admin implicitly has every permission
 # Each role also gets the defaults of the roles it inherits (smp/core/roles.py):
