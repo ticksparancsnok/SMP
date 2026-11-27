@@ -112,8 +112,8 @@ const hu: Dictionary = {
   // ------------------------------------------------------------ lookup labels
   'role.admin': 'Adminisztrátor',
   'role.teacher': 'Tanár',
-  'role.unit_manager': 'Egységvezető',
-  'role.manager': 'Épületvezető',
+  'role.unit_manager': 'Unit Menedzser',
+  'role.manager': 'Menedzser',
   'role.student': 'Diák',
   'device_status.pending': 'Függőben',
   'device_status.active': 'Aktív',
