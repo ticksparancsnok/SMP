@@ -1,4 +1,4 @@
-# SMP – School Management Portal
+# SMP – School Management Project
 
 One platform for managing school computers: DNS-based site blocking with automatic classification, user directory, classroom screen monitoring, locking and remote control, software deployment for Windows 10/11, and a link shortener.
 
@@ -98,7 +98,7 @@ each computer's state; teachers see their rooms'. Only a "remove" assignment uni
 
 ## License
 
-SMP - School Management Portal, https://github.com/ticksparancsnok/SMP
+ SMP - School Management Project, https://github.com/ticksparancsnok/SMP
 Copyright (c) 2025-2026 Kiss Benedek, operating as "GG4Ever"
 
 SMP is free software under the **GNU Affero General Public License v3 or later**
@@ -108,7 +108,7 @@ also when they're only offered as a service over the network (e.g. hosting SMP f
 schools).
 
 One additional term ([NOTICE](NOTICE), AGPL section 7(b)): modified versions keep the
-attribution "Based on SMP - School Management Portal" with the address above, in their
+attribution "Based on  SMP - School Management Project" with the address above, in their
 documentation and in the web interface (the small notice on the sign-in page and in
 the side bar). Everything else, including the name of your system, is yours to change.
 

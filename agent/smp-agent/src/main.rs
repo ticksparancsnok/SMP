@@ -31,7 +31,7 @@ use crate::core::runner::Agent;
 
 /// Shown under `--help`: the attribution and notices the license asks for (NOTICE).
 const LEGAL: &str = "\
-SMP - School Management Portal: https://github.com/ticksparancsnok/SMP
+ SMP - School Management Project: https://github.com/ticksparancsnok/SMP
 Free software under the GNU Affero General Public License v3 or later; source code at
 the address above. This software is based in part on the work of the Independent JPEG Group.";
 

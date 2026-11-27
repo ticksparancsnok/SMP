@@ -80,7 +80,7 @@ def create_app(  # ruff: ignore[complex-structure, undocumented-public-function]
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
-        description="SMP - School Management Portal: https://github.com/ticksparancsnok/SMP",
+        description=" SMP - School Management Project: https://github.com/ticksparancsnok/SMP",
         license_info={"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"},  # ruff: ignore[line-too-long]
     )
     app.state.registry = registry
